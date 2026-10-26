@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -315,6 +316,7 @@ def cluster_values(tmp_path) -> Path:
     return p
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the kind script runs on Linux and macOS")
 def test_kind_script_parses():
     r = subprocess.run(["bash", "-n", str(KIND_SH)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
@@ -324,6 +326,7 @@ def test_kind_script_parses():
         assert re.search(rf"^\s+{cmd}\) cmd_{cmd} ;;$", KIND_SH.read_text(), re.M), cmd
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the kind script runs on Linux and macOS")
 def test_meta_nodes_render_a_cluster(tmp_path):
     """meta.nodes: each node its own volume claim, Service and Deployment,
     with its key Secret, the cluster's operator key and signed member list,
@@ -365,6 +368,7 @@ def test_meta_nodes_render_a_cluster(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the kind script runs on Linux and macOS")
 def test_meta_nodes_values_are_checked(tmp_path):
     base = ["template", "openarcanum", str(CHART), "-f", str(KIND_VALUES)]
     for bad in (

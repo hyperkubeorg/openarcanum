@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -208,6 +209,7 @@ def test_backup_units(host):
             assert one(unit["Install"], "WantedBy") == "timers.target"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the deployment scripts run on Linux")
 def test_scripts_parse():
     scripts = [KIT / "lib" / "common.sh", *(KIT / h / "setup.sh" for h in HOSTS)]
     for s in scripts:

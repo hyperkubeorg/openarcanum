@@ -135,11 +135,14 @@ jobs:
 
       # The 25- and 50-person call tests need more cores than hosted runners
       # have; they run in a local `make check`.
+      # pytest splits PYTEST_ADDOPTS like a POSIX shell, so a Windows path
+      # with backslashes needs forward slashes (cygpath -m).
       - name: make check
         if: runner.os != 'Linux'
-        env:
-          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest -k "not fifty and not twenty_five"
-        run: make check
+        run: |
+          temp=$(cygpath -m "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")
+          export PYTEST_ADDOPTS="--basetemp=$temp/pytest -k 'not fifty and not twenty_five'"
+          make check
 
       # On Linux the keychain tests need a Secret Service: an unlocked GNOME
       # Keyring on the session bus (Windows and macOS have theirs built in).
