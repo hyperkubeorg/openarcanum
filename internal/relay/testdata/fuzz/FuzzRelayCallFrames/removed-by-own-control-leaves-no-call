@@ -1,0 +1,7 @@
+go test fuzz v1
+[]byte("")
+string("v=0\r\n")
+string("0")
+string("audio")
+[]byte("")
+byte(35)

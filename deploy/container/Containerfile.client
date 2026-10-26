@@ -1,0 +1,64 @@
+# The desktop app for development copies (`make client-image`,
+# `make client NAME=...`, docs/kubernetes.md "The app copies").
+#
+# The image holds the app's runtime only: Python (installed by uv), the
+# locked dependencies from clients/desktop/uv.lock (PySide6 brings Qt and its
+# Chromium), and the system libraries Qt WebEngine needs, including the sound
+# clients calls use with the host's sound server (scripts/dev-client mounts
+# its sockets): libpulse for PulseAudio or PipeWire's pipewire-pulse, and
+# pipewire-alsa, ALSA's route to PipeWire when there's no PulseAudio socket.
+# Cameras are the host's /dev/video* (V4L2; no library needed). The app's code is
+# mounted from clients/desktop/src, and the web UI from clients/shared/ui, at
+# the same paths under /opt/openarcanum when a copy starts, so code changes need no
+# rebuild; a change to clients/desktop/uv.lock does (make client-image).
+#
+#   podman build -f deploy/container/Containerfile.client \
+#       --ignorefile deploy/container/Containerfile.client.dockerignore -t localhost/openarcanum-client:dev .
+
+FROM docker.io/library/archlinux:base
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN pacman -Sy --noconfirm --needed archlinux-keyring \
+ && pacman -Su --noconfirm \
+ && pacman -S --noconfirm --needed \
+      uv ca-certificates \
+      nss nspr pcsclite alsa-lib libpulse pipewire-alsa fontconfig freetype2 dbus mesa libglvnd \
+      libxkbcommon libxkbcommon-x11 libxcomposite libxdamage libxrandr libxtst \
+      libxkbfile libxshmfence libxcursor libxi \
+      xcb-util xcb-util-cursor xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm \
+      noto-fonts noto-fonts-emoji ttf-dejavu \
+ && rm -rf /var/cache/pacman/pkg/*
+
+# Python and the dependencies, outside any home directory (the app's data
+# is mounted at /data).
+ENV UV_PYTHON_INSTALL_DIR=/opt/python \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1
+WORKDIR /opt/openarcanum
+# .python-version pins the interpreter the project is tested with (uv would
+# otherwise take the newest one requires-python allows); the build fails if
+# the environment doesn't match it.
+COPY clients/desktop/pyproject.toml clients/desktop/uv.lock clients/desktop/.python-version ./
+RUN uv sync --frozen --no-dev --no-install-project \
+ && want=$(cat .python-version) \
+ && got=$(/opt/venv/bin/python -c 'import sys; print("%d.%d" % sys.version_info[:2])') \
+ && if [ "$got" != "$want" ]; then echo "Python $got in the image, but .python-version says $want" >&2; exit 1; fi \
+ && rm -rf /root/.cache
+
+RUN useradd --uid 1000 --create-home --shell /bin/bash openarcanum
+
+# Container-only: Chromium's sandbox can't run without capabilities (the app
+# runs with none here); shipped builds keep it on. Software rendering, no
+# accessibility bus.
+ENV PATH=/opt/venv/bin:${PATH} \
+    PYTHONPATH=/opt/openarcanum/clients/desktop/src \
+    QTWEBENGINE_DISABLE_SANDBOX=1 \
+    LIBGL_ALWAYS_SOFTWARE=1 \
+    NO_AT_BRIDGE=1 \
+    HOME=/home/openarcanum
+
+USER 1000:1000
+WORKDIR /home/openarcanum
+ENTRYPOINT ["python", "-m", "openarcanum", "--home", "/data"]

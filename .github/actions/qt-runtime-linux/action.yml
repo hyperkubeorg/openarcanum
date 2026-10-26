@@ -1,0 +1,24 @@
+name: Qt WebEngine runtime (Linux)
+description: >
+  The system libraries Qt WebEngine (from the PySide6 wheels) needs, plus
+  Xvfb and dbus for headless windows. The same list as the "Linux packages"
+  step of ci.yml's check job.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          xvfb xauth dbus dbus-x11 \
+          libnss3 libnspr4 libpcsclite1 libfontconfig1 libfreetype6 libdbus-1-3 \
+          libegl1 libgl1 \
+          libxkbcommon0 libxkbcommon-x11-0 libxkbfile1 libxcomposite1 libxdamage1 libxrandr2 \
+          libxtst6 libxshmfence1 libxcursor1 libxi6 \
+          libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+          libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xfixes0 libxcb-xkb1 \
+          fonts-dejavu-core fonts-noto-color-emoji
+        # Package names that changed with Ubuntu 24.04 (t64 transition).
+        for p in libasound2t64 libglib2.0-0t64; do
+          sudo apt-get install -y --no-install-recommends "$p" || sudo apt-get install -y --no-install-recommends "${p%t64}"
+        done

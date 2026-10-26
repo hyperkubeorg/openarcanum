@@ -1,0 +1,6 @@
+# The client image needs only the lock file and project metadata; the code
+# is mounted at run time.
+*
+!clients/desktop/pyproject.toml
+!clients/desktop/uv.lock
+!clients/desktop/.python-version

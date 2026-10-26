@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="OpenArcanum">
+  <!-- OpenArcanum's mark: the app icon (client/src/openarcanum/ui/brand/),
+       a speech bubble cracking into four glass shards on a violet tile. -->
+  <title>OpenArcanum</title>
+  <defs>
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="24" y1="16" x2="232" y2="240">
+      <stop offset="0" stop-color="#9483ff"/>
+      <stop offset="1" stop-color="#2f1f9c"/>
+    </linearGradient>
+    <linearGradient id="s1" gradientUnits="userSpaceOnUse" x1="47" y1="47" x2="147" y2="105">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6e1ff"/>
+    </linearGradient>
+    <linearGradient id="s2" gradientUnits="userSpaceOnUse" x1="128" y1="46" x2="214" y2="108">
+      <stop offset="0" stop-color="#ece8ff"/>
+      <stop offset="1" stop-color="#b4a8ff"/>
+    </linearGradient>
+    <linearGradient id="s3" gradientUnits="userSpaceOnUse" x1="124" y1="107" x2="210" y2="173">
+      <stop offset="0" stop-color="#c9c0ff"/>
+      <stop offset="1" stop-color="#9180ff"/>
+    </linearGradient>
+    <linearGradient id="s4" gradientUnits="userSpaceOnUse" x1="48" y1="99" x2="144" y2="209">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d8d1ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="54" fill="url(#tile)"/>
+  <polygon points="47.2,93.2 47.2,75.2 75.2,47.2 147.2,47.2 133.2,73.2 117.2,101.2 87.2,105.2" fill="url(#s1)"/>
+  <polygon points="158.1,46.1 186.1,46.1 214.1,74.1 214.1,102.1 172.1,108.1 128.1,100.1 144.1,72.1" fill="url(#s2)"/>
+  <polygon points="210.1,108.8 210.1,144.8 182.1,172.8 150.1,172.8 136.1,138.8 124.1,106.8 168.1,114.8" fill="url(#s3)"/>
+  <polygon points="144.5,172.6 116.5,172.6 74.5,208.6 84.5,172.6 76.5,172.6 48.5,144.6 48.5,98.6 88.5,110.6 118.5,106.6 130.5,138.6" fill="url(#s4)"/>
+  <polygon points="208,34 224,26 230,40 216,44" fill="#5ce1ff"/>
+</svg>

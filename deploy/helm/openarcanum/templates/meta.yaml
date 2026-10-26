@@ -1,0 +1,160 @@
+{{- if .Values.meta.enabled }}
+{{- /*
+One maintainer node per meta.nodes entry (docs/kubernetes.md "A maintainer
+cluster"), each with its own volume claim, Service and Deployment named
+<release>-meta-<name>. With no entries: one node named <release>-meta.
+*/}}
+{{- $root := . }}
+{{- $seen := dict }}
+{{- range $n := include "openarcanum.metaNodes" . | fromJsonArray }}
+{{- if hasKey $seen (toString $n.name) }}
+{{- fail (printf "meta.nodes: the name %q is used twice" $n.name) }}
+{{- end }}
+{{- $_ := set $seen (toString $n.name) true }}
+{{- $name := include "openarcanum.metaName" (dict "root" $root "node" $n) }}
+{{- $tls := $root.Values.meta.tls }}
+{{- $domains := include "openarcanum.metaDomains" (dict "root" $root "node" $n) | fromJsonArray }}
+{{- include "openarcanum.checkTLS" (dict "what" "meta" "tls" $tls "domains" $domains) }}
+{{- $storage := $n.storage | default $root.Values.meta.storage }}
+{{- $resources := $n.resources | default $root.Values.meta.resources }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: meta
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with $storage.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $storage.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: meta
+spec:
+  selector:
+    {{- include "openarcanum.metaSelector" (dict "root" $root "node" $n) | nindent 4 }}
+  ports:
+    - name: {{ ternary "http" "https" (eq $tls.mode "off") }}
+      port: {{ include "openarcanum.servicePort" (dict "tls" $tls "port" $root.Values.meta.port) }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: meta
+spec:
+  replicas: 1
+  # One writer for the SQLite database on the volume. More nodes are more
+  # entries in meta.nodes, never more replicas: each node has its own
+  # database, and the cluster replicates between them.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openarcanum.metaSelector" (dict "root" $root "node" $n) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openarcanum.metaSelector" (dict "root" $root "node" $n) | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "openarcanum.podSecurity" $root | nindent 8 }}
+      containers:
+        - name: meta
+          image: {{ include "openarcanum.image" (dict "root" $root "component" "meta") }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext:
+            {{- include "openarcanum.containerSecurity" $root | nindent 12 }}
+          env:
+            - name: OPENARCANUM_META_LISTEN
+              value: ":{{ $root.Values.meta.port }}"
+            - name: OPENARCANUM_META_DATA_DIR
+              value: /data
+            - name: OPENARCANUM_META_LOG_LEVEL
+              value: {{ $root.Values.logLevel | quote }}
+            {{- with $root.Values.meta.cluster.operatorKey }}
+            - name: OPENARCANUM_META_CLUSTER_OPERATOR_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if $root.Values.meta.cluster.setSecret }}
+            - name: OPENARCANUM_META_MAINTAINER_SET_FILE
+              value: /maintainer-set/set.bin
+            {{- end }}
+            {{- if $n.nodeKeySecret }}
+            - name: OPENARCANUM_META_NODE_KEY_DIR
+              value: /node-key
+            {{- end }}
+            {{- /* acme_cache_dir: the node's default, /data/acme on its volume. */}}
+            {{- include "openarcanum.tlsEnv" (dict "prefix" "OPENARCANUM_META" "tls" $tls "domains" $domains "cache" "") | nindent 12 }}
+            {{- include "openarcanum.extraEnv" $root.Values.meta.env | nindent 12 }}
+            {{- include "openarcanum.extraEnv" ($n.env | default dict) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ $root.Values.meta.port }}
+          {{- $scheme := ternary "" ", scheme: HTTPS" (eq $tls.mode "off") }}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http{{ $scheme }}}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http{{ $scheme }}}
+            periodSeconds: 20
+            failureThreshold: 3
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            {{- if eq $tls.mode "files" }}
+            - {name: tls, mountPath: /tls, readOnly: true}
+            {{- end }}
+            {{- if $n.nodeKeySecret }}
+            - {name: node-key, mountPath: /node-key, readOnly: true}
+            {{- end }}
+            {{- if $root.Values.meta.cluster.setSecret }}
+            - {name: maintainer-set, mountPath: /maintainer-set, readOnly: true}
+            {{- end }}
+          {{- with $resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+        - name: tmp
+          emptyDir: {}
+        {{- if eq $tls.mode "files" }}
+        # tls.crt and tls.key (a kubernetes.io/tls Secret, e.g. cert-manager's).
+        - name: tls
+          secret:
+            secretName: {{ $tls.secretName }}
+            defaultMode: 0440
+        {{- end }}
+        {{- with $n.nodeKeySecret }}
+        # node.key and node.noise (`meta id -data DIR` makes them).
+        - name: node-key
+          secret:
+            secretName: {{ . }}
+            defaultMode: 0440
+        {{- end }}
+        {{- with $root.Values.meta.cluster.setSecret }}
+        # set.bin: the cluster's signed member list (`meta operator sign-set`).
+        - name: maintainer-set
+          secret:
+            secretName: {{ . }}
+            defaultMode: 0440
+        {{- end }}
+---
+{{- end }}
+{{- end }}

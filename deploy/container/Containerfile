@@ -1,0 +1,120 @@
+# OCI images for the OpenArcanum servers, one target per server
+# (docs/admin-guide.md "Container images"):
+#
+#   docker buildx build -f deploy/container/Containerfile --target relay -t openarcanum-relay .
+#   podman build -f deploy/container/Containerfile --ignorefile deploy/container/Containerfile.dockerignore \
+#       --target community -t openarcanum-community .
+#
+# Released images (.github/workflows/containers.yml) are
+# ghcr.io/hyperkubeorg/openarcanum-{relay,maintainer,community}: target meta
+# is published as -maintainer. VERSION (the release version, from the
+# repository's VERSION file) and REVISION (the commit) are build arguments:
+# they are linked into the binaries (`relay version`) and set the OCI labels.
+#
+# Multi-arch (linux/amd64, linux/arm64): the binaries are cross-compiled
+# static builds (CGO_ENABLED=0; SQLite is modernc.org/sqlite, pure Go), so
+# `--platform linux/amd64,linux/arm64` needs no emulation for the build.
+#
+# Runtime: distroless "static" (CA certificates, tzdata, /etc/passwd with
+# the nonroot user 65532, no shell, no package manager). Every image runs as
+# 65532; meta and community keep their data in the /data volume. The
+# community image keeps its storage key in a second volume, /keys, so a
+# copy of /data (which holds the backups) never carries the key that opens
+# them (docs/admin-guide.md "Container images").
+
+ARG GO_IMAGE=docker.io/library/golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5
+ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
+ARG TARGETOS=linux
+ARG TARGETARCH
+ARG VERSION=dev
+ARG REVISION=
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+COPY cmd ./cmd
+COPY internal ./internal
+RUN module="$(go list -m)" \
+ && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath \
+      -ldflags "-s -w -buildid= -X $module/internal/version.Release=$VERSION -X $module/internal/version.Revision=$REVISION" \
+      -o /out/ ./cmd/relay ./cmd/community ./cmd/meta ./cmd/site \
+ && mkdir -m 0700 /out/data /out/keys
+
+# What every server image shares: the runtime base and the OCI labels (the
+# release workflow sets the same ones, plus created, on the published images).
+FROM ${RUNTIME_IMAGE} AS runtime
+ARG VERSION=dev
+ARG REVISION=
+LABEL org.opencontainers.image.source="https://github.com/hyperkubeorg/openarcanum" \
+      org.opencontainers.image.url="https://github.com/hyperkubeorg/openarcanum" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="hyperkubeorg" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}"
+
+# Relay: WebSocket on 7000/tcp, call media on 7000/udp. Stateless.
+FROM runtime AS relay
+LABEL org.opencontainers.image.title="openarcanum-relay" \
+      org.opencontainers.image.description="Relay: stateless, keyless WebSocket topic router and call SFU"
+COPY --from=build /out/relay /usr/local/bin/relay
+USER 65532:65532
+ENV OPENARCANUM_RELAY_LISTEN=:7000
+EXPOSE 7000/tcp 7000/udp
+HEALTHCHECK --interval=30s --timeout=6s --start-period=10s --retries=3 CMD ["/usr/local/bin/relay", "healthcheck", "http://127.0.0.1:7000/healthz"]
+ENTRYPOINT ["/usr/local/bin/relay"]
+
+# Maintainer node: HTTP API on 7100/tcp; meta.db and blobs in /data.
+FROM runtime AS meta
+LABEL org.opencontainers.image.title="openarcanum-maintainer" \
+      org.opencontainers.image.description="Maintainer node: community directory, relay registry, DM mailboxes, blobs"
+COPY --from=build /out/meta /usr/local/bin/meta
+COPY --from=build --chown=65532:65532 /out/data /data
+USER 65532:65532
+ENV OPENARCANUM_META_LISTEN=:7100 \
+    OPENARCANUM_META_DATA_DIR=/data
+VOLUME ["/data"]
+EXPOSE 7100/tcp
+HEALTHCHECK --interval=30s --timeout=6s --start-period=30s --retries=3 CMD ["/usr/local/bin/meta", "healthcheck", "http://127.0.0.1:7100/healthz"]
+ENTRYPOINT ["/usr/local/bin/meta"]
+
+# Community server: no inbound port. The status listener on loopback serves
+# the health check; `init` runs in the same image and writes the storage key
+# to /keys/storage.key (OPENARCANUM_COMMUNITY_STORAGE_KEY_FILE):
+#   docker run --rm -it -v openarcanum-community:/data -v openarcanum-community-keys:/keys \
+#       openarcanum-community init -interactive -data /data
+# Afterwards /keys may be mounted read-only, or the key supplied as a
+# secret file at that path instead of a volume.
+FROM runtime AS community
+LABEL org.opencontainers.image.title="openarcanum-community" \
+      org.opencontainers.image.description="Community server"
+COPY --from=build /out/community /usr/local/bin/community
+COPY --from=build --chown=65532:65532 /out/data /data
+COPY --from=build --chown=65532:65532 /out/keys /keys
+USER 65532:65532
+ENV OPENARCANUM_COMMUNITY_METRICS_LISTEN=127.0.0.1:7201 \
+    OPENARCANUM_COMMUNITY_STORAGE_KEY_FILE=/keys/storage.key
+VOLUME ["/data", "/keys"]
+HEALTHCHECK --interval=30s --timeout=6s --start-period=60s --retries=3 CMD ["/usr/local/bin/community", "healthcheck", "http://127.0.0.1:7201/healthz"]
+ENTRYPOINT ["/usr/local/bin/community"]
+CMD ["run", "-data", "/data"]
+
+# Website (OpenArcanum.org): HTTPS on 7300/tcp (publish it as 443; with
+# OPENARCANUM_SITE_TLS_MODE=acme the tls-alpn-01 challenge arrives there too),
+# site.db in /data, the key that seals reports in /keys, as for the
+# community image. Create the first admin in the same image:
+#   docker run --rm -it -v oa-site:/data -v oa-site-keys:/keys openarcanum-site admin add NAME
+FROM runtime AS site
+COPY --from=build /out/site /usr/local/bin/site
+COPY --from=build --chown=65532:65532 /out/data /data
+COPY --from=build --chown=65532:65532 /out/keys /keys
+USER 65532:65532
+ENV OPENARCANUM_SITE_LISTEN=:7300 \
+    OPENARCANUM_SITE_DATA_DIR=/data \
+    OPENARCANUM_SITE_STORAGE_KEY_FILE=/keys/storage.key \
+    OPENARCANUM_SITE_METRICS_LISTEN=127.0.0.1:7301
+VOLUME ["/data", "/keys"]
+EXPOSE 7300/tcp
+HEALTHCHECK --interval=30s --timeout=6s --start-period=30s --retries=3 CMD ["/usr/local/bin/site", "healthcheck", "http://127.0.0.1:7301/healthz"]
+ENTRYPOINT ["/usr/local/bin/site"]

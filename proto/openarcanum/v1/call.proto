@@ -1,0 +1,179 @@
+// Calls through a relay's SFU (docs/protocol.md §12).
+//
+// Media is WebRTC between each participant's client and the call's relay,
+// which forwards it to the other participants (a selective forwarding unit)
+// without keys: every frame is end-to-end encrypted with SFrame (RFC 9605)
+// under call keys only the community server and participants hold.
+//
+// The relay keeps no accounts or keys. It admits a participant on a grant
+// signed by the community server's key, and the call id commits to that key,
+// so only that server can grant entry to its calls.
+syntax = "proto3";
+
+package openarcanum.v1;
+
+option go_package = "github.com/hyperkubeorg/openarcanum/internal/wire;wire";
+
+// Ed25519 over "openarcanum/call-grant/v1" || grant, by `server_key`.
+message CallGrant {
+  // SHA-256("openarcanum/call-id/v1" || 0x00 || server_key || call_nonce)[:16].
+  bytes call_id = 1;
+  bytes server_key = 2;
+  bytes call_nonce = 3;
+  // Random 16 bytes per join; how the relay and the other participants know
+  // this participant. The SFrame key id they send under is `kid`.
+  bytes participant = 4;
+  uint32 kid = 5;
+  // What the participant may send (Speak, Video, Screen Share).
+  bool audio = 6;
+  bool video = 7;
+  bool screen = 8;
+  bool priority = 9;
+  // Unix ms. A grant is only accepted until then; rejoining needs a new one.
+  int64 expires_at = 10;
+  uint32 max_participants = 11;
+  // No names: clients know who is who from the community server; the relay
+  // only needs ids.
+  reserved 12;
+  reserved "display_name";
+}
+
+message SignedCallGrant {
+  bytes grant = 1;
+  bytes signature = 2;
+}
+
+// Moderator actions, signed by the same server key ("openarcanum/call-control/v1").
+// The latest seq wins; each control states the whole current lists.
+message CallControl {
+  bytes call_id = 1;
+  uint64 seq = 2;
+  // Their audio isn't forwarded (server mute).
+  repeated bytes muted = 3;
+  // They receive no audio (server deafen).
+  repeated bytes deafened = 4;
+  // Disconnected now; their grants are refused for the rest of the call.
+  repeated bytes removed = 5;
+  int64 at = 6;
+  // Their camera / screen (and its audio) isn't forwarded: they lost Video
+  // or Screen Share since their grant was issued.
+  repeated bytes no_video = 7;
+  repeated bytes no_screen = 8;
+}
+
+message SignedCallControl {
+  bytes control = 1;
+  bytes signature = 2;
+}
+
+// Client -> relay: join with an SDP offer. Answered with CallAnswer or Error.
+message CallJoin {
+  SignedCallGrant grant = 1;
+  string offer = 2;
+  uint32 req = 3;
+  // What each send transceiver in the offer carries, by its mid: "audio",
+  // "camera", "screen" or "screen-audio". Clients create every transceiver
+  // they may use up front and start or stop media with replaceTrack, so
+  // only the relay ever needs to renegotiate.
+  map<string, string> kinds = 4;
+  // The call's current moderator control (from the participant's
+  // VoiceSession), so a relay that is just starting the call, or never got
+  // the server's last update, enforces it from the first participant on.
+  SignedCallControl control = 5;
+}
+
+message CallAnswer {
+  bytes call_id = 1;
+  string answer = 2;
+  uint32 req = 3;
+}
+
+// Renegotiation, either direction: the relay offers when tracks are added or
+// removed (someone joins, starts video, shares a screen), the client answers.
+message CallSignal {
+  bytes call_id = 1;
+  // "offer" or "answer".
+  string type = 2;
+  string sdp = 3;
+}
+
+message CallLeave {
+  bytes call_id = 1;
+}
+
+// Client -> relay: which simulcast layer to forward for one source
+// ("h", "m" or "l"), chosen by the receiver from its bandwidth and the size
+// it shows the video at; "" pauses that video. Video is paused until its
+// receiver asks for a layer: a client asks only for what its user chose to
+// watch. A request may name a participant that isn't sending that video
+// yet (senders start once someone watches, CallWatchers), or isn't at the
+// relay yet; it applies when the video arrives.
+message CallLayer {
+  bytes call_id = 1;
+  bytes source = 2;
+  // "camera" or "screen".
+  string kind = 3;
+  string rid = 4;
+}
+
+// Client -> relay: the audio this participant doesn't want forwarded to it.
+// Each one states the whole current choice and replaces the last. The relay
+// stops forwarding what isn't wanted and counts it as not heard
+// (CallWatchers). Until the first one: every microphone, no screen audio.
+message CallListen {
+  bytes call_id = 1;
+  // Deafened: no audio at all.
+  bool deaf = 2;
+  // Participants whose microphone isn't wanted (muted on this device).
+  repeated bytes no_audio = 3;
+  // Participants whose screen audio is wanted: their screen is watched
+  // here and its sound isn't muted. Screen audio goes only to those.
+  repeated bytes screen_audio = 4;
+}
+
+// Relay -> client: who receives this participant's own media, so it sends
+// only what someone takes (with nobody watching its camera, or nobody able
+// to hear it, a client stops encoding and sending that). Sent after the
+// join and whenever it changes. A client that never gets one sends
+// everything it has.
+message CallWatchers {
+  bytes call_id = 1;
+  // One entry per kind: "audio", "camera", "screen", "screen-audio".
+  repeated CallWatch watches = 2;
+}
+
+message CallWatch {
+  string kind = 1;
+  // How many other participants the relay would forward it to now.
+  uint32 receivers = 2;
+  // Video: the simulcast layers they asked for ("l", "m", "h"), lowest
+  // first. The sender need send only those.
+  repeated string layers = 3;
+}
+
+// Community server -> relay (over its own relay connection).
+message CallUpdate {
+  SignedCallControl control = 1;
+}
+
+// Relay -> client: who is in the call and what they send. Media tracks carry
+// the participant id (hex) as their stream id and the kind as track id.
+message CallState {
+  bytes call_id = 1;
+  repeated CallMember members = 2;
+  // Set when this client was removed or the call ended for it.
+  string ended = 3;
+}
+
+message CallMember {
+  bytes participant = 1;
+  uint32 kid = 2;
+  reserved 3;
+  reserved "display_name";
+  bool audio = 4;
+  bool camera = 5;
+  bool screen = 6;
+  bool muted = 7;
+  bool deafened = 8;
+  bool priority = 9;
+}

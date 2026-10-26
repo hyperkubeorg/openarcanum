@@ -1,0 +1,214 @@
+# Container images, published to GitHub's container registry (docs/release.md
+# "Container images"), one per Containerfile target:
+#
+#   ghcr.io/hyperkubeorg/openarcanum-relay        target relay
+#   ghcr.io/hyperkubeorg/openarcanum-maintainer   target meta
+#   ghcr.io/hyperkubeorg/openarcanum-community    target community
+#   ghcr.io/hyperkubeorg/openarcanum-site         target site (the website and web client server)
+#
+# A matrix entry whose target has no stage in deploy/container/Containerfile
+# skips its build with a notice.
+#
+# Triggers:
+#   - a pushed version tag (v2026.10.0, v2026.11.0-beta.1): builds for
+#     linux/amd64 and linux/arm64 and pushes the tags <version>,
+#     sha-<short commit> and, for a final (non-beta) release, the rolling
+#     YYYY.MM and latest (scripts/version image-tags). The tag must equal
+#     v<VERSION>.
+#   - manual dispatch: from a tag, the same as a pushed tag; from a branch,
+#     pushes only sha-<short commit> (the "push" input turns pushing off).
+#   - pull requests that touch the servers: build both architectures, push
+#     nothing.
+#
+# Each pushed image carries the OCI labels (source, version, revision,
+# licenses=AGPL-3.0-only), an SBOM and SLSA provenance (buildx attestations),
+# and a keyless cosign signature (Sigstore, from this workflow's GitHub OIDC
+# identity; no key to keep). Pushing uses GITHUB_TOKEN (packages: write);
+# no secret to add. New packages on ghcr.io start private: make each one
+# public once (docs/release.md).
+
+name: Containers
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - cmd/**
+      - internal/**
+      - go.mod
+      - go.sum
+      - VERSION
+      - clients/shared/ui/**
+      - deploy/container/**
+      - scripts/version
+      - .github/workflows/containers.yml
+  workflow_dispatch:
+    inputs:
+      push:
+        description: Push the images (from a branch only the sha-<commit> tag)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: containers-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE_PREFIX: ghcr.io/hyperkubeorg/openarcanum
+  SOURCE_URL: https://github.com/hyperkubeorg/openarcanum
+
+jobs:
+  image:
+    name: openarcanum-${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: relay
+            target: relay
+            description: "Relay: stateless, keyless WebSocket topic router and call SFU"
+          - image: maintainer
+            target: meta
+            description: "Maintainer node: community directory, relay registry, DM mailboxes, blobs"
+          - image: community
+            target: community
+            description: Community server
+          - image: site
+            target: site
+            description: Website and web client
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io with GITHUB_TOKEN
+      id-token: write # cosign keyless signing (Sigstore)
+    env:
+      IMAGE: ghcr.io/hyperkubeorg/openarcanum-${{ matrix.image }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Is the target in the Containerfile?
+        id: target
+        run: |
+          if grep -Eiq "^FROM .+ AS ${TARGET}[[:space:]]*\$" deploy/container/Containerfile; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=No ${TARGET} target::deploy/container/Containerfile has no '${TARGET}' stage yet, so ${IMAGE} is not built."
+          fi
+
+      - name: Version, tags and labels
+        id: meta
+        if: steps.target.outputs.present == 'true'
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSH_INPUT: ${{ inputs.push }}
+        run: |
+          release=()
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            python3 scripts/version info --tag "$GITHUB_REF_NAME" --github-output "$GITHUB_OUTPUT"
+            release=(--release --tag "$GITHUB_REF_NAME")
+            version="$(python3 scripts/version show)"
+          else
+            python3 scripts/version info --github-output "$GITHUB_OUTPUT"
+            # Not a release: say which commit it is.
+            version="$(python3 scripts/version show)+sha.${GITHUB_SHA::7}"
+          fi
+          push=true
+          if [ "$EVENT" = pull_request ] || [ "$PUSH_INPUT" = false ]; then push=false; fi
+          {
+            echo "build_version=$version"
+            echo "revision=${GITHUB_SHA::12}"
+            echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "push=$push"
+            echo "tags<<EOF"
+            python3 scripts/version image-tags --image "$IMAGE" --sha "$GITHUB_SHA" "${release[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        if: steps.target.outputs.present == 'true'
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: steps.target.outputs.present == 'true'
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: steps.target.outputs.present == 'true' && steps.meta.outputs.push == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The binaries are cross-compiled in the build stage (no emulation);
+      # QEMU only runs the final stages' metadata steps for arm64. The
+      # index annotations are what ghcr.io shows and uses to link the
+      # package to this repository.
+      - name: Build (and push)
+        id: build
+        if: steps.target.outputs.present == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/container/Containerfile
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.meta.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.build_version }}
+            REVISION=${{ steps.meta.outputs.revision }}
+          labels: |
+            org.opencontainers.image.title=openarcanum-${{ matrix.image }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.source=${{ env.SOURCE_URL }}
+            org.opencontainers.image.url=${{ env.SOURCE_URL }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.build_version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.created }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          annotations: |
+            index:org.opencontainers.image.title=openarcanum-${{ matrix.image }}
+            index:org.opencontainers.image.description=${{ matrix.description }}
+            index:org.opencontainers.image.source=${{ env.SOURCE_URL }}
+            index:org.opencontainers.image.version=${{ steps.meta.outputs.build_version }}
+            index:org.opencontainers.image.revision=${{ github.sha }}
+            index:org.opencontainers.image.created=${{ steps.meta.outputs.created }}
+            index:org.opencontainers.image.licenses=AGPL-3.0-only
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: steps.target.outputs.present == 'true' && steps.meta.outputs.push == 'true'
+
+      # Keyless: the certificate names this workflow, the repository and the
+      # ref (docs/release.md says how to verify). Signing the digest covers
+      # every tag that points at it.
+      - name: Sign with cosign (keyless)
+        if: steps.target.outputs.present == 'true' && steps.meta.outputs.push == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Summary
+        if: steps.target.outputs.present == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          PUSHED: ${{ steps.meta.outputs.push }}
+        run: |
+          {
+            echo "### ${IMAGE}"
+            echo
+            echo "Pushed: ${PUSHED}; digest \`${DIGEST}\`"
+            echo
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

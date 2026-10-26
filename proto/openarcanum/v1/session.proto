@@ -1,0 +1,110 @@
+// Noise XX session payloads (docs/protocol.md §3). The Noise static keys are
+// per-device X25519 keys; these payloads bind them to Ed25519 identities.
+syntax = "proto3";
+
+package openarcanum.v1;
+
+option go_package = "github.com/hyperkubeorg/openarcanum/internal/wire;wire";
+
+// Payload of Noise message 1 (initiator -> responder, sent in the clear).
+message ClientHello {
+  // Deprecated single version: clients leave it 0 and fill `versions`.
+  uint32 version = 1;
+  // Every protocol version the client speaks (§3 "Versions").
+  repeated uint32 versions = 2;
+}
+
+// Payload of Noise message 2 (responder -> initiator, encrypted).
+message ServerIdentity {
+  // The server's Ed25519 key. Also its relay endpoint key.
+  bytes server_key = 1;
+  // Sign(server_key, "openarcanum/noise-static/v1" || responder Noise static key).
+  bytes static_sig = 2;
+  // The owner's certificate for server_key. Absent until the server is claimed.
+  SignedServerCert cert = 3;
+  // The version chosen: the highest in both lists. 0 = none in common; the
+  // server then closes the stream and `versions` says what it speaks.
+  uint32 version = 4;
+  repeated uint32 versions = 5;
+}
+
+// Payload of Noise message 3 (initiator -> responder, encrypted).
+message ClientIdentity {
+  // The member's Ed25519 identity key for this community.
+  bytes identity_key = 1;
+  // Sign(identity_key, "openarcanum/noise-static/v1" || initiator Noise static key).
+  // The initiator's static key is the device key for this community.
+  bytes static_sig = 2;
+  // Human-readable device name, shown in the member's device list.
+  string device_name = 3;
+}
+
+// An owner key authorizes a server key (docs/protocol.md §3.1). Clients pin
+// the community id (the founder's owner key) and accept a new server key
+// (new hardware, key rotation) when a key in the community's current owner
+// set signed it.
+message ServerCert {
+  // The owner key that signed this cert: the founder's or an added owner's.
+  bytes owner_key = 1;
+  bytes server_key = 2;
+  int64 issued_at = 3;
+  // Higher seq wins when several certs exist for one community.
+  uint64 seq = 4;
+  // The community id (founder's owner key). Empty means community =
+  // owner_key.
+  bytes community = 5;
+  // The owner set this cert was signed under: the number of owner changes
+  // and the hash of the last one (empty when owner_seq is 0).
+  uint64 owner_seq = 6;
+  bytes owner_head = 7;
+}
+
+// signature = Sign(owner_key, "openarcanum/server-cert/v1" || cert).
+// owner_chain is every owner change since the founder, in order; it is not
+// covered by the signature but must end at the cert's (owner_seq,
+// owner_head), and every change in it is signed by an owner.
+message SignedServerCert {
+  bytes cert = 1;
+  bytes signature = 2;
+  repeated SignedOwnerChange owner_chain = 3;
+}
+
+// A member's request to have owner_key added to the owner set. The member's
+// client generates owner_key itself; only the public key leaves the device.
+message OwnerKeyRequest {
+  bytes community = 1;
+  bytes owner_key = 2;
+  bytes member = 3;
+}
+
+// owner_sig = Sign(owner_key, "openarcanum/owner-key/v1" || request) proves the
+// requester holds the key; member_sig = Sign(member, same) shows the member
+// asked for it.
+message OwnerAdd {
+  bytes request = 1;
+  bytes owner_sig = 2;
+  bytes member_sig = 3;
+}
+
+// One change to a community's owner set, signed by a current owner.
+message OwnerChange {
+  bytes community = 1;
+  // 1 for the first change after the founder, then +1 each.
+  uint64 seq = 2;
+  // SHA-256 of the previous change's bytes; empty for seq 1.
+  bytes prev = 3;
+  // The owner key that signs this change; must be in the set before it.
+  bytes signer = 4;
+  int64 at = 5;
+  oneof op {
+    OwnerAdd add = 10;
+    // An owner key to remove. The last owner can't be removed.
+    bytes remove = 11;
+  }
+}
+
+// signature = Sign(signer, "openarcanum/owner-change/v1" || change)
+message SignedOwnerChange {
+  bytes change = 1;
+  bytes signature = 2;
+}

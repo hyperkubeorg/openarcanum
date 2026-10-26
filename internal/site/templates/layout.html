@@ -1,0 +1,57 @@
+{{define "layout"}}<!doctype html>
+<html lang="en" data-theme="{{.Theme}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="{{.Product}}: private community chat with no accounts. Your keys are your login, and each community runs its own server.">
+<title>{{if .Title}}{{.Title}} · {{end}}{{.Product}}</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/site.css">
+<script src="/static/site.js" defer></script>
+{{block "head" .}}{{end}}
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="inner">
+    <a class="brand" href="{{if .Admin}}/admin{{else}}/{{end}}"><img src="/static/brand.svg" alt="" width="32" height="32"><span>{{.Product}}{{if .Admin}} admin{{end}}</span></a>
+    <nav class="nav" aria-label="{{if .Admin}}Admin{{else}}Site{{end}}">
+      {{if .Admin}}
+      <a href="/admin"{{if eq .Section "admin"}} aria-current="page"{{end}}>Overview</a>
+      <a href="/admin/reports"{{if eq .Section "reports"}} aria-current="page"{{end}}>Reports</a>
+      <a href="/admin/announcements"{{if eq .Section "announcements"}} aria-current="page"{{end}}>Announcements</a>
+      <a href="/">View site</a>
+      <form method="post" action="/admin/logout">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button type="submit" class="linkish">Sign out ({{.Admin.Name}})</button>
+      </form>
+      {{else}}
+      <a href="/"{{if eq .Section "home"}} aria-current="page"{{end}}>Announcements</a>
+      <a href="/report/bug"{{if eq .Section "report-bug"}} aria-current="page"{{end}}>Report a bug</a>
+      <a href="/report/security"{{if eq .Section "report-security"}} aria-current="page"{{end}}>Report a security issue</a>
+      {{end}}
+      <form method="post" action="/theme" class="theme-form">
+        <input type="hidden" name="theme" value="{{if eq .Theme "light"}}dark{{else}}light{{end}}">
+        <input type="hidden" name="back" value="{{.Path}}">
+        <button type="submit" class="linkish" aria-label="Switch to the {{if eq .Theme "light"}}dark{{else}}light{{end}} theme">{{if eq .Theme "light"}}Dark theme{{else}}Light theme{{end}}</button>
+      </form>
+    </nav>
+  </div>
+</header>
+<main id="main"{{if .Admin}} class="wide"{{end}}>
+{{template "content" .}}
+</main>
+<footer class="site-foot">
+  <div class="inner">
+    <span>© {{.Product}} contributors</span>
+    <ul>
+      <li><a href="/security">Security disclosure policy</a></li>
+      <li><a href="/report/bug">Report a bug</a></li>
+      {{if .Source}}<li><a href="{{.Source}}" rel="noopener noreferrer">Source code</a></li>{{end}}
+      <li>No cookies but your theme choice. No trackers, no third-party content.</li>
+    </ul>
+  </div>
+</footer>
+</body>
+</html>{{end}}

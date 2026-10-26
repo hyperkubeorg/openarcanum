@@ -1,0 +1,12 @@
+{{define "content"}}
+<h1>Thank you, your report arrived</h1>
+<div class="box">
+  <p>Your reference is <strong><code>{{.Data.Ref}}</code></strong>. Mention it if you write to us about this report.</p>
+  {{if eq .Data.Form.Kind "security"}}
+  <p>We'll confirm we've received it by direct message within <strong>3 working days</strong>, and keep you posted until it's fixed. Please keep the issue to yourself until then. The <a href="/security">disclosure policy</a> has the details.</p>
+  {{else}}
+  <p>We read every report. If we need more from you, we'll send you a direct message in {{.Product}}.</p>
+  {{end}}
+</div>
+<p><a href="/">Back to the start page</a></p>
+{{end}}

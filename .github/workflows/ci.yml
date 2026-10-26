@@ -1,0 +1,341 @@
+# `make check` on Linux (under Xvfb), Windows and macOS, the desktop bundle
+# and installers on each (job "bundle"), plus a nightly long fuzzing run.
+# The Makefile's `check` target lists what `make check` covers.
+#
+# Per-OS differences:
+#   - Linux installs the Qt WebEngine runtime libraries, Xvfb and dbus;
+#     the Makefile wraps the window in dbus-run-session + xvfb-run.
+#   - Windows and macOS runners have a desktop session, so the Makefile runs
+#     the client window directly (HEADLESS is empty there), and the UI and
+#     real-process suites (clients/desktop/tests/uidriver.py: test_ui*.py,
+#     test_accessibility, test_shutdown, test_keychain, test_crashlog,
+#     test_ui_invite_link, test_calls, ...) open real windows on every OS.
+#   - GitHub sets CI=true: there a test whose harness is missing (a display,
+#     xvfb-run/dbus-run-session on Linux, the built binaries, an OS keychain)
+#     fails instead of skipping (clients/desktop/tests/conftest.py missing_harness),
+#     so a green run means those tests ran. Inherently Linux-only tests (the
+#     D-Bus notification service, the X11 push-to-talk key, the AppImage
+#     update flow) skip on Windows/macOS; their counterparts are automated
+#     where the OS allows (test_hotkey.py on Windows, test_updates.py's
+#     installer runs) and otherwise in docs/manual-tests/.
+#   - Windows gets GNU make from Chocolatey and runs every step in Git Bash;
+#     core.autocrlf is turned off before checkout so gofmt and ruff see the
+#     committed LF line endings.
+#   - Tool versions are pinned to what the committed generated code was made
+#     with (protoc 36.1 / protoc-gen-go v1.36.12: see the header
+#     of internal/wire/*.pb.go and clients/desktop/src/openarcanum/wire/*_pb2.py).
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 2 * * *"  # nightly: long fuzzing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  PROTOC_VERSION: "36.1"
+  PROTOC_GEN_GO_VERSION: v1.36.12
+  GOLANGCI_LINT_VERSION: v2.15.0
+  GOVULNCHECK_VERSION: v1.9.0
+  UV_VERSION: "0.13.5"
+
+jobs:
+  check:
+    name: make check (${{ matrix.os }})
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # `make test-js` runs the UI's JavaScript unit tests with Node's
+      # built-in runner (no npm packages).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: clients/desktop/uv.lock
+
+      - name: Python (version from clients/desktop/.python-version)
+        working-directory: clients/desktop
+        run: uv python install
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Go tools (protoc-gen-go, golangci-lint, govulncheck)
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Linux packages (Qt WebEngine runtime, Xvfb, dbus, audio/video)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xauth dbus dbus-x11 gnome-keyring \
+            libnss3 libnspr4 libasound2t64 libpcsclite1 libfontconfig1 libfreetype6 libdbus-1-3 \
+            libegl1 libgl1 libglib2.0-0t64 \
+            libxkbcommon0 libxkbcommon-x11-0 libxkbfile1 libxcomposite1 libxdamage1 libxrandr2 \
+            libxtst6 libxshmfence1 libxcursor1 libxi6 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xfixes0 libxcb-xkb1 \
+            fonts-dejavu-core fonts-noto-color-emoji
+
+      - name: GNU make
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress -y
+
+      - name: make check
+        if: runner.os != 'Linux'
+        env:
+          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest
+        run: make check
+
+      # On Linux the keychain tests need a Secret Service: an unlocked GNOME
+      # Keyring on the session bus (Windows and macOS have theirs built in).
+      - name: make check (Linux, with a keyring)
+        if: runner.os == 'Linux'
+        env:
+          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest
+        run: |
+          dbus-run-session -- bash -ec '
+            echo -n ci-keyring | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            make check'
+
+      # uidriver.py saves a screenshot of the window when a UI step fails.
+      - name: Keep UI failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-failures-${{ matrix.os }}
+          path: ${{ runner.temp }}/pytest/**/*-failure.png
+          if-no-files-found: ignore
+
+      - name: Keep fuzz crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers-${{ matrix.os }}
+          path: |
+            internal/**/testdata/fuzz/**
+            clients/desktop/.hypothesis/**
+          if-no-files-found: ignore
+
+  # Server release builds (docs/admin-guide.md "Installing the servers"):
+  # static linux/amd64 and linux/arm64 binaries, checked and run (arm64 under
+  # qemu-user); the systemd units through systemd-analyze, then installed and
+  # run (scripts/test-systemd.sh); the OCI images
+  # built for both architectures, then run: non-root, healthy, data in /data,
+  # `community init` and `meta backup` inside them (scripts/test-images.sh).
+  servers:
+    name: server binaries, systemd units and images
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: clients/desktop/uv.lock
+
+      - name: Python (version from clients/desktop/.python-version)
+        working-directory: clients/desktop
+        run: uv python install
+
+      - name: qemu-user (runs the arm64 binaries)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static
+
+      - name: Static binaries, checked and run
+        run: make release-servers QEMU_AARCH64=/usr/bin/qemu-aarch64-static
+
+      - name: systemd units and Containerfile
+        run: make deploy-check
+
+      - name: Install and run the systemd units
+        run: sudo scripts/test-systemd.sh dist/servers/linux-amd64
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the images (linux/amd64 and linux/arm64), load the native ones
+        run: |
+          for t in relay meta community site; do
+            docker buildx build -f deploy/container/Containerfile --target "$t" \
+              --platform linux/amd64,linux/arm64 -t "openarcanum-$t:ci" .
+            docker buildx build -f deploy/container/Containerfile --target "$t" --load -t "openarcanum-$t:ci" .
+          done
+
+      - name: Run the images
+        run: scripts/test-images.sh
+
+      - name: Keep the binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: openarcanum-servers
+          path: dist/servers/
+
+  # The desktop bundle on each OS (docs/packaging.md): PyInstaller's app passes
+  # its own --smoke run, and so do the Linux AppImage, the installed copy from
+  # the Windows installer (which is also upgraded and uninstalled) and the app
+  # inside the macOS .dmg. Unsigned here; .github/workflows/release.yml signs.
+  bundle:
+    name: bundle and installer (${{ matrix.os }})
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: clients/desktop/uv.lock
+
+      - name: Python (version from clients/desktop/.python-version)
+        working-directory: clients/desktop
+        run: uv python install
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/qt-runtime-linux
+
+      - name: GNU make
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress -y
+
+      # The bundle carries the community server (make bundle-server).
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Version
+        run: echo "VERSION=$(uv run --project clients/desktop python -c 'import openarcanum; print(openarcanum.__version__)')" >> "$GITHUB_ENV"
+
+      - name: Bundle (PyInstaller)
+        if: runner.os != 'macOS'
+        run: make bundle
+
+      - name: AppImage
+        if: runner.os == 'Linux'
+        run: make appimage
+
+      - name: Smoke-run the bundle and the AppImage
+        if: runner.os != 'macOS'
+        run: make bundle-smoke
+
+      - name: Installer, install, upgrade, uninstall
+        if: runner.os == 'Windows'
+        run: |
+          clients/desktop/packaging/windows/build_installer.sh
+          clients/desktop/packaging/windows/test_installer.sh "clients/desktop/dist/OpenArcanum-Setup-$VERSION.exe"
+
+      - name: App, .dmg, smoke-run from the image
+        if: runner.os == 'macOS'
+        run: |
+          clients/desktop/packaging/macos/build_dmg.sh
+          clients/desktop/packaging/macos/test_dmg.sh "clients/desktop/dist/OpenArcanum-$VERSION.dmg"
+
+      - name: Keep the artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.os }}
+          retention-days: 7
+          path: |
+            clients/desktop/dist/*.AppImage
+            clients/desktop/dist/*.exe
+            clients/desktop/dist/*.dmg
+          if-no-files-found: ignore
+
+  fuzz-nightly:
+    name: nightly fuzzing
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: clients/desktop/uv.lock
+
+      - name: Python (version from clients/desktop/.python-version)
+        working-directory: clients/desktop
+        run: uv python install
+
+      - name: Client environment
+        run: make client-sync
+
+      # Every Go target (scripts/fuzz-go --list) for 6 minutes each, then the
+      # Hypothesis tests (Makefile PY_FUZZ_TESTS) at 5000 examples each.
+      - name: Long fuzz run
+        run: make fuzz-short FUZZTIME=6m FUZZMINIMIZETIME=1m HYPOTHESIS_PROFILE=nightly
+
+      - name: Keep fuzz crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers-nightly
+          path: |
+            internal/**/testdata/fuzz/**
+            clients/desktop/.hypothesis/**
+          if-no-files-found: ignore

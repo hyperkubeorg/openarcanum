@@ -1,0 +1,7 @@
+{
+  "listen": "127.0.0.1:7100",
+  "data_dir": "/var/lib/openarcanum-meta",
+  "peers": ["https://maintainer-2.example.invalid"],
+  "log_format": "json",
+  "metrics_listen": "127.0.0.1:7101"
+}

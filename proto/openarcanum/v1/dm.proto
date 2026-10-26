@@ -1,0 +1,410 @@
+// Direct messages, group DMs and device-group sync (docs/protocol.md §9-§10).
+//
+// End-to-end encryption is vodozemac's Olm (one session per pair of devices,
+// used only to hand out keys) and Megolm (one outbound session per sender
+// device per group, used for every event). The usage follows the Matrix
+// end-to-end encryption design: signed device lists, claimed one-time keys,
+// room keys sent over Olm with the sender and recipient keys bound inside the
+// plaintext, and Megolm rotation on membership change, after a message count
+// and after a time limit.
+//
+// Servers and relays only ever carry SignedContactCard, OneTimeKey and
+// Envelope bytes. Everything else is inside an Olm or Megolm ciphertext.
+syntax = "proto3";
+
+package openarcanum.v1;
+
+option go_package = "github.com/hyperkubeorg/openarcanum/internal/wire;wire";
+
+// ---------------------------------------------------------------- identities and devices
+
+// One device's keys for one DM identity: a vodozemac Account.
+message DmDevice {
+  // Random 16 bytes, stable for the life of the account.
+  bytes device_id = 1;
+  // Account.curve25519_key (Olm identity key).
+  bytes curve25519 = 2;
+  // Account.ed25519_key (signs one-time keys and binds the device).
+  bytes ed25519 = 3;
+  string name = 4;
+  int64 added_at = 5;
+  // Account.sign("openarcanum/dm-device/v2" || dm_identity || curve25519): the
+  // device's own consent to being listed under this identity.
+  bytes device_signature = 6;
+}
+
+// The full device list of a DM identity. `seq` only ever increases; clients
+// pin the highest seq they have seen and reject anything lower.
+message DmDeviceList {
+  bytes identity = 1;
+  uint64 seq = 2;
+  int64 issued_at = 3;
+  repeated DmDevice devices = 4;
+  // device_ids of devices removed from this identity, for good: a list never
+  // drops one and never lists such a device again (docs/protocol.md §9.2).
+  repeated bytes removed = 5;
+}
+
+// Ed25519 over "openarcanum/dm-device-list/v2" || list, by the identity key.
+//
+// Every change after the first list is also approved by a device already in
+// the list it replaces (one the removed devices aren't), with that device's
+// Account key (docs/protocol.md §9.2 "Device list changes"):
+// - `approval` = Account.sign("openarcanum/dm-device-list-approval/v1" || 0x00
+//   || identity || SHA-256(list)) by `approver`; or
+// - a device adding itself: `added` is its device_id and `approval` is an
+//   add certificate a listed device issued for that device_id,
+//   Account.sign("openarcanum/dm-device-add/v1" || 0x00 || identity ||
+//   device_id), by `approver`.
+message SignedDmDeviceList {
+  bytes list = 1;
+  bytes signature = 2;
+  bytes approver = 3;
+  bytes approval = 4;
+  bytes added = 5;
+}
+
+// A claimed key: the server hands out one per device per request and deletes
+// it. Signed by the device's ed25519 key over
+// "openarcanum/dm-otk/v2" || curve25519 || key_id || key || fallback.
+message OneTimeKey {
+  bytes curve25519 = 1;
+  string key_id = 2;
+  bytes key = 3;
+  bool fallback = 4;
+  bytes signature = 5;
+}
+
+// Published per community (off by default). Signed by the identity key over
+// "openarcanum/dm-card/v2" || card.
+message ContactCard {
+  bytes identity = 1;
+  // The member key in the community the card is published in, so a card
+  // can't be replayed under someone else's membership.
+  bytes member = 2;
+  string name = 3;
+  SignedDmDeviceList devices = 4;
+  // One fallback key per device: used when the server has no one-time key
+  // left (as in Matrix), and replaced regularly.
+  repeated OneTimeKey fallback_keys = 5;
+  // First-contact inbox address per device (SHA-256 based, see meta.proto).
+  repeated DeviceInbox inboxes = 6;
+  int64 issued_at = 7;
+}
+
+message DeviceInbox {
+  bytes curve25519 = 1;
+  bytes inbox = 2;
+}
+
+message SignedContactCard {
+  bytes card = 1;
+  bytes signature = 2;
+}
+
+// ---------------------------------------------------------------- groups
+
+message GroupMember {
+  bytes identity = 1;
+  string name = 2;
+  // Where this member's contact card can be fetched (community id and member
+  // key there), so other members can refresh its device list.
+  string community = 3;
+  bytes member = 4;
+  // Seq of the state that made them a member: history before it isn't theirs.
+  uint64 joined_seq = 5;
+}
+
+// A group's shared state. Every change is a new GroupState with seq + 1 and
+// prev = SHA-256 of the previous SignedGroupState bytes. Validity rules are
+// in docs/protocol.md §9.4 and enforced by every member's client.
+message GroupState {
+  bytes group_id = 1;
+  uint64 seq = 2;
+  bytes prev = 3;
+  bytes owner = 4;
+  repeated GroupMember members = 5;
+  // Invited but not yet accepted. They receive the state, but no keys and
+  // no messages until they accept.
+  repeated GroupMember invited = 6;
+  string name = 7;
+  // Reference to an encrypted icon (a DM file); empty for none.
+  DmFileRef icon = 8;
+  bool members_can_add = 9;
+  bool allow_attachments = 10;
+  // True for a 1:1 conversation: exactly two members, no invites, no rename.
+  bool direct = 11;
+  // Live delivery: relay URL and a random 32-byte topic.
+  string relay = 12;
+  bytes topic = 13;
+  int64 at = 14;
+}
+
+// Ed25519 over "openarcanum/dm-group-state/v2" || state, by `signer` (an
+// identity key; which signers are allowed depends on the change).
+message SignedGroupState {
+  bytes state = 1;
+  bytes signer = 2;
+  bytes signature = 3;
+}
+
+// ---------------------------------------------------------------- files
+
+// A file encrypted on the client (docs/protocol.md §9.7): the age v1
+// payload under a random 16-byte file key. The key and hash only ever travel
+// inside encrypted events.
+message DmFileRef {
+  // SHA-256 of the ciphertext: the blob store address.
+  bytes hash = 1;
+  // The 16-byte age file key.
+  bytes key = 2;
+  string name = 3;
+  string mime = 4;
+  uint64 size = 5;
+  uint64 ciphertext_size = 6;
+  uint32 width = 8;
+  uint32 height = 9;
+  // A small JPEG for images, made on the sender's device. It is inside the
+  // encrypted event, so nobody else sees it.
+  bytes thumbnail = 11;
+  // SHA-256 of each live chunk of the ciphertext, in order (DmFileChunk:
+  // 512 KiB each, the last one shorter). The chunks travel on the group's
+  // relay topic, where any member could publish a forged one; a receiver
+  // takes only a chunk whose hash is listed here, so a forgery can't spoil
+  // the assembly of the real one. Without it a file isn't assembled live.
+  repeated bytes live_chunks = 12;
+  reserved 7, 10;
+}
+
+// Where an attachment can be fetched, for devices that didn't get it live:
+// the maintainers holding the blob and one fetch token per device
+// (docs/protocol.md §11).
+message DmFileStored {
+  bytes hash = 1;
+  repeated string nodes = 2;
+  repeated DeviceToken tokens = 3;
+  int64 expires_at = 4;
+}
+
+message DeviceToken {
+  bytes curve25519 = 1;
+  bytes token = 2;
+}
+
+// Live only: "this device has these attachments" (received live through
+// the relay), so the sender doesn't store them for it.
+message DmFileReceived {
+  repeated bytes hashes = 1;
+}
+
+// One piece of an attachment's ciphertext sent live on the group's relay
+// topic (outside Megolm: it is already encrypted with the file key), after
+// the 4-byte magic "FDF1".
+message DmFileChunk {
+  bytes hash = 1;
+  uint32 index = 2;
+  uint32 total = 3;
+  bytes data = 4;
+}
+
+// ---------------------------------------------------------------- events
+
+// Plaintext of every Megolm message.
+message DmEvent {
+  // Random 16 bytes; duplicates (live + mailbox) are dropped by id.
+  bytes id = 1;
+  int64 at = 2;
+  bytes group_id = 3;
+  bytes sender = 4;
+  bytes sender_device = 5;
+  oneof body {
+    DmText text = 10;
+    DmEdit edit = 11;
+    DmDelete delete = 12;
+    DmReaction reaction = 13;
+    DmTyping typing = 14;
+    DmPin pin = 15;
+    SignedGroupState state = 17;
+    DmInboxes inboxes = 18;
+    // The sender's current card (device list, fallback keys, inboxes), so
+    // members who share no community with them can reach their devices.
+    SignedContactCard card = 19;
+    // Device-group sync event (JSON, docs/protocol.md §10.2); only valid in
+    // the sender's own device group.
+    bytes sync = 21;
+    DmFileStored stored = 22;
+    DmFileReceived received = 23;
+    // A status (docs/protocol.md §9.8): only in a status audience's Megolm
+    // session, never in a group's.
+    DmStatus status = 24;
+  }
+  // With `state`: the states just before it (up to 16), so a member who
+  // missed one catches up from the next change.
+  repeated SignedGroupState state_tail = 30;
+  reserved 16, 20;
+}
+
+message DmText {
+  string text = 1;
+  bytes reply_to = 2;
+  repeated DmFileRef files = 3;
+  // Identities mentioned in the text.
+  repeated bytes mentions = 4;
+}
+
+message DmEdit {
+  bytes target = 1;
+  string text = 2;
+}
+
+message DmDelete {
+  bytes target = 1;
+}
+
+message DmReaction {
+  bytes target = 1;
+  string emoji = 2;
+  bool remove = 3;
+}
+
+message DmTyping {
+  bool typing = 1;
+}
+
+message DmPin {
+  bytes target = 1;
+  bool unpin = 2;
+}
+
+// The sender device's mailbox inbox for this group.
+message DmInboxes {
+  bytes curve25519 = 1;
+  bytes inbox = 2;
+}
+
+// Plaintext of every Olm message. Sender and recipient keys are bound inside
+// the ciphertext (as in Matrix's m.olm.v1) so a message can't be re-sent as
+// if it came from or was meant for another device.
+message OlmPayload {
+  bytes sender_identity = 1;
+  bytes sender_ed25519 = 2;
+  bytes recipient_identity = 3;
+  bytes recipient_ed25519 = 4;
+  int64 at = 5;
+  // The sender's own card, so a recipient who hasn't seen this device yet
+  // (someone who joined after them) can verify it before trusting the body.
+  SignedContactCard sender_card = 6;
+  oneof body {
+    RoomKey room_key = 10;
+    GroupInvite invite = 11;
+    SignedContactCard card = 12;
+    // Device-group sync (docs/protocol.md §10): a sync event addressed to
+    // one device, used before it has the sender's Megolm session.
+    bytes sync = 13;
+    OlmDummy dummy = 14;
+    // A state change, for people who aren't sent group events: invitees
+    // and anyone the change removed.
+    SignedGroupState state_update = 15;
+    // The key of a status audience's Megolm session (docs/protocol.md §9.8).
+    StatusKey status_key = 16;
+  }
+}
+
+// A Megolm session key, shared with each member device.
+message RoomKey {
+  bytes group_id = 1;
+  string session_id = 2;
+  string session_key = 3;
+}
+
+// Sent to each device of an invitee: the state chain proves who invited them.
+message GroupInvite {
+  repeated SignedGroupState chain = 1;
+  // Every member's current card, so the invitee can reach their devices.
+  repeated SignedContactCard cards = 2;
+}
+
+// ---------------------------------------------------------------- statuses (docs/protocol.md §9.8)
+
+enum StatusState {
+  STATUS_STATE_UNSPECIFIED = 0;
+  STATUS_STATE_ONLINE = 1;
+  STATUS_STATE_IDLE = 2;
+  STATUS_STATE_DND = 3;
+  // Offline: sent when the app quits and while the user is Invisible, so the
+  // two look the same.
+  STATUS_STATE_OFFLINE = 4;
+  // The sender stopped sharing their status with this audience.
+  STATUS_STATE_CLEARED = 5;
+}
+
+// A user-set status, the plaintext of a status audience's Megolm message.
+message DmStatus {
+  StatusState state = 1;
+  // At most 128 characters; empty when the audience only gets the state.
+  string text = 2;
+  // At most one emoji (≤ 32 characters).
+  string emoji = 3;
+  // Unix ms after which the custom text and state no longer apply (0 = never).
+  int64 expires_at = 4;
+  // Unix ms after which a recipient that has no other sign of the sender
+  // being online shows them offline (contacts; refreshed while online).
+  int64 fresh_until = 5;
+}
+
+// A status audience's Megolm session key, sent over Olm to each recipient
+// device. `session_key` is the session exported at the index of the
+// sender's newest status message (vodozemac InboundGroupSession.export_at,
+// as Matrix forwards keys), so a new recipient reads the current status but
+// nothing sent before it.
+message StatusKey {
+  // Random 16 bytes naming the audience on the sender's side.
+  bytes audience = 1;
+  string session_id = 2;
+  string session_key = 3;
+}
+
+// A device that can receive statuses in one community: a vodozemac Account
+// of its own (labelled `status:<community>`), so it shares no keys with DM
+// identities. Signed by the member key over
+// "openarcanum/status-device/v1" || 0x00 || device.
+message StatusDevice {
+  bytes member = 1;
+  bytes curve25519 = 2;
+  bytes ed25519 = 3;
+  // Signed by ed25519 as any OneTimeKey ("openarcanum/dm-otk/v2").
+  OneTimeKey fallback_key = 4;
+  int64 issued_at = 5;
+}
+
+message SignedStatusDevice {
+  bytes device = 1;
+  bytes signature = 2;
+}
+
+// Sent after receiving a pre-key message so the session is confirmed both ways.
+message OlmDummy {}
+
+// ---------------------------------------------------------------- transport
+
+// What relays and mailboxes carry, after the 4-byte magic "FDM2".
+message Envelope {
+  oneof body {
+    OlmEnvelope olm = 1;
+    MegolmEnvelope megolm = 2;
+  }
+}
+
+message OlmEnvelope {
+  bytes sender_curve25519 = 1;
+  bytes recipient_curve25519 = 2;
+  // 0 = pre-key, 1 = normal (vodozemac AnyOlmMessage.to_parts()).
+  uint32 type = 3;
+  bytes ciphertext = 4;
+}
+
+message MegolmEnvelope {
+  bytes sender_curve25519 = 1;
+  string session_id = 2;
+  bytes ciphertext = 3;
+}

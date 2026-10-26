@@ -1,0 +1,12 @@
+{
+  "data_dir": "/data",
+  "tls_mode": "acme",
+  "tls_domains": ["maintainer-01.openarcanum.org"],
+  "acme_cache_dir": "/acme",
+  "directory_enabled": false,
+  "relay_proof": true,
+  "allow_private_relays": false,
+  "metrics_listen": "127.0.0.1:7100",
+  "log_format": "text",
+  "log_level": "info"
+}

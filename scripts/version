@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""The release version: show it, check its copies, bump it, tag it.
+
+    scripts/version [show]                  print VERSION
+    scripts/version check [--tag TAG]       every copy agrees with VERSION (and TAG is vVERSION)
+    scripts/version info [--tag TAG] [--github-output FILE]
+                                            version, tag, prerelease, numeric, pep440, series
+    scripts/version set VERSION             write VERSION and its copies
+    scripts/version bump KIND [--beta] [--date YYYY-MM] [--commit | --tag]
+                                            KIND: next, patch, month, beta, final
+    scripts/version tag                     annotated tag vVERSION on HEAD (clean tree)
+    scripts/version image-tags --image NAME [--image NAME] --sha SHA [--release [--tag TAG]]
+                                            container image tags, one per line
+
+The scheme (docs/release.md "Versions") is calendar versioning,
+YYYY.MM.PATCH with an optional -beta.N: 2026.10.0, 2026.10.1,
+2026.11.0-beta.1. The month has no leading zero (2027.1.0, not 2027.01.0),
+because Semantic Versioning, which the updater and container tags use,
+forbids leading zeros. The git tag is v<version>.
+
+VERSION at the repository root is the single source of truth. Copies that
+tools need in their own files are written by `set`/`bump` and compared by
+`check` (make version-check, part of make check):
+
+  clients/desktop/src/openarcanum/__init__.py   __version__ (SemVer, as in VERSION)
+  clients/desktop/pyproject.toml              [project] version (PEP 440: 2026.11.0b1)
+  clients/desktop/uv.lock                     the openarcanum package's version (PEP 440)
+  deploy/helm/openarcanum/Chart.yaml             version and appVersion
+
+Go binaries get it at link time (-ldflags -X .../internal/version.Release,
+the Makefile and deploy/container/Containerfile); a plain `go build` says
+"dev". Nothing here pushes: `bump --tag` and `tag` print the push command.
+Python standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+VERSION_FILE = ROOT / "VERSION"
+INIT = ROOT / "clients" / "desktop" / "src" / "openarcanum" / "__init__.py"
+PYPROJECT = ROOT / "clients" / "desktop" / "pyproject.toml"
+LOCK = ROOT / "clients" / "desktop" / "uv.lock"
+CHART = ROOT / "deploy" / "helm" / "openarcanum" / "Chart.yaml"
+COPIES = (VERSION_FILE, INIT, PYPROJECT, LOCK, CHART)
+
+SCHEME = re.compile(r"(?P<y>20\d\d)\.(?P<m>[1-9]|1[0-2])\.(?P<p>0|[1-9]\d{0,3})(?:-beta\.(?P<b>[1-9]\d{0,3}))?")
+INIT_RE = re.compile(r'^__version__ = "([^"]*)"$', re.M)
+PYPROJECT_RE = re.compile(r'(\[project\]\n(?:(?!\n\[)[\s\S])*?^version = ")([^"]*)(")', re.M)
+LOCK_RE = re.compile(r'(\[\[package\]\]\nname = "openarcanum"\nversion = ")([^"]*)(")')
+CHART_VERSION_RE = re.compile(r"^(version: )(\S+)$", re.M)
+CHART_APP_RE = re.compile(r'^(appVersion: ")([^"]*)(")$', re.M)
+
+
+class VersionError(Exception):
+    pass
+
+
+class Version:
+    def __init__(self, text: str):
+        m = SCHEME.fullmatch(text)
+        if not m:
+            raise VersionError(
+                f"{text!r} is not YYYY.MM.PATCH[-beta.N] "
+                "(month without a leading zero, e.g. 2026.10.0 or 2027.1.0-beta.1)"
+            )
+        self.year, self.month, self.patch = int(m["y"]), int(m["m"]), int(m["p"])
+        self.beta = int(m["b"]) if m["b"] else None
+
+    def __str__(self) -> str:
+        return self.numeric + (f"-beta.{self.beta}" if self.beta else "")
+
+    @property
+    def numeric(self) -> str:
+        return f"{self.year}.{self.month}.{self.patch}"
+
+    @property
+    def series(self) -> str:
+        return f"{self.year}.{self.month}"
+
+    @property
+    def pep440(self) -> str:
+        return self.numeric + (f"b{self.beta}" if self.beta else "")
+
+    @property
+    def prerelease(self) -> bool:
+        return self.beta is not None
+
+    @property
+    def tag(self) -> str:
+        return f"v{self}"
+
+    def key(self) -> tuple:
+        # SemVer precedence: a beta sorts before its release.
+        return (self.year, self.month, self.patch, self.beta if self.beta else float("inf"))
+
+    def with_(self, **kw) -> Version:
+        v = Version(str(self))
+        for k, val in kw.items():
+            setattr(v, k, val)
+        return Version(str(v))
+
+
+def read_version(root: Path = ROOT) -> Version:
+    path = root / "VERSION"
+    if not path.is_file():
+        raise VersionError("VERSION is missing")
+    return Version(path.read_text().strip())
+
+
+def copies(root: Path = ROOT) -> dict[str, str | None]:
+    """What each copy says (None: not found)."""
+
+    def find(path: Path, rx: re.Pattern, group: int) -> str | None:
+        if not path.is_file():
+            return None
+        m = rx.search(path.read_text(encoding="utf-8"))
+        return m.group(group) if m else None
+
+    rel = lambda p: p.relative_to(ROOT)  # noqa: E731
+    return {
+        f"{rel(INIT)} __version__": find(root / rel(INIT), INIT_RE, 1),
+        f"{rel(PYPROJECT)} version": find(root / rel(PYPROJECT), PYPROJECT_RE, 2),
+        f"{rel(LOCK)} openarcanum version": find(root / rel(LOCK), LOCK_RE, 2),
+        f"{rel(CHART)} version": find(root / rel(CHART), CHART_VERSION_RE, 2),
+        f"{rel(CHART)} appVersion": find(root / rel(CHART), CHART_APP_RE, 2),
+    }
+
+
+def expected(v: Version) -> dict[str, str]:
+    names = list(copies())
+    want = [str(v), v.pep440, v.pep440, str(v), str(v)]
+    return dict(zip(names, want, strict=True))
+
+
+def check(root: Path = ROOT, tag: str | None = None) -> Version:
+    v = read_version(root)
+    problems = []
+    for name, found in copies(root).items():
+        want = expected(v)[name]
+        if found != want:
+            problems.append(f"{name} is {found!r}, VERSION says {want!r}")
+    if problems:
+        problems.append("run `scripts/version set $(cat VERSION)` (or bump) to fix the copies")
+    if tag is not None:
+        tag = tag.removeprefix("refs/tags/")
+        if tag != v.tag:
+            problems.append(f"tag {tag} does not match VERSION {v} (expected {v.tag})")
+    if problems:
+        raise VersionError("\n".join(problems))
+    return v
+
+
+def write(v: Version, root: Path = ROOT) -> None:
+    def sub(path: Path, rx: re.Pattern, repl) -> None:
+        text = path.read_text(encoding="utf-8")
+        new, n = rx.subn(repl, text, count=1)
+        if n != 1:
+            raise VersionError(f"{path.relative_to(root)}: version field not found")
+        path.write_text(new, encoding="utf-8")
+
+    rel = lambda p: root / p.relative_to(ROOT)  # noqa: E731
+    rel(VERSION_FILE).write_text(f"{v}\n", encoding="utf-8")
+    sub(rel(INIT), INIT_RE, f'__version__ = "{v}"')
+    sub(rel(PYPROJECT), PYPROJECT_RE, lambda m: m[1] + v.pep440 + m[3])
+    sub(rel(LOCK), LOCK_RE, lambda m: m[1] + v.pep440 + m[3])
+    sub(rel(CHART), CHART_VERSION_RE, lambda m: m[1] + str(v))
+    sub(rel(CHART), CHART_APP_RE, lambda m: m[1] + str(v) + m[3])
+
+
+def bumped(cur: Version, kind: str, beta: bool, today: datetime.date) -> Version:
+    if kind == "beta":
+        if not cur.prerelease:
+            raise VersionError(f"{cur} is not a beta; use `bump patch --beta` or `bump month --beta`")
+        return cur.with_(beta=cur.beta + 1)
+    if kind == "final":
+        if not cur.prerelease:
+            raise VersionError(f"{cur} is already final")
+        return cur.with_(beta=None)
+    if kind == "next":
+        kind = "month" if (today.year, today.month) > (cur.year, cur.month) else "patch"
+    if kind == "patch":
+        new = cur.with_(patch=cur.patch + 1, beta=None)
+    elif kind == "month":
+        if (today.year, today.month) <= (cur.year, cur.month):
+            raise VersionError(f"{cur} is already in {today.year}.{today.month}; use `bump patch`")
+        new = Version(f"{today.year}.{today.month}.0")
+    else:
+        raise VersionError(f"unknown kind {kind!r}")
+    return new.with_(beta=1) if beta else new
+
+
+def image_tags(images: list[str], sha: str, release: Version | None) -> list[str]:
+    """Tags for each image: sha-<short> always; for a release also the
+    version, and for a final release the rolling YYYY.MM and latest."""
+    names = [f"sha-{sha[:7]}"]
+    if release is not None:
+        names.insert(0, str(release))
+        if not release.prerelease:
+            names[1:1] = [release.series, "latest"]
+    return [f"{img}:{n}" for img in images for n in names]
+
+
+def git(*args: str, capture: bool = False) -> str:
+    r = subprocess.run(["git", *args], cwd=ROOT, check=True, text=True, capture_output=capture)
+    return r.stdout if capture else ""
+
+
+def clean_tree() -> bool:
+    return git("status", "--porcelain", "--untracked-files=no", capture=True).strip() == ""
+
+
+def make_tag(v: Version) -> None:
+    if git("tag", "--list", v.tag, capture=True).strip():
+        raise VersionError(f"tag {v.tag} already exists")
+    git("tag", "-a", v.tag, "-m", f"Release {v}")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", capture=True).strip()
+    print(f"tagged {v.tag} at {git('rev-parse', '--short', 'HEAD', capture=True).strip()}; nothing was pushed.")
+    print("To start the release (docs/release.md):")
+    print(f"  git push origin {branch} {v.tag}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = ap.add_subparsers(dest="cmd")
+    sub.add_parser("show")
+    p = sub.add_parser("check")
+    p.add_argument("--tag")
+    p = sub.add_parser("info")
+    p.add_argument("--tag")
+    p.add_argument("--github-output", help="append key=value lines to this file ($GITHUB_OUTPUT)")
+    p = sub.add_parser("set")
+    p.add_argument("version")
+    p = sub.add_parser("bump")
+    p.add_argument("kind", choices=["next", "patch", "month", "beta", "final"])
+    p.add_argument("--beta", action="store_true", help="make the new version -beta.1")
+    p.add_argument("--date", help="YYYY-MM to use as this month (default: today, UTC)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--commit", action="store_true", help="commit the version files")
+    g.add_argument("--tag", action="store_true", help="commit, then tag v<version> (never pushes)")
+    sub.add_parser("tag")
+    p = sub.add_parser("image-tags")
+    p.add_argument("--image", action="append", required=True)
+    p.add_argument("--sha", required=True)
+    p.add_argument("--release", action="store_true", help="a release build: add the version tags")
+    p.add_argument("--tag", help="with --release: the tag being built (must be vVERSION)")
+    a = ap.parse_args(argv)
+
+    try:
+        if a.cmd in (None, "show"):
+            print(read_version())
+        elif a.cmd == "check":
+            v = check(tag=a.tag)
+            print(f"version-check: {v} everywhere" + (f", tag {v.tag}" if a.tag else ""))
+        elif a.cmd == "info":
+            v = check(tag=a.tag)
+            out = {
+                "version": str(v),
+                "tag": v.tag,
+                "prerelease": str(v.prerelease).lower(),
+                "numeric": v.numeric,
+                "pep440": v.pep440,
+                "series": v.series,
+            }
+            lines = "".join(f"{k}={val}\n" for k, val in out.items())
+            if a.github_output:
+                with open(a.github_output, "a", encoding="utf-8") as f:
+                    f.write(lines)
+            sys.stdout.write(lines)
+        elif a.cmd == "set":
+            v = Version(a.version)
+            write(v)
+            print(f"version: {v} (pyproject/uv.lock {v.pep440})")
+        elif a.cmd == "bump":
+            if (a.commit or a.tag) and not clean_tree():
+                raise VersionError("commit or stash your changes first (the bump commit holds only the version files)")
+            cur = check()
+            if a.date:
+                y, m = (int(x) for x in a.date.split("-"))
+                today = datetime.date(y, m, 1)
+            else:
+                today = datetime.datetime.now(datetime.UTC).date()
+            new = bumped(cur, a.kind, a.beta, today)
+            if new.key() <= cur.key():
+                raise VersionError(f"{new} is not newer than {cur}")
+            write(new)
+            print(f"version: {cur} -> {new}")
+            if a.commit or a.tag:
+                git("add", *(str(p.relative_to(ROOT)) for p in COPIES))
+                git("commit", "-q", "-m", f"Version {new}")
+                print(f"committed 'Version {new}'")
+            if a.tag:
+                make_tag(new)
+        elif a.cmd == "tag":
+            if not clean_tree():
+                raise VersionError("the working tree has uncommitted changes; commit them first")
+            make_tag(check())
+        elif a.cmd == "image-tags":
+            release = check(tag=a.tag) if a.release else None
+            print("\n".join(image_tags(a.image, a.sha, release)))
+    except (VersionError, subprocess.CalledProcessError) as e:
+        print(f"version: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,341 @@
+#!/usr/bin/env python3
+"""Run development copies of the OpenArcanum app, each in its own container.
+
+Run this on your computer. Each copy keeps its profile, keys and settings in
+.dev/clients/NAME in this project, and runs in a rootless podman container
+from the app image (`make client-image`) with your display and the host's
+network, so it reaches the local cluster (`make kind-up`, `make kind-proxy`)
+on 127.0.0.1 (docs/kubernetes.md). The app's code comes from clients/desktop/src as
+it is now, so code changes need no rebuild.
+
+  scripts/dev-client NAME [-- APP ARGS]   start copy NAME (in the foreground)
+  scripts/dev-client --list               the copies and which are running
+  scripts/dev-client --stop NAME          stop a running copy
+  scripts/dev-client --reset NAME         delete copy NAME's data (asks first)
+
+Options:
+  --maintainer URL   maintainer node for a profile that names none (default
+                     http://127.0.0.1:7100, the kind proxy; repeatable). The
+                     app's first-run and unlock screens can change it too.
+  --image REF        the app image (default $OPENARCANUM_CLIENT_IMAGE, else
+                     localhost/openarcanum-client:dev)
+  --fake-media       Chromium's fake camera and microphone (a moving test
+                     pattern and a beep) instead of your devices, so several
+                     copies can call each other on one computer; sound still
+                     plays through your speakers
+  --no-media         don't share your sound server or cameras with the copy
+
+Voice and video: a copy gets your sound (the PulseAudio socket, which
+PipeWire's pipewire-pulse also provides, and PipeWire's own socket, under
+$XDG_RUNTIME_DIR) and your cameras (/dev/video*). The app still asks before
+using them, as it does everywhere.
+
+`make client NAME=alice` runs the same. Several copies can run at once:
+start each in its own terminal.
+"""
+
+import argparse
+import hashlib
+import os
+import shutil
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+CLIENTS_DIR = PROJECT_DIR / ".dev" / "clients"
+# Each copy's runtime folder on this computer (see runtime_args).
+RUN_DIR = PROJECT_DIR / ".dev" / "run"
+# What the app image is built from: a change to any of them needs a rebuild.
+IMAGE_INPUTS = [
+    PROJECT_DIR / "clients" / "desktop" / "uv.lock",
+    PROJECT_DIR / "clients" / "desktop" / ".python-version",
+    PROJECT_DIR / "deploy" / "container" / "Containerfile.client",
+]
+DEFAULT_IMAGE = os.environ.get("OPENARCANUM_CLIENT_IMAGE", "localhost/openarcanum-client:dev")
+DEFAULT_MAINTAINER = "http://127.0.0.1:7100"
+# The image's label with the hash of its inputs (make client-image).
+INPUTS_LABEL = "openarcanum.inputs"
+NAME_OK = set("abcdefghijklmnopqrstuvwxyz0123456789-_")
+# The container's runtime folder (XDG_RUNTIME_DIR): the display, sound and
+# PipeWire sockets are mounted into it.
+RUNTIME = "/tmp/.runtime"
+# Chromium's fake capture devices. Not --use-fake-ui-for-media-stream: that
+# one grants access without asking, and the app drops it (app.py,
+# UNSAFE_ENGINE_FLAGS), so the app's own media permission policy still
+# decides.
+FAKE_DEVICE_FLAG = "--use-fake-device-for-media-stream"
+
+
+def die(msg: str, code: int = 1) -> None:
+    print(f"dev-client: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def podman(*args: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(["podman", *args], check=check, text=True, capture_output=capture)
+
+
+def container(name: str) -> str:
+    return f"openarcanum-client-{name}"
+
+
+def bind(src: Path | str, dst: str, readonly: bool = False) -> list[str]:
+    spec = f"type=bind,source={src},target={dst}"
+    return ["--mount", spec + (",ro=true" if readonly else "")]
+
+
+def display_args() -> list[str]:
+    """Share this computer's display (X11 and/or Wayland) with the container."""
+    args, found = [], False
+    display = os.environ.get("DISPLAY", "")
+    if display.startswith(":") and os.path.isdir("/tmp/.X11-unix"):
+        args += [*bind("/tmp/.X11-unix", "/tmp/.X11-unix", readonly=True), "--env", f"DISPLAY={display}"]
+        xauth = os.environ.get("XAUTHORITY") or os.path.expanduser("~/.Xauthority")
+        if os.path.isfile(xauth):
+            args += [*bind(xauth, "/tmp/.xauthority", readonly=True), "--env", "XAUTHORITY=/tmp/.xauthority"]
+        found = True
+    wayland, runtime = os.environ.get("WAYLAND_DISPLAY"), os.environ.get("XDG_RUNTIME_DIR")
+    if wayland and runtime:
+        sock = Path(wayland) if os.path.isabs(wayland) else Path(runtime) / wayland
+        if sock.exists():
+            args += bind(sock, f"{RUNTIME}/{sock.name}")
+            args += ["--env", f"WAYLAND_DISPLAY={sock.name}"]
+            found = True
+    if os.path.exists("/dev/dri"):
+        args += ["--device", "/dev/dri"]
+    if not found:
+        die("no X11 DISPLAY or WAYLAND_DISPLAY here, so the window can't open")
+    return args
+
+
+def is_socket(path: Path) -> bool:
+    try:
+        return stat.S_ISSOCK(path.stat().st_mode)
+    except OSError:
+        return False
+
+
+def audio_args() -> tuple[list[str], str]:
+    """Share the host's sound server: PulseAudio's socket (also served by
+    PipeWire's pipewire-pulse), which Chromium plays and records through,
+    and PipeWire's own socket, which the image's ALSA plugin (pipewire-alsa)
+    uses when there's no PulseAudio socket. Returns the podman arguments and
+    what was shared, for the start message."""
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime:
+        return [], "no XDG_RUNTIME_DIR here, so no sound"
+    args, shared = [], []
+    server = os.environ.get("PULSE_SERVER", "")
+    pulse = Path(server.removeprefix("unix:")) if server.startswith("unix:") else Path(runtime) / "pulse" / "native"
+    if is_socket(pulse):
+        args += [*bind(pulse, f"{RUNTIME}/pulse/native"), "--env", f"PULSE_SERVER=unix:{RUNTIME}/pulse/native"]
+        # PulseAudio itself checks a cookie; pipewire-pulse doesn't.
+        cookie = Path(os.environ.get("PULSE_COOKIE") or Path.home() / ".config" / "pulse" / "cookie")
+        if cookie.is_file():
+            args += [*bind(cookie, "/tmp/.pulse-cookie", readonly=True), "--env", "PULSE_COOKIE=/tmp/.pulse-cookie"]
+        shared.append("PulseAudio")
+    pipewire = Path(runtime) / "pipewire-0"
+    if is_socket(pipewire):
+        args += [*bind(pipewire, f"{RUNTIME}/pipewire-0"), "--env", f"PIPEWIRE_RUNTIME_DIR={RUNTIME}"]
+        shared.append("PipeWire")
+    if not shared:
+        return [], f"no PulseAudio or PipeWire socket in {runtime}, so no sound"
+    return args, "sound: " + " and ".join(shared)
+
+
+def camera_args() -> tuple[list[str], str]:
+    """Pass the host's cameras (V4L2 devices) through."""
+    cams = sorted(str(p) for p in Path("/dev").glob("video*") if p.exists() and stat.S_ISCHR(p.stat().st_mode))
+    if not cams:
+        return [], "no cameras (/dev/video*)"
+    args = [a for c in cams for a in ("--device", c)]
+    return args, "cameras: " + " ".join(cams)
+
+
+def media_args(share: bool, fake: bool) -> tuple[list[str], list[str]]:
+    """The podman arguments for voice and video, and what they give the copy."""
+    args, notes = [], []
+    if share:
+        a, note = audio_args()
+        args += a
+        notes.append(note)
+        if not fake:
+            a, note = camera_args()
+            args += a
+            notes.append(note)
+    else:
+        notes.append("no sound or cameras (--no-media)")
+    if fake:
+        args += ["--env", f"QTWEBENGINE_CHROMIUM_FLAGS={FAKE_DEVICE_FLAG}"]
+        notes.append("fake camera and microphone (--fake-media)")
+    return args, notes
+
+
+def runtime_args(name: str, args: list[str]) -> list[str]:
+    """A private, writable runtime folder for the container when a socket is
+    mounted into it. It's a folder of yours in .dev/run (so uid 1000 inside
+    owns it, through --userns=keep-id) rather than a tmpfs: podman versions
+    disagree on which tmpfs options set its owner."""
+    if not any(f"target={RUNTIME}/" in a for a in args):
+        return []
+    return [*bind(RUN_DIR / name, RUNTIME), "--env", f"XDG_RUNTIME_DIR={RUNTIME}"]
+
+
+def inputs_hash() -> str:
+    h = hashlib.sha256()
+    for f in IMAGE_INPUTS:
+        h.update(f.name.encode() + b"\0" + f.read_bytes() + b"\0")
+    return h.hexdigest()
+
+
+def check_image(image: str) -> None:
+    fmt = '{{index .Labels "' + INPUTS_LABEL + '"}}'
+    r = podman("image", "inspect", "--format", fmt, image, capture=True, check=False)
+    if r.returncode != 0:
+        die(f"the app image {image} isn't built: run `make client-image`")
+    if r.stdout.strip() != inputs_hash():
+        changed = ", ".join(str(f.relative_to(PROJECT_DIR)) for f in IMAGE_INPUTS)
+        die(f"{image} is out of date (built from older {changed}): run `make client-image`")
+
+
+def running() -> set[str]:
+    r = podman("ps", "--format", "{{.Names}}", capture=True, check=False)
+    return {n.removeprefix("openarcanum-client-") for n in r.stdout.split() if n.startswith("openarcanum-client-")}
+
+
+def check_name(name: str) -> str:
+    if not name or not set(name) <= NAME_OK or len(name) > 40:
+        die("NAME is 1-40 lowercase letters, digits, - or _")
+    return name
+
+
+def run_args(
+    name: str, image: str, maintainers: list[str], app_args: list[str], share_media: bool, fake_media: bool
+) -> tuple[list[str], list[str]]:
+    """podman's arguments for copy NAME, and the media notes."""
+    profile = CLIENTS_DIR / name
+    sockets = display_args()
+    media, notes = media_args(share_media, fake_media)
+    sockets += media
+    args = [
+        "run",
+        "--rm",
+        "--init",
+        "--name",
+        container(name),
+        # The host's network: 127.0.0.1 is this computer's, where make
+        # kind-proxy listens and kind maps the relay's media port.
+        "--network",
+        "host",
+        # Your user is the image's uid 1000, so the data in .dev is yours.
+        "--userns=keep-id:uid=1000,gid=1000",
+        "--cap-drop",
+        "all",
+        "--security-opt",
+        "no-new-privileges",
+        # The display sockets can't be relabelled for SELinux.
+        "--security-opt",
+        "label=disable",
+        # QtWebEngine needs more shared memory than the default 64 MB.
+        "--shm-size",
+        "1g",
+        # The code and the web UI it shows, where they lie in the repository
+        # (openarcanum/paths.py finds the UI from the package's own folder).
+        *bind(PROJECT_DIR / "clients" / "desktop" / "src", "/opt/openarcanum/clients/desktop/src", readonly=True),
+        *bind(PROJECT_DIR / "clients" / "shared" / "ui", "/opt/openarcanum/clients/shared/ui", readonly=True),
+        *bind(profile, "/data"),
+        *runtime_args(name, sockets),
+        *sockets,
+        image,
+    ]
+    for m in maintainers or [DEFAULT_MAINTAINER]:
+        args += ["--maintainer", m]
+    return [*args, *app_args], notes
+
+
+def cmd_start(
+    name: str, image: str, maintainers: list[str], app_args: list[str], share_media: bool, fake_media: bool
+) -> None:
+    if shutil.which("podman") is None:
+        die("podman isn't installed here")
+    check_image(image)
+    if name in running():
+        die(f"copy {name!r} is already running (scripts/dev-client --stop {name})")
+    profile = CLIENTS_DIR / name
+    profile.mkdir(parents=True, exist_ok=True)
+    # Reused: podman leaves empty files where it mounted the sockets (owned
+    # by the container's user, so you may not be able to delete them), and
+    # mounts over them again next time.
+    (RUN_DIR / name).mkdir(mode=0o700, parents=True, exist_ok=True)
+    (RUN_DIR / name).chmod(0o700)
+    args, notes = run_args(name, image, maintainers, app_args, share_media, fake_media)
+    print(f"dev-client: starting {name!r} (data in {profile.relative_to(PROJECT_DIR)}); close its window to stop it")
+    print("dev-client: " + "; ".join(notes))
+    sys.exit(podman(*args, check=False).returncode)
+
+
+def cmd_list() -> None:
+    names = sorted(p.name for p in CLIENTS_DIR.iterdir() if p.is_dir()) if CLIENTS_DIR.is_dir() else []
+    if not names:
+        print("No copies yet: scripts/dev-client NAME")
+        return
+    up = running()
+    for n in names:
+        print(f"{n:20} {'running' if n in up else 'stopped'}   .dev/clients/{n}")
+
+
+def cmd_stop(name: str) -> None:
+    if name not in running():
+        die(f"copy {name!r} isn't running")
+    podman("stop", "--time", "10", container(name))
+
+
+def cmd_reset(name: str) -> None:
+    profile = CLIENTS_DIR / name
+    if not profile.is_dir():
+        die(f"there's no copy {name!r}")
+    if name in running():
+        die(f"stop copy {name!r} first (scripts/dev-client --stop {name})")
+    answer = input(f"Delete {profile.relative_to(PROJECT_DIR)} (its profile, keys and settings)? [y/N] ")
+    if answer.strip().lower() == "y":
+        shutil.rmtree(profile)
+        print("Deleted.")
+
+
+def main(argv: list[str]) -> None:
+    app_args: list[str] = []
+    if "--" in argv:
+        i = argv.index("--")
+        argv, app_args = argv[:i], argv[i + 1 :]
+    p = argparse.ArgumentParser(
+        prog="scripts/dev-client", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument("name", nargs="?")
+    p.add_argument("--list", action="store_true")
+    p.add_argument("--stop", metavar="NAME")
+    p.add_argument("--reset", metavar="NAME")
+    p.add_argument("--maintainer", action="append", default=[], metavar="URL")
+    p.add_argument("--image", default=DEFAULT_IMAGE, metavar="REF")
+    p.add_argument("--fake-media", action="store_true")
+    p.add_argument("--no-media", action="store_true")
+    p.add_argument("--inputs-hash", action="store_true", help=argparse.SUPPRESS)
+    a = p.parse_args(argv)
+    if a.inputs_hash:  # for make client-image's label
+        print(inputs_hash())
+    elif a.list:
+        cmd_list()
+    elif a.stop:
+        cmd_stop(check_name(a.stop))
+    elif a.reset:
+        cmd_reset(check_name(a.reset))
+    elif a.name:
+        cmd_start(check_name(a.name), a.image, a.maintainer, app_args, not a.no_media, a.fake_media)
+    else:
+        p.print_help()
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

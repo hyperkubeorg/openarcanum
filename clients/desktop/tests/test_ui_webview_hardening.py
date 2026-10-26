@@ -1,0 +1,192 @@
+"""The window never leaves the app's own page (app.harden_webview) and
+DevTools stay off unless asked for (app.devtools_allowed), in the real app.
+
+- script and links can't navigate the main frame anywhere else (another
+  local file, a remote page), and the bridge stays the app's;
+- window.open opens nothing: no new window, not the system browser;
+- dropped files and links never navigate (the page cancels drag events, and
+  Qt refuses a drop at the engine);
+- the page asking for DevTools opens nothing unless the app was started with
+  --debug or OPENARCANUM_DEVTOOLS=1.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import stat
+import subprocess
+import sys
+import textwrap
+import urllib.request
+
+import pytest
+from uidriver import App
+
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(240)]
+
+
+def _targets(app: App) -> list[dict]:
+    with urllib.request.urlopen(f"http://127.0.0.1:{app.port}/json", timeout=5) as r:
+        return json.load(r)
+
+
+def _browser(tmp_path):
+    """A stand-in system browser (webbrowser honours $BROWSER) that records
+    being started."""
+    opened = tmp_path / "browser-opened"
+    script = tmp_path / "browser.sh"
+    script.write_text(f'#!/bin/sh\necho "$@" >> "{opened}"\n')
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return {"BROWSER": str(script)}, opened
+
+
+async def _still_home(app: App, index: str) -> None:
+    await asyncio.sleep(1.5)
+    assert await app.js("location.href.split('#')[0]") == index
+    assert await app.js("document.title") != "EVIL"
+    assert await app.js("typeof window.pywebview.api.status === 'function'")
+
+
+def test_the_window_stays_on_the_apps_page(tmp_path):
+    evil = tmp_path / "evil.html"
+    evil.write_text("<!doctype html><title>EVIL</title><body>evil</body>")
+    env, opened = _browser(tmp_path)
+
+    async def go():
+        app = await App(tmp_path / "olive", name="olive", env=env).start()
+        try:
+            index = await app.js("location.href.split('#')[0]")
+            assert index.startswith("file:") and index.endswith("/index.html")
+            # Script navigating the main frame: another local file, a remote page.
+            for target in (evil.as_uri(), "https://example.invalid/", "data:text/html,<title>EVIL</title>"):
+                await app.js(f"location.href = {json.dumps(target)}; 0")
+                await _still_home(app, index)
+            # A link the user (or script) clicks, and a form posted elsewhere.
+            await app.js(
+                f"(() => {{ const a = document.createElement('a'); a.href = {json.dumps(evil.as_uri())};"
+                " document.body.appendChild(a); a.click(); a.remove(); return 0; })()"
+            )
+            await _still_home(app, index)
+            await app.js(
+                "(() => { const f = document.createElement('form'); f.method = 'post';"
+                " f.action = 'https://example.invalid/x'; document.body.appendChild(f); f.submit(); return 0; })()"
+            )
+            await _still_home(app, index)
+            # A new window: nothing opens, not even the system browser.
+            await app.js("window.open('https://example.invalid/'); 0")
+            await app.js(f"window.open({json.dumps(evil.as_uri())}, '_blank', 'popup'); 0")
+            await app.js(
+                "(() => { const a = document.createElement('a'); a.href = 'https://example.invalid/';"
+                " a.target = '_blank'; document.body.appendChild(a); a.click(); a.remove(); return 0; })()"
+            )
+            await asyncio.sleep(1.5)
+            pages = [t for t in _targets(app) if t.get("type") == "page"]
+            assert [t["url"].split("#")[0] for t in pages] == [index], pages
+            assert not opened.exists(), opened.read_text()
+            # Drops: the page cancels every drag event (so nothing dropped is
+            # opened), and a drop the engine is handed doesn't navigate.
+            for kind in ("dragenter", "dragover", "drop"):
+                assert await app.js(
+                    f"(() => {{ const e = new DragEvent('{kind}', {{ bubbles: true, cancelable: true }});"
+                    " document.body.dispatchEvent(e); return e.defaultPrevented; })()"
+                ), kind
+            data = {"items": [{"mimeType": "text/uri-list", "data": evil.as_uri()}], "dragOperationsMask": 1}
+            for kind in ("dragEnter", "dragOver", "drop"):
+                await app.send("Input.dispatchDragEvent", type=kind, x=200, y=200, data=data)
+            await _still_home(app, index)
+            log = (tmp_path / "olive" / "log" / "client.log").read_text()
+            assert "refused a navigation away from the app's page" in log
+            assert "refused a new window from the page" in log
+            app.assert_no_errors()
+        finally:
+            await app.stop()
+
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_devtools_only_when_asked_for(tmp_path, enabled):
+    env = {"OPENARCANUM_DEVTOOLS": "1" if enabled else ""}
+    log_file = tmp_path / "olive" / "log" / "client.log"
+
+    async def go():
+        app = await App(tmp_path / "olive", name="olive", env=env).start()
+        try:
+            await app.wait_js("document.querySelector('#lock')", "the lock screen")
+            r = await app.js("window.pywebview.api.open_devtools().then((v) => v.ok, () => false)")
+            assert r is True
+            # Ctrl+Shift+I, as the page sees it.
+            await app.key("I", modifiers=2 | 8)
+            want = "developer tools opened" if enabled else "developer tools are off"
+            for _ in range(50):
+                if want in log_file.read_text():
+                    break
+                await asyncio.sleep(0.2)
+            text = log_file.read_text()
+            assert want in text
+            assert ("developer tools opened" in text) == enabled
+        finally:
+            await app.stop()
+
+    asyncio.run(go())
+
+
+DROPS = textwrap.dedent(
+    """
+    import json
+    from qtpy.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+    from qtpy.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent
+    from qtpy.QtWidgets import QApplication, QWidget
+    from openarcanum.app import _DropBlocker
+
+    class Target(QWidget):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.got = []
+            self.setAcceptDrops(True)
+
+        def dragEnterEvent(self, e):
+            self.got.append("enter"); e.acceptProposedAction()
+
+        def dragMoveEvent(self, e):
+            self.got.append("move"); e.acceptProposedAction()
+
+        def dropEvent(self, e):
+            self.got.append("drop"); e.acceptProposedAction()
+
+    def drag(w):
+        md = QMimeData()
+        md.setUrls([QUrl("file:///tmp/evil.html")])
+        for ev in (
+            QDragEnterEvent(QPoint(5, 5), Qt.CopyAction, md, Qt.LeftButton, Qt.NoModifier),
+            QDragMoveEvent(QPoint(6, 6), Qt.CopyAction, md, Qt.LeftButton, Qt.NoModifier),
+            QDropEvent(QPointF(6, 6), Qt.CopyAction, md, Qt.LeftButton, Qt.NoModifier),
+        ):
+            QApplication.sendEvent(w, ev)
+        return w.got
+
+    app = QApplication([])
+    out = {"unguarded": drag(Target())}
+    view = Target()
+    early = Target(view)
+    _DropBlocker().install(view)
+    late = Target(early)  # like the engine's render widget, made later
+    for w in (view, early, late):
+        w.setAcceptDrops(True)  # even if something turns drops back on
+    out.update(view=drag(view), early=drag(early), late=drag(late))
+    print(json.dumps(out))
+    """
+)
+
+
+def test_qt_refuses_drops_before_the_engine():
+    """The Qt half of drop blocking: the view and every child (the engine's
+    render widget appears after the view exists) never see a drag event."""
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+    r = subprocess.run([sys.executable, "-c", DROPS], capture_output=True, text=True, timeout=60, env=env)
+    assert r.returncode == 0, r.stderr[-2000:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["unguarded"] == ["enter", "move", "drop"], out  # the stand-in works
+    assert out["view"] == out["early"] == out["late"] == [], out

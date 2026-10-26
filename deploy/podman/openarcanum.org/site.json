@@ -1,0 +1,14 @@
+{
+  "data_dir": "/data",
+  "storage_key_file": "/keys/storage.key",
+  "tls_mode": "acme",
+  "tls_domains": ["openarcanum.org"],
+  "acme_cache_dir": "/acme",
+  "source_url": "https://github.com/hyperkubeorg/openarcanum",
+  "download_url": "https://github.com/hyperkubeorg/openarcanum/releases",
+  "access_log": "stderr",
+  "log_client_ips": false,
+  "metrics_listen": "127.0.0.1:7301",
+  "log_format": "text",
+  "log_level": "info"
+}

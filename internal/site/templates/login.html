@@ -1,0 +1,23 @@
+{{define "content"}}
+<h1>Admin sign-in</h1>
+{{with .Data.Error}}<div class="notice danger" role="alert"><p>{{.}}</p></div>{{end}}
+<form method="post" action="/admin/login" class="box">
+  <input type="hidden" name="token" value="{{.Data.Token}}">
+  <div class="field">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" value="{{.Data.Name}}" maxlength="32" autocomplete="username" required autofocus>
+  </div>
+  <div class="field">
+    <label for="passphrase">Passphrase</label>
+    <input type="password" id="passphrase" name="passphrase" maxlength="1024" autocomplete="current-password" required>
+  </div>
+  <div class="field">
+    <label for="code">Authenticator code <span class="optional">(if two-factor sign-in is on for you)</span></label>
+    <input type="text" id="code" name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="8" autocomplete="one-time-code">
+  </div>
+  <div class="form-foot">
+    <button type="submit" class="btn primary">Sign in</button>
+  </div>
+</form>
+<p class="hint">Admin accounts are created on the server with <code>site admin add NAME</code>. There is no sign-up.</p>
+{{end}}

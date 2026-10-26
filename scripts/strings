@@ -1,0 +1,985 @@
+#!/usr/bin/env python3
+"""Extract the client's user-visible strings into the one catalog, and check it.
+
+All UI strings live in one catalog; docs/translations.md.
+
+    scripts/strings            rewrite clients/shared/ui/strings/en.json
+    scripts/strings --check    fail if anything below is wrong (`make strings-check`)
+    scripts/strings --new LL   start or extend ui/strings/LL.json for a translator
+
+Every user-visible string goes through a translate call with its English text
+as the key: `t('…')` / `tn('…', '…', n)` / `N_('…')` in the page's
+JavaScript, `data-i18n="…"` in ui/index.html, and `_("…")` /
+`ngettext("…", "…", n)` / `N_("…")` in the Python package. This script
+collects every one of them into `en.json` (sorted by text; each entry lists
+its variables, its plural form if it has one, and the files that use it).
+
+`--check` fails when:
+  - en.json is not exactly what extraction produces (run `scripts/strings`);
+  - a call's variables don't match its text: `t('Hi {name}', {name})`
+    needs exactly the names the text uses, `_("…{x}…").format(x=…)` likewise,
+    a plural's two forms use the same names (the singular may leave out
+    `{n}`), a template literal with `${…}` or a Python f-string is passed to
+    a translate call instead of variables, or Python uses positional `{}`;
+  - the same English text is used both as a plain string and as a plural
+    with different forms;
+  - a likely user-visible literal isn't wrapped (the lint, below);
+  - a translation file (ui/strings/LL.json) is malformed, names an unknown
+    plural rule or drops or adds a variable (its keys that aren't in the
+    catalog any more are listed as stale, but don't fail the check).
+
+The lint. JavaScript (ui/js/*.js): a string literal with letters in it, not
+inside a t()/tn()/N_() call, is reported when it is
+  - passed where text is shown: the value of `text:`, `title:`, the input
+    hint attribute, `label:`, `hint:`, `'aria-label':`, `alt:`, `ok:`,
+    `confirm:`, `empty:` or `tip:`; the value of `error:`, `message:`,
+    `body:` or `name:` when the literal is prose; assigned to `.textContent`,
+    `.title`, the input hint, `.innerText` or (prose only) `.value`; given to
+    `setAttribute()` for aria-label, title, the input hint or alt; an
+    argument of `toast()`, `confirmModal()`, `promptModal()`, `field()`,
+    `checkbox()`, `copyButton()`, `settingRow()` or `section()`, the message
+    of `new Error()` / `new ApiError()` when prose, or a child argument of
+    `h()` (third onwards); or
+  - prose anywhere else: it has two words in a row, or starts with a capital
+    letter followed by a lower-case one (except the key and DOM error names
+    in NOT_UI), unless it is an argument of api()/on()/$()/querySelector()/
+    addEventListener()/classList…/console…, the pattern of replace(), the
+    first argument of h(), compared with ===/!==/case, or a non-text
+    attribute value (`class:`, `type:`, `role:`, `id:`, …).
+  The product name and the 'use strict' directive are never reported.
+Python (clients/desktop/src/openarcanum, not wire/ or _vendor/): a string literal or
+f-string with letters is reported when it is the message of an exception
+the UI shows (USER_FACING_EXCEPTIONS) or the value of a "text", "title",
+"body", "label", "message", "error", "hint" or "description" key in a dict
+literal (what the core sends the page), unless it is inside `_()` /
+`ngettext()` / `N_()`.
+
+A line may opt out with a comment `i18n: not shown (<why>)` (JS `//`,
+Python `#`); the reason is required. Log messages are never wrapped.
+
+Python standard library only.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import re
+import string
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PKG = ROOT / "clients" / "desktop" / "src" / "openarcanum"
+UI = ROOT / "clients" / "shared" / "ui"
+STRINGS = UI / "strings"
+CATALOG = STRINGS / "en.json"
+EXCLUDED_PY = ("wire/", "_vendor/")
+
+PLURAL_RULES = {"one_other", "zero_one_other", "single", "east_slavic", "polish"}
+
+# Literals that look like prose but are never shown: key names, DOM error
+# names, the product name.
+NOT_UI = {
+    "Enter", "Escape", "Tab", "Backspace", "Delete", "Home", "End", "PageUp", "PageDown",
+    "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Shift", "Control", "Alt", "Meta",
+    "Space", "Error", "AbortError", "NotAllowedError", "NotFoundError", "NotReadableError",
+    "OverconstrainedError", "SecurityError", "TypeError", "UnhandledRejection", "OpenArcanum",
+}  # fmt: skip
+
+# The product name is a name: the same in every language.
+PRODUCT_NAMES = {"OpenArcanum"}
+
+OPT_OUT = re.compile(r"i18n: not shown \(\S[^)]*\)")
+
+# Exceptions whose message the UI shows (as an error toast or line).
+USER_FACING_EXCEPTIONS = {
+    "UserError", "UpdateError", "SettingError", "VaultError", "WrongPassphrase", "Backoff",
+    "CodeError", "KeychainError", "GroupError", "OpError", "Offline", "IdentityError", "MetaError",
+}  # fmt: skip
+PY_TEXT_KEYS = {"text", "title", "body", "label", "message", "error", "hint", "description"}
+
+# The HTML input hint attribute, spelled in pieces: scripts/check-markers flags
+# the word outside UI files.
+INPUT_HINT = "place" + "holder"
+JS_TEXT_KEYS = {"text", "title", INPUT_HINT, "label", "hint", "aria-label", "alt", "ok", "confirm", "empty", "tip"}
+JS_PROSE_KEYS = {"error", "message", "body", "name", "value", "desc", "description", "help", "detail"}
+JS_TEXT_PROPS = {"textContent", "title", INPUT_HINT, "innerText"}
+JS_PROSE_PROPS = {"value"}
+JS_TEXT_ATTRS = {"aria-label", "title", INPUT_HINT, "alt"}
+JS_TEXT_CALLS = {"toast", "confirmModal", "promptModal", "field", "checkbox", "copyButton", "settingRow", "section"}
+JS_ERROR_CALLS = {"Error", "ApiError"}
+JS_IGNORE_CALLS = {
+    "api", "on", "$", "$$", "querySelector", "querySelectorAll", "closest", "matches", "addEventListener",
+    "removeEventListener", "getAttribute", "hasAttribute", "removeAttribute", "add", "remove", "toggle",
+    "contains", "log", "warn", "error", "info", "debug", "createElement", "require", "pickFile", "pickSave",
+    "report_page_error", "dispatchEvent", "Event", "CustomEvent", "getElementById", "postMessage", "test",
+    "replace", "split", "join", "startsWith", "endsWith", "indexOf", "padStart", "toLocaleString",
+    "toLocaleDateString", "toLocaleTimeString", "getUserMedia", "RegExp", "ui_state_get", "ui_state_set",
+}  # fmt: skip
+JS_IGNORE_KEYS = {
+    "class", "type", "role", "id", "kind", "autocomplete", "src", "href", "for", "name", "rel", "target",
+    "accept", "inputmode", "spellcheck", "tabindex", "event", "state", "stage", "mode", "view", "key", "code",
+    "action", "method", "style", "width", "height", "min", "max", "step", "pattern", "lang", "dir", "draggable",
+    "aria-live", "aria-modal", "aria-hidden", "aria-expanded", "aria-pressed", "aria-checked", "aria-selected",
+    "aria-current", "aria-controls", "aria-labelledby", "aria-describedby", "aria-haspopup", "aria-orientation",
+    "aria-valuemin", "aria-valuemax", "aria-valuenow", "facingMode", "deviceId", "behavior", "block", "inline",
+}  # fmt: skip
+
+JS_VAR = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+LETTERS = re.compile(r"[A-Za-z]{2,}")
+
+
+def is_prose(s: str) -> bool:
+    if s.strip() in NOT_UI:
+        return False
+    if re.search(r"[A-Za-z]{2,}[,.!?…:]?\s+[A-Za-z(]{1,}", s):
+        return True
+    return bool(re.match(r"^\W*[A-Z][a-z]", s))
+
+
+# ---------------------------------------------------------------- results
+
+
+@dataclass
+class Use:
+    text: str
+    plural: str | None
+    path: str
+    line: int
+
+
+@dataclass
+class Report:
+    uses: list[Use] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+    def error(self, path: str, line: int, msg: str) -> None:
+        e = f"{path}:{line}: {msg}"
+        if e not in self.errors:
+            self.errors.append(e)
+
+
+def opted_out(lines: list[str], line: int) -> bool:
+    return 0 < line <= len(lines) and bool(OPT_OUT.search(lines[line - 1]))
+
+
+# ---------------------------------------------------------------- JavaScript
+
+
+@dataclass
+class Tok:
+    kind: str  # "id", "str", "num", "p" (punctuation), "re"
+    value: str
+    line: int
+    template_expr: bool = False  # a template literal with ${...}
+    parts: list[list[Tok]] | None = None  # tokens of each ${...} in a template
+
+
+PUNCT3 = ("===", "!==", "**=", "...", "<<=", ">>=", ">>>", "&&=", "||=", "??=")
+PUNCT2 = (
+    "=>",
+    "==",
+    "!=",
+    "<=",
+    ">=",
+    "&&",
+    "||",
+    "??",
+    "?.",
+    "++",
+    "--",
+    "+=",
+    "-=",
+    "*=",
+    "/=",
+    "%=",
+    "**",
+    "<<",
+    ">>",
+)
+REGEX_AFTER_IDS = {
+    "return",
+    "typeof",
+    "case",
+    "do",
+    "else",
+    "in",
+    "of",
+    "new",
+    "delete",
+    "void",
+    "throw",
+    "yield",
+    "await",
+}
+
+
+def lex_js(src: str) -> list[Tok]:
+    toks: list[Tok] = []
+    i, n, line = 0, len(src), 1
+
+    def regex_allowed() -> bool:
+        if not toks:
+            return True
+        last = toks[-1]
+        if last.kind == "p":
+            return last.value not in (")", "]", "}")
+        if last.kind == "id":
+            return last.value in REGEX_AFTER_IDS
+        return False
+
+    def read_string(i: int, quote: str) -> tuple[int, str, int]:
+        j, out, ln = i + 1, [], 0
+        while j < n and src[j] != quote:
+            if src[j] == "\\" and j + 1 < n:
+                c = src[j + 1]
+                esc = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "'": "'", '"': '"', "`": "`", "$": "$"}
+                if c == "u" and src[j + 2 : j + 3] == "{":
+                    k = src.index("}", j)
+                    out.append(chr(int(src[j + 3 : k], 16)))
+                    j = k + 1
+                    continue
+                if c == "u":
+                    out.append(chr(int(src[j + 2 : j + 6], 16)))
+                    j += 6
+                    continue
+                if c == "x":
+                    out.append(chr(int(src[j + 2 : j + 4], 16)))
+                    j += 4
+                    continue
+                if c == "\n":
+                    ln += 1
+                out.append(esc.get(c, c))
+                j += 2
+                continue
+            if src[j] == "\n":
+                ln += 1
+            out.append(src[j])
+            j += 1
+        return j + 1, "".join(out), ln
+
+    def read_template(i: int) -> tuple[int, Tok]:
+        start_line = line
+        j, out, parts, ln = i + 1, [], [], 0
+        while j < n and src[j] != "`":
+            if src[j] == "\\" and j + 1 < n:
+                out.append(src[j + 1])
+                j += 2
+                continue
+            if src[j : j + 2] == "${":
+                depth, k = 1, j + 2
+                # find the matching brace, skipping nested strings/templates
+                while k < n and depth:
+                    c = src[k]
+                    if c in "'\"":
+                        k, _, extra = read_string(k, c)
+                        ln += extra
+                        continue
+                    if c == "`":
+                        k2, _ = read_template(k)
+                        k = k2
+                        continue
+                    if c == "{":
+                        depth += 1
+                    elif c == "}":
+                        depth -= 1
+                    elif c == "\n":
+                        ln += 1
+                    k += 1
+                inner = src[j + 2 : k - 1]
+                sub = lex_js(inner)
+                for t in sub:
+                    t.line += start_line - 1 + src[i:j].count("\n")
+                parts.append(sub)
+                out.append("${}")
+                j = k
+                continue
+            if src[j] == "\n":
+                ln += 1
+            out.append(src[j])
+            j += 1
+        tok = Tok("str", "".join(out), start_line, template_expr=bool(parts), parts=parts)
+        return j + 1, tok
+
+    while i < n:
+        c = src[i]
+        if c == "\n":
+            line += 1
+            i += 1
+        elif c in " \t\r":
+            i += 1
+        elif src.startswith("//", i):
+            j = src.find("\n", i)
+            i = n if j < 0 else j
+        elif src.startswith("/*", i):
+            j = src.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            line += src[i:j].count("\n")
+            i = j
+        elif c in "'\"":
+            j, val, extra = read_string(i, c)
+            toks.append(Tok("str", val, line))
+            line += extra
+            i = j
+        elif c == "`":
+            j, tok = read_template(i)
+            line += src[i:j].count("\n")
+            toks.append(tok)
+            i = j
+        elif c.isalpha() or c in "_$":
+            j = i + 1
+            while j < n and (src[j].isalnum() or src[j] in "_$"):
+                j += 1
+            toks.append(Tok("id", src[i:j], line))
+            i = j
+        elif c.isdigit():
+            j = i + 1
+            while j < n and (src[j].isalnum() or src[j] in "._"):
+                j += 1
+            toks.append(Tok("num", src[i:j], line))
+            i = j
+        elif c == "/" and regex_allowed():
+            j, in_class = i + 1, False
+            while j < n and (src[j] != "/" or in_class) and src[j] != "\n":
+                if src[j] == "\\":
+                    j += 2
+                    continue
+                if src[j] == "[":
+                    in_class = True
+                elif src[j] == "]":
+                    in_class = False
+                j += 1
+            j += 1
+            while j < n and src[j].isalpha():
+                j += 1
+            toks.append(Tok("re", src[i:j], line))
+            i = j
+        else:
+            for p in PUNCT3 + PUNCT2:
+                if src.startswith(p, i):
+                    toks.append(Tok("p", p, line))
+                    i += len(p)
+                    break
+            else:
+                toks.append(Tok("p", c, line))
+                i += 1
+    return toks
+
+
+OPENERS = {"(": ")", "[": "]", "{": "}"}
+
+
+def split_args(toks: list[Tok], open_i: int) -> tuple[list[list[Tok]], int]:
+    """Arguments of the bracketed list starting at toks[open_i]; returns
+    (args, index after the closing bracket)."""
+    close = OPENERS[toks[open_i].value]
+    args: list[list[Tok]] = [[]]
+    depth, i = 0, open_i + 1
+    while i < len(toks):
+        t = toks[i]
+        if t.kind == "p" and t.value in OPENERS:
+            depth += 1
+        elif t.kind == "p" and t.value in (")", "]", "}"):
+            if depth == 0 and t.value == close:
+                break
+            depth -= 1
+        if t.kind == "p" and t.value == "," and depth == 0:
+            args.append([])
+        else:
+            args[-1].append(t)
+        i += 1
+    if args == [[]]:
+        args = []
+    return args, i + 1
+
+
+def object_keys(arg: list[Tok]) -> set[str] | None:
+    """Keys of an object literal argument `{a, b: x, 'c': y}`, or None when
+    the argument isn't a plain object literal."""
+    if not arg or arg[0].value != "{" or arg[-1].value != "}" or arg[0].kind != "p":
+        return None
+    keys: set[str] = set()
+    for prop in split_args(arg, 0)[0]:
+        if not prop:
+            continue
+        if prop[0].kind == "p" and prop[0].value == "...":
+            return None
+        if prop[0].kind in ("id", "str") and (len(prop) == 1 or (prop[1].kind == "p" and prop[1].value == ":")):
+            keys.add(prop[0].value)
+        elif prop[0].kind == "p" and prop[0].value == "[":
+            return None
+    return keys
+
+
+def literal(arg: list[Tok]) -> Tok | None:
+    return arg[0] if len(arg) == 1 and arg[0].kind == "str" else None
+
+
+def scan_js(path: str, src: str, rep: Report) -> None:
+    toks = lex_js(src)
+    lines = src.splitlines()
+    covered: set[int] = set()  # ids of tokens inside translate calls
+    ignored: set[int] = set()  # tokens in non-text contexts
+    sinks: dict[int, str] = {}  # token id -> why it's a text sink (any letters count)
+    prose_sinks: dict[int, str] = {}
+
+    def walk(toks: list[Tok]) -> None:
+        for i, tk in enumerate(toks):
+            if tk.parts:
+                for part in tk.parts:
+                    walk(part)
+            prev = toks[i - 1] if i else None
+            nxt = toks[i + 1] if i + 1 < len(toks) else None
+            # Calls: name followed by (
+            if tk.kind == "id" and nxt is not None and nxt.kind == "p" and nxt.value == "(":
+                args, _end = split_args(toks, i + 1)
+                name = tk.value
+                is_member = prev is not None and prev.kind == "p" and prev.value in (".", "?.")
+                if name in ("t", "tn", "N_") and not is_member:
+                    translate_call(name, args, tk.line)
+                    for a in args:
+                        for x in a:
+                            covered.add(id(x))
+                elif name in JS_IGNORE_CALLS:
+                    # replace(): the pattern is not text, the replacement may be
+                    for a in args[:1] if name == "replace" else args:
+                        for x in top_level_literals(a):
+                            ignored.add(id(x))
+                elif name == "h" and not is_member:
+                    if args and literal(args[0]):
+                        ignored.add(id(args[0][0]))
+                    for a in args[2:]:
+                        for x in top_level_literals(a):
+                            sinks[id(x)] = "child text of h()"
+                elif name in JS_TEXT_CALLS and not is_member:
+                    for a in args:
+                        for x in top_level_literals(a):
+                            sinks[id(x)] = f"{name}() text"
+                elif name == "setAttribute" and args and literal(args[0]):
+                    attr = args[0][0].value
+                    ignored.add(id(args[0][0]))
+                    if len(args) > 1:
+                        for x in top_level_literals(args[1]):
+                            if attr in JS_TEXT_ATTRS:
+                                sinks[id(x)] = f"{attr} attribute"
+                            else:
+                                ignored.add(id(x))
+                elif name in JS_ERROR_CALLS and prev is not None and prev.value == "new":
+                    for a in args[:1]:
+                        for x in top_level_literals(a):
+                            prose_sinks[id(x)] = "error message"
+            # `t` / `tn` / `N_` as anything but the global functions: a
+            # variable or parameter of that name would shadow them.
+            if (
+                tk.kind == "id"
+                and tk.value in ("t", "tn", "N_")
+                and not (nxt is not None and nxt.kind == "p" and nxt.value in ("(", ":"))
+                and not (prev is not None and prev.kind == "p" and prev.value in (".", "?."))
+                and not opted_out(lines, tk.line)
+            ):
+                rep.error(path, tk.line, f"`{tk.value}` used as a name: it shadows the translate function, rename it")
+            # Object keys: key: value
+            if (
+                tk.kind in ("id", "str")
+                and nxt is not None
+                and nxt.kind == "p"
+                and nxt.value == ":"
+                and prev is not None
+                and prev.kind == "p"
+                and prev.value in ("{", ",")
+            ):
+                value = expr_after(toks, i + 2)
+                if tk.value in JS_TEXT_KEYS:
+                    for x in top_level_literals(value):
+                        sinks[id(x)] = f"{tk.value}: text"
+                elif tk.value in JS_PROSE_KEYS:
+                    for x in top_level_literals(value):
+                        prose_sinks[id(x)] = f"{tk.value}: text"
+                elif tk.value in JS_IGNORE_KEYS or tk.value.startswith("data-"):
+                    for x in value:
+                        if x.kind == "str":
+                            ignored.add(id(x))
+                if tk.kind == "str":
+                    ignored.add(id(tk))
+            # Assignments: .prop = value
+            if (
+                tk.kind == "id"
+                and prev is not None
+                and prev.value == "."
+                and nxt is not None
+                and nxt.kind == "p"
+                and nxt.value in ("=", "+=")
+            ):
+                value = expr_after(toks, i + 2)
+                if tk.value in JS_TEXT_PROPS:
+                    for x in top_level_literals(value):
+                        sinks[id(x)] = f".{tk.value} text"
+                elif tk.value in JS_PROSE_PROPS:
+                    for x in top_level_literals(value):
+                        prose_sinks[id(x)] = f".{tk.value} text"
+                elif tk.value in ("className", "id", "type", "cssText", "src", "href", "display"):
+                    for x in value:
+                        if x.kind == "str":
+                            ignored.add(id(x))
+            # Comparisons and case labels
+            if tk.kind == "str":
+                if (prev is not None and prev.kind == "p" and prev.value in ("===", "!==", "==", "!=")) or (
+                    nxt is not None and nxt.kind == "p" and nxt.value in ("===", "!==", "==", "!=")
+                ):
+                    ignored.add(id(tk))
+                if prev is not None and prev.kind == "id" and prev.value in ("case", "in"):
+                    ignored.add(id(tk))
+                if nxt is not None and nxt.kind == "id" and nxt.value == "in":
+                    ignored.add(id(tk))
+                # obj['key'] / obj?.['key']
+                if prev is not None and prev.value == "[" and nxt is not None and nxt.value == "]":
+                    before = toks[i - 2] if i >= 2 else None
+                    if before is not None and (before.kind == "id" or before.value in (")", "]", "?.")):
+                        ignored.add(id(tk))
+
+    def translate_call(name: str, args: list[list[Tok]], line: int) -> None:
+        if opted_out(lines, line):
+            return
+        if not args:
+            rep.error(path, line, f"{name}() without text")
+            return
+        first = args[0]
+        lit = literal(first)
+        if lit is None:
+            if any(x.kind == "str" and x.template_expr for x in first):
+                rep.error(path, line, f"{name}(): pass variables, not a template literal with ${{…}}")
+            elif any(x.kind == "str" for x in first) and any(x.kind == "p" and x.value == "+" for x in first):
+                rep.error(path, line, f"{name}(): text built with + (use one string with variables)")
+            return  # a variable: its value was marked with N_()
+        if lit.template_expr:
+            rep.error(path, line, f"{name}(): pass variables, not a template literal with ${{…}}")
+            return
+        text = lit.value
+        if name == "N_":
+            rep.uses.append(Use(text, None, path, lit.line))
+            if len(args) > 1:
+                rep.error(path, line, "N_() takes only the text")
+            return
+        if name == "t":
+            names = set(JS_VAR.findall(text))
+            rep.uses.append(Use(text, None, path, lit.line))
+            check_vars(names, args[1] if len(args) > 1 else None, line, text, set())
+            return
+        # tn(singular, plural, n, vars)
+        if len(args) < 3 or literal(args[1]) is None or literal(args[1]).template_expr:
+            rep.error(path, line, "tn() needs (singular, plural, n[, vars]) with literal forms")
+            return
+        plural = literal(args[1]).value
+        s_names, p_names = set(JS_VAR.findall(text)), set(JS_VAR.findall(plural))
+        if s_names - {"n"} != p_names - {"n"} or not s_names <= p_names:
+            rep.error(path, line, f"tn(): the forms use different variables: {text!r} / {plural!r}")
+        rep.uses.append(Use(text, plural, path, lit.line))
+        check_vars(p_names, args[3] if len(args) > 3 else None, line, plural, {"n"})
+
+    def check_vars(names: set[str], arg: list[Tok] | None, line: int, text: str, implicit: set[str]) -> None:
+        need = names - implicit
+        if arg is None:
+            if need:
+                rep.error(path, line, f"no values for {sorted(need)} in {text!r}")
+            return
+        keys = object_keys(arg)
+        if keys is None:
+            return  # not an object literal: can't check statically
+        keys -= implicit
+        if keys != need:
+            missing, extra = sorted(need - keys), sorted(keys - need)
+            rep.error(path, line, f"variables don't match in {text!r}: missing {missing}, unused {extra}")
+
+    walk(toks)
+
+    def lint(toks: list[Tok]) -> None:
+        for tk in toks:
+            if tk.parts:
+                for part in tk.parts:
+                    lint(part)
+            if tk.kind != "str" or id(tk) in covered:
+                continue
+            text = tk.value.replace("${}", " ")
+            if not LETTERS.search(text) or tk.value.strip() in PRODUCT_NAMES or tk.value == "use strict":
+                continue
+            if id(tk) in ignored:
+                continue
+            why = sinks.get(id(tk))
+            if why is None and id(tk) in prose_sinks and is_prose(text):
+                why = prose_sinks[id(tk)]
+            if why is None and is_prose(text):
+                why = "prose"
+            if why and not opted_out(lines, tk.line):
+                rep.error(path, tk.line, f"unwrapped user-visible text ({why}): {tk.value[:80]!r}")
+
+    lint(toks)
+
+
+def top_level_literals(arg: list[Tok]) -> list[Tok]:
+    """String literals in an expression that would end up as its value:
+    not inside a nested call or index, so `cond ? 'a' : 'b' + x` counts both
+    'a' and 'b', but `f('a')` doesn't."""
+    out, depth = [], 0
+    for i, t in enumerate(arg):
+        if t.kind == "p" and t.value in OPENERS:
+            # a parenthesised group is still the value; calls/indexing aren't
+            is_call = t.value in "([" and i > 0 and (arg[i - 1].kind == "id" or arg[i - 1].value in (")", "]"))
+            depth += 1 if (is_call or t.value == "{" or depth) else 0
+            continue
+        if t.kind == "p" and t.value in (")", "]", "}"):
+            depth = max(0, depth - 1)
+            continue
+        if depth == 0 and t.kind == "str":
+            out.append(t)
+            if t.parts:
+                for part in t.parts:
+                    out.extend(top_level_literals(part))
+    return out
+
+
+def expr_after(toks: list[Tok], i: int) -> list[Tok]:
+    """Tokens of the expression starting at i, up to a top-level , ; ) ] }."""
+    out, depth = [], 0
+    while i < len(toks):
+        t = toks[i]
+        if t.kind == "p":
+            if t.value in OPENERS:
+                depth += 1
+            elif t.value in (")", "]", "}"):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif t.value in (",", ";") and depth == 0:
+                break
+        out.append(t)
+        i += 1
+    return out
+
+
+# ---------------------------------------------------------------- index.html
+
+DATA_I18N = re.compile(r'data-i18n="([^"]*)"')
+HTML_TEXT = re.compile(r">([^<>]*[A-Za-z]{2,}[^<>]*)<")
+HTML_ATTR = re.compile(rf'\b(aria-label|title|{INPUT_HINT}|alt)="([^"]*[A-Za-z][^"]*)"')
+
+
+def scan_html(path: str, src: str, rep: Report) -> None:
+    import html as htmlmod
+
+    marked: set[str] = set()
+    for n, line in enumerate(src.splitlines(), 1):
+        for m in DATA_I18N.finditer(line):
+            text = htmlmod.unescape(m.group(1))
+            marked.add(text)
+            rep.uses.append(Use(text, None, path, n))
+    body = src.split("<body>", 1)[-1]
+    offset = src[: len(src) - len(body)].count("\n")
+    for n, line in enumerate(body.splitlines(), 1 + offset):
+        if "<script" in line:
+            continue
+        for m in HTML_TEXT.finditer(line):
+            text = htmlmod.unescape(m.group(1).strip())
+            if text not in marked:
+                rep.error(path, n, f"unwrapped user-visible text: {text!r} (add data-i18n)")
+        for m in HTML_ATTR.finditer(line):
+            text = htmlmod.unescape(m.group(2))
+            if text not in marked:
+                rep.error(path, n, f"unwrapped {m.group(1)}: {text!r} (add data-i18n and data-i18n-attr)")
+
+
+# ---------------------------------------------------------------- Python
+
+TRANSLATE_PY = {"_", "ngettext", "N_"}
+
+
+def py_vars(text: str, path: str, line: int, rep: Report) -> set[str] | None:
+    names: set[str] = set()
+    try:
+        parsed = list(string.Formatter().parse(text))
+    except ValueError as e:
+        rep.error(path, line, f"bad variable syntax in {text!r}: {e}")
+        return None
+    for _lit, fname, _spec, _conv in parsed:
+        if fname is None:
+            continue
+        if fname == "" or not fname.isidentifier():
+            rep.error(path, line, f"use named variables ({{name}}) in {text!r}")
+            return None
+        names.add(fname)
+    return names
+
+
+def call_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Call):
+        node = node.func
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
+def has_letters(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return bool(LETTERS.search(node.value))
+    if isinstance(node, ast.JoinedStr):
+        return any(has_letters(v) for v in node.values)
+    if isinstance(node, ast.BinOp):
+        return has_letters(node.left) or has_letters(node.right)
+    if isinstance(node, ast.IfExp):
+        return has_letters(node.body) or has_letters(node.orelse)
+    return False
+
+
+def scan_py(path: str, src: str, rep: Report) -> None:
+    tree = ast.parse(src)
+    lines = src.splitlines()
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    translated: set[int] = set()  # ids of nodes inside translate calls
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in TRANSLATE_PY):
+            continue
+        for sub in ast.walk(node):
+            translated.add(id(sub))
+        name, line = node.func.id, node.lineno
+        if opted_out(lines, line):
+            continue
+        need = 2 if name == "ngettext" else 1
+        args = node.args[:need]
+        if len(node.args) < need or any(not (isinstance(a, ast.Constant) and isinstance(a.value, str)) for a in args):
+            if any(isinstance(a, ast.JoinedStr) for a in args):
+                rep.error(path, line, f"{name}(): pass a plain string with {{variables}}, not an f-string")
+            elif any(has_letters(a) for a in args) or name != "_" or len(node.args) != 1:
+                rep.error(path, line, f"{name}() needs literal text")
+            # else _(variable): its value was marked with N_()
+            continue
+        text = args[0].value
+        plural = args[1].value if name == "ngettext" else None
+        rep.uses.append(Use(text, plural, path, line))
+        if name == "N_":
+            continue
+        names = py_vars(text, path, line, rep)
+        if names is None:
+            continue
+        if plural is not None:
+            p_names = py_vars(plural, path, line, rep)
+            if p_names is None:
+                continue
+            if names - {"n"} != p_names - {"n"} or not names <= p_names:
+                rep.error(path, line, f"ngettext(): the forms use different variables: {text!r} / {plural!r}")
+            names = p_names
+        parent = parents.get(node)
+        fmt = None
+        if isinstance(parent, ast.Attribute) and parent.attr == "format":
+            call = parents.get(parent)
+            if isinstance(call, ast.Call) and call.func is parent:
+                fmt = call
+        if fmt is None:
+            if names:
+                rep.error(path, line, f"{text!r} has variables but no .format(...)")
+            continue
+        if fmt.args or any(k.arg is None for k in fmt.keywords):
+            rep.error(path, line, f"use keyword arguments in .format() for {text!r}")
+            continue
+        keys = {k.arg for k in fmt.keywords}
+        if keys != names:
+            rep.error(
+                path,
+                line,
+                f"variables don't match in {text!r}: missing {sorted(names - keys)}, unused {sorted(keys - names)}",
+            )
+
+    # A module that uses _() must not also bind `_` (a throwaway variable
+    # would shadow it: UnboundLocalError, or the wrong text, at run time).
+    if any(isinstance(n, ast.Name) and n.id == "_" and isinstance(n.ctx, ast.Load) for n in ast.walk(tree)):
+        for n in ast.walk(tree):
+            bound = (isinstance(n, ast.Name) and n.id == "_" and isinstance(n.ctx, ast.Store)) or (
+                isinstance(n, ast.arg) and n.arg == "_"
+            )
+            if bound:
+                rep.error(path, n.lineno, "binds `_`, which this module uses for _(): give the variable a name")
+
+    # The lint.
+    def flag(value: ast.AST, why: str) -> None:
+        if id(value) in translated or not has_letters(value):
+            return
+        if isinstance(value, ast.Constant | ast.JoinedStr | ast.BinOp | ast.IfExp) and not opted_out(
+            lines, value.lineno
+        ):
+            shown = ast.get_source_segment(src, value) or ""
+            rep.error(path, value.lineno, f"unwrapped user-visible text ({why}): {shown[:80]}")
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and call_name(node.func) in USER_FACING_EXCEPTIONS and node.args:
+            flag(node.args[0], f"{call_name(node.func)} message")
+        elif isinstance(node, ast.Dict):
+            for k, v in zip(node.keys, node.values, strict=True):
+                if isinstance(k, ast.Constant) and k.value in PY_TEXT_KEYS and v is not None:
+                    flag(v, f'"{k.value}" sent to the page')
+
+
+# ---------------------------------------------------------------- catalog
+
+
+def scan_all() -> Report:
+    rep = Report()
+    for p in sorted((UI / "js").glob("*.js")):
+        if p.name == "i18n.js":
+            continue
+        scan_js(f"ui/js/{p.name}", p.read_text(encoding="utf-8"), rep)
+    scan_html("ui/index.html", (UI / "index.html").read_text(encoding="utf-8"), rep)
+    for p in sorted(PKG.rglob("*.py")):
+        rel = p.relative_to(PKG).as_posix()
+        if rel.startswith(EXCLUDED_PY) or rel == "i18n.py":
+            continue
+        scan_py(rel, p.read_text(encoding="utf-8"), rep)
+    return rep
+
+
+def build_catalog(rep: Report) -> dict:
+    entries: dict[str, dict] = {}
+    for u in rep.uses:
+        e = entries.setdefault(u.text, {"plural": u.plural, "files": set(), "where": f"{u.path}:{u.line}"})
+        if e["plural"] != u.plural:
+            if e["plural"] is None or u.plural is None:
+                rep.errors.append(
+                    f"{u.path}:{u.line}: {u.text!r} is used both as a plain string ({e['where']}) and as a plural; "
+                    "give one of them different English text"
+                )
+            else:
+                rep.errors.append(f"{u.path}:{u.line}: {u.text!r} has two different plurals (other: {e['where']})")
+        e["files"].add(u.path)
+    strings = {}
+    for text in sorted(entries):
+        e = entries[text]
+        names = set(JS_VAR.findall(text))
+        if e["plural"]:
+            names |= set(JS_VAR.findall(e["plural"]))
+        out: dict = {}
+        if e["plural"]:
+            out["plural"] = e["plural"]
+        if names:
+            out["vars"] = sorted(names)
+        out["used_in"] = sorted(e["files"])
+        strings[text] = out
+    return {
+        "about": (
+            "Every user-visible string in the OpenArcanum client, by its English text. Generated by "
+            "scripts/strings from the t()/tn()/N_() calls in ui/js, data-i18n in ui/index.html and the "
+            "_()/ngettext()/N_() calls in the Python package; do not edit by hand. Translations live beside "
+            "this file as <language>.json (docs/translations.md)."
+        ),
+        "strings": strings,
+    }
+
+
+def dump(doc: dict) -> str:
+    return json.dumps(doc, ensure_ascii=False, indent=1) + "\n"
+
+
+def check_translations(catalog: dict, rep: Report) -> list[str]:
+    stale: list[str] = []
+    for p in sorted(STRINGS.glob("*.json")):
+        if p.name == "en.json":
+            continue
+        where = f"ui/strings/{p.name}"
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError as e:
+            rep.errors.append(f"{where}: not valid JSON: {e}")
+            continue
+        if not isinstance(doc, dict) or not isinstance(doc.get("strings"), dict):
+            rep.errors.append(f'{where}: needs a "strings" object')
+            continue
+        rule = doc.get("plural_rule", "one_other")
+        if rule not in PLURAL_RULES:
+            rep.errors.append(f"{where}: unknown plural_rule {rule!r} (one of {sorted(PLURAL_RULES)})")
+        for key, value in doc["strings"].items():
+            entry = catalog["strings"].get(key)
+            if entry is None:
+                stale.append(f"{where}: {key!r} is not in the catalog any more")
+                continue
+            if value in ("", [], None):
+                continue  # not translated yet: English is shown
+            want = set(entry.get("vars", []))
+            forms = value if isinstance(value, list) else [value]
+            if entry.get("plural") and not isinstance(value, list):
+                rep.errors.append(f"{where}: {key!r} is a plural: give a list of forms")
+                continue
+            if not entry.get("plural") and isinstance(value, list):
+                rep.errors.append(f"{where}: {key!r} is not a plural: give one string")
+                continue
+            for form in forms:
+                if not isinstance(form, str):
+                    rep.errors.append(f"{where}: {key!r}: every form must be a string")
+                    continue
+                got = set(JS_VAR.findall(form))
+                # a plural form may leave out {n} ("one file")
+                if got - want or (want - {"n"}) - got:
+                    rep.errors.append(f"{where}: {key!r}: variables {sorted(got)} don't match {sorted(want)}")
+    return stale
+
+
+def new_translation(lang: str, catalog: dict) -> Path:
+    if not re.fullmatch(r"[a-z]{2,3}(_[A-Z]{2})?", lang):
+        raise SystemExit(f"strings: {lang!r} isn't a language name like de or pt_BR")
+    path = STRINGS / f"{lang}.json"
+    doc = {"language": lang, "plural_rule": "one_other", "strings": {}}
+    if path.exists():
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    have = doc.setdefault("strings", {})
+    for key, entry in catalog["strings"].items():
+        if key not in have:
+            have[key] = ["", ""] if entry.get("plural") else ""
+    doc["strings"] = dict(sorted(have.items()))
+    path.write_text(dump(doc), encoding="utf-8")
+    return path
+
+
+def main(argv: list[str]) -> int:
+    args = argv[1:]
+    rep = scan_all()
+    catalog = build_catalog(rep)
+    text = dump(catalog)
+    if args[:1] == ["--new"] and len(args) == 2:
+        if rep.errors:
+            for e in rep.errors:
+                print(e, file=sys.stderr)
+            print("strings: fix the problems above first", file=sys.stderr)
+            return 1
+        CATALOG.write_text(text, encoding="utf-8")
+        print(f"strings: wrote {new_translation(args[1], catalog).relative_to(ROOT)}")
+        return 0
+    if args == ["--check"]:
+        current = CATALOG.read_text(encoding="utf-8") if CATALOG.exists() else ""
+        if current != text:
+            rep.errors.append(f"{CATALOG.relative_to(ROOT)} is out of date: run scripts/strings and commit it")
+        for s in check_translations(catalog, rep):
+            print(f"warning: {s}", file=sys.stderr)
+        for e in rep.errors:
+            print(e, file=sys.stderr)
+        if rep.errors:
+            print(f"strings: {len(rep.errors)} problem(s) (see scripts/strings)", file=sys.stderr)
+            return 1
+        print(f"strings: {len(catalog['strings'])} strings, catalog up to date")
+        return 0
+    if args:
+        print(__doc__.split("\n\n")[1], file=sys.stderr)
+        return 2
+    STRINGS.mkdir(parents=True, exist_ok=True)
+    CATALOG.write_text(text, encoding="utf-8")
+    for e in rep.errors:
+        print(e, file=sys.stderr)
+    print(f"strings: wrote {len(catalog['strings'])} strings to {CATALOG.relative_to(ROOT)}")
+    return 1 if rep.errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

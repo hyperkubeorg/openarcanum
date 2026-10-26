@@ -1,0 +1,100 @@
+{{define "content"}}
+{{$r := .Data.Report}}
+{{$c := $r.Content}}
+{{$sec := eq $r.Kind "security"}}
+<p><a href="/admin/reports">← Reports</a></p>
+{{if eq .Data.Done "saved"}}<div class="notice ok" role="status"><p>Saved.</p></div>{{end}}
+{{with .Data.Error}}<div class="notice danger" role="alert"><p>{{.}}</p></div>{{end}}
+
+<section class="box report-head{{if $sec}} security{{end}}" aria-labelledby="report-title">
+  <div class="meta">
+    {{if $sec}}<span class="pill danger">Security report</span>{{else}}<span class="pill">Bug report</span>{{end}}
+    <code>{{$r.Ref}}</code>
+    <span>Received <time datetime="{{iso $r.CreatedAt}}">{{datetime $r.CreatedAt}}</time></span>
+    <span>Updated <time datetime="{{iso $r.UpdatedAt}}">{{datetime $r.UpdatedAt}}</time></span>
+  </div>
+  <h1 id="report-title">{{$c.Title}}</h1>
+  {{if $sec}}<p class="hint">Handle under the disclosure policy: acknowledge by DM within 3 working days. Don't paste details anywhere public.</p>{{end}}
+</section>
+
+<div class="cols">
+  <div>
+    <h2 class="section-title">{{if $sec}}Issue and impact{{else}}What happened{{end}}</h2>
+    <pre class="plain">{{$c.Description}}</pre>
+    {{with $c.Steps}}
+    <h2 class="section-title">Steps to reproduce</h2>
+    <pre class="plain">{{.}}</pre>
+    {{end}}
+
+    <h2 class="section-title">Internal notes and history</h2>
+    <div class="box">
+      {{range .Data.Notes}}
+      <div class="note">
+        <div class="meta"><strong>{{.Author}}</strong> <time datetime="{{iso .CreatedAt}}">{{datetime .CreatedAt}}</time></div>
+        <pre class="plain">{{.Body}}</pre>
+      </div>
+      {{else}}
+      <p class="empty">No notes yet.</p>
+      {{end}}
+    </div>
+  </div>
+
+  <div>
+    <h2 class="section-title">Reporter</h2>
+    <div class="box">
+      <div class="field">
+        <label for="reporter-id">User ID (to DM them)</label>
+        <div class="copy-row">
+          <input type="text" id="reporter-id" class="mono" value="{{$c.UserID}}" readonly aria-describedby="reporter-id-hint">
+          <button type="button" class="btn small" data-copy="reporter-id" hidden>Copy</button>
+        </div>
+        <p class="hint" id="reporter-id-hint">In the app: open the community below, find them in the member list, and Message them.</p>
+      </div>
+      <dl class="facts">
+        <dt>Community</dt><dd>{{$c.Community}}</dd>
+        {{with $c.Name}}<dt>Name</dt><dd>{{.}}</dd>{{end}}
+        {{with $c.Email}}<dt>E-mail</dt><dd>{{.}}</dd>{{end}}
+        {{with $c.Version}}<dt>Version</dt><dd>{{.}}</dd>{{end}}
+        {{if $sec}}<dt>Their severity</dt><dd>{{if $c.Severity}}{{label $c.Severity}}{{else}}Not sure{{end}}</dd>{{end}}
+      </dl>
+    </div>
+
+    <h2 class="section-title">Triage</h2>
+    <form method="post" action="/admin/reports/{{$r.ID}}" class="box">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="field">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          {{range statuses}}<option value="{{.}}"{{if eq . $r.Status}} selected{{end}}>{{label .}}</option>{{end}}
+        </select>
+      </div>
+      <div class="field">
+        <label for="severity">Severity</label>
+        <select id="severity" name="severity">
+          {{range severities}}<option value="{{.}}"{{if eq . $r.Severity}} selected{{end}}>{{label .}}</option>{{end}}
+        </select>
+      </div>
+      <div class="field">
+        <label for="assignee">Assignee</label>
+        <select id="assignee" name="assignee">
+          <option value="0">Nobody</option>
+          {{range .Data.Admins}}<option value="{{.ID}}"{{if eq .ID $r.Assignee}} selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+      </div>
+      <div class="field">
+        <label for="note">Add a note <span class="optional">(internal; the reporter never sees it)</span></label>
+        <textarea id="note" name="note" class="short" maxlength="20000"></textarea>
+      </div>
+      <div class="form-foot">
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+
+    <form method="post" action="/admin/reports/{{$r.ID}}/delete" class="box" data-confirm="Delete this report and its notes for good?">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label class="check"><input type="checkbox" name="confirm"> Delete this report (spam or abuse)</label>
+      <button type="submit" class="btn small danger">Delete report</button>
+    </form>
+  </div>
+</div>
+{{end}}

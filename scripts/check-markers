@@ -1,0 +1,317 @@
+#!/usr/bin/env python3
+"""Fail if non-test code contains leftover-work markers or stub code paths.
+
+Shipped code has no `TODO`, `FIXME`, "interim", "placeholder", "for now" or
+stub code paths. `make check` runs this.
+
+    scripts/check-markers [ROOT]
+
+What counts as a finding, per line of every tracked (or new, unignored) code
+file:
+
+  - `TODO` / `FIXME` (case-sensitive);
+  - the words "interim", "placeholder(s)" and "for now" (any case);
+  - stub markers: `raise NotImplementedError`, "not implemented",
+    "unimplemented" and the word "stub(s)" (any case);
+  - Python functions whose whole body is `pass` or `...` (no docstring saying
+    why it does nothing), except `typing.Protocol` members and
+    `@abstractmethod` / `@overload` declarations.
+
+Allowed:
+  - HTML input placeholders in the UI's .js/.html/.css files:
+    `placeholder:` (object key), `.placeholder` (DOM property),
+    `placeholder="..."` (attribute), `::placeholder` / `:placeholder-shown`;
+  - in the vendored Noise package, exactly the occurrences listed in the
+    "Upstream markers" table of its VENDORED.md. Each listed `file:line` must
+    still hold a marker (a stale entry is an error); a file listed without
+    lines allows only lines whose text is the listed text, and for
+    `raise NotImplementedError` only inside an `@abstractmethod`.
+
+Not scanned: tests (`*_test.go`, `clients/desktop/tests/`, `testdata/`), generated code
+(`internal/wire/`, `clients/desktop/src/openarcanum/wire/`), `docs/`,
+Markdown prose (`*.md`), lock files, binary files, the vendored EFF word
+list (data, digest-checked), and this script itself
+(its patterns spell the markers).
+
+Python standard library only, so it runs before `uv sync`.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+SELF = "scripts/check-markers"
+VENDOR_DIR = "clients/desktop/src/openarcanum/_vendor/noise/"
+VENDOR_DOC = VENDOR_DIR + "VENDORED.md"
+
+CODE_SUFFIXES = {
+    ".go", ".py", ".pyi", ".js", ".mjs", ".html", ".css", ".sh", ".proto",
+    ".toml", ".yml", ".yaml", ".json", ".cfg", ".ini", ".txt", ".ps1",
+}  # fmt: skip
+CODE_NAMES = {"Makefile", "Dockerfile", ".gitignore", ".dockerignore", "go.mod"}
+UI_SUFFIXES = {".js", ".mjs", ".html", ".css"}
+
+EXEMPT_PREFIXES = (
+    "docs/",
+    "clients/desktop/tests/",
+    "internal/wire/",
+    "clients/desktop/src/openarcanum/wire/",
+)
+# The vendored EFF word list is data (its words include "stubbed"), checked
+# byte for byte against its published digest by openarcanum/passgen.py.
+WORDLIST = "clients/desktop/src/openarcanum/_vendor/eff_wordlist/eff_large_wordlist.txt"
+EXEMPT_FILES = {SELF, "go.sum", "clients/desktop/uv.lock", "uv.lock", WORDLIST}
+
+PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("TODO", re.compile(r"(?<![A-Za-z])TODO(?![a-z])")),
+    ("FIXME", re.compile(r"(?<![A-Za-z])FIXME(?![a-z])")),
+    ("interim", re.compile(r"\binterim\b", re.I)),
+    ("placeholder", re.compile(r"\bplaceholders?\b", re.I)),
+    ("for now", re.compile(r"\bfor\s+now\b", re.I)),
+    ("stub", re.compile(r"\bstub(s|bed)?\b", re.I)),
+    ("not implemented", re.compile(r"\bnot\s+(yet\s+)?implemented\b|\bunimplemented\b", re.I)),
+    ("NotImplementedError", re.compile(r"\braise\s+NotImplementedError\b")),
+]
+
+# HTML input placeholders (an attribute, not leftover work) in UI files.
+UI_ALLOWED = re.compile(
+    r"""\bplaceholder\s*:(?!:)      # h('input', {placeholder: ...})
+      | \.placeholder\b             # el.placeholder / opts.placeholder
+      | \bplaceholder\s*=\s*["']    # <input placeholder="...">
+      | ::?(-[a-z]+-)?(input-)?placeholder(-shown)?\b   # ::placeholder, :placeholder-shown
+    """,
+    re.I | re.X,
+)
+
+
+@dataclass(frozen=True)
+class Finding:
+    path: str
+    line: int
+    kind: str
+    text: str
+
+    def __str__(self) -> str:
+        return f"{self.path}:{self.line}: {self.kind}: {self.text.strip()[:160]}"
+
+
+def is_code(path: str) -> bool:
+    p = Path(path)
+    if p.suffix in CODE_SUFFIXES or p.name in CODE_NAMES:
+        return True
+    # Extensionless scripts.
+    return p.suffix == "" and path.startswith("scripts/")
+
+
+def is_exempt(path: str) -> bool:
+    if path in EXEMPT_FILES or path.startswith(EXEMPT_PREFIXES):
+        return True
+    p = Path(path)
+    if p.suffix == ".md" or p.name.endswith(".lock"):
+        return True
+    return p.name.endswith("_test.go") or "testdata" in p.parts
+
+
+def scan_text(path: str, text: str) -> list[Finding]:
+    """Findings for one file's contents (path is repo-relative, '/'-separated)."""
+    out: list[Finding] = []
+    ui = Path(path).suffix in UI_SUFFIXES
+    for n, line in enumerate(text.splitlines(), 1):
+        checked = UI_ALLOWED.sub(" ", line) if ui else line
+        for kind, rx in PATTERNS:
+            if rx.search(checked):
+                out.append(Finding(path, n, kind, line))
+    if path.endswith(".py"):
+        out.extend(python_stubs(path, text))
+    return out
+
+
+def _is_stub_body(body: list[ast.stmt]) -> bool:
+    """`pass` or `...` with no docstring saying why the function does nothing."""
+    if len(body) != 1:
+        return False
+    s = body[0]
+    if isinstance(s, ast.Pass):
+        return True
+    return isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant) and s.value.value is Ellipsis
+
+
+def _decorator_names(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    names = set()
+    for d in fn.decorator_list:
+        while isinstance(d, ast.Call):
+            d = d.func
+        if isinstance(d, ast.Attribute):
+            names.add(d.attr)
+        elif isinstance(d, ast.Name):
+            names.add(d.id)
+    return names
+
+
+def _is_protocol(cls: ast.ClassDef) -> bool:
+    for b in cls.bases:
+        if isinstance(b, ast.Subscript):
+            b = b.value
+        if (isinstance(b, ast.Name) and b.id == "Protocol") or (isinstance(b, ast.Attribute) and b.attr == "Protocol"):
+            return True
+    return False
+
+
+def python_stubs(path: str, text: str) -> list[Finding]:
+    """Functions whose whole body is `pass` or `...`.
+
+    Not stubs: members of a `typing.Protocol` class, `@abstractmethod` and
+    `@overload` declarations. A function that does nothing on purpose says
+    why in a docstring (a docstring-only body is valid Python and allowed).
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as e:
+        return [Finding(path, e.lineno or 0, "syntax error", str(e))]
+    lines = text.splitlines()
+    protocol_members: set[ast.AST] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and _is_protocol(node):
+            protocol_members.update(node.body)
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or not _is_stub_body(node.body):
+            continue
+        if node in protocol_members or _decorator_names(node) & {"overload", "abstractmethod"}:
+            continue
+        out.append(Finding(path, node.lineno, "stub function", lines[node.lineno - 1]))
+    return out
+
+
+def abstract_lines(text: str) -> set[int]:
+    """Line numbers inside functions decorated with @abstractmethod."""
+    out: set[int] = set()
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and "abstractmethod" in _decorator_names(node):
+            out.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+    return out
+
+
+@dataclass
+class VendorAllow:
+    lines: dict[str, dict[int, list[str]]]  # file -> line -> the row's listed texts
+    texts: dict[str, set[str]]  # file -> allowed stripped line texts (no line given)
+
+
+def parse_vendored(doc: str) -> VendorAllow:
+    """Read the "Upstream markers" table: `file:12,34` cells and `file` cells
+    whose allowed text is the row's backticked Text column."""
+    allow = VendorAllow({}, {})
+    section = doc.split("## Upstream markers", 1)
+    if len(section) < 2:
+        return allow
+    body = section[1].split("\n## ", 1)[0]
+    for row in body.splitlines():
+        cells = [c.strip() for c in row.strip().strip("|").split("|")]
+        if len(cells) < 2 or not cells[0].startswith("`"):
+            continue
+        texts = re.findall(r"`([^`]+)`", cells[1])
+        for ref in re.findall(r"`([^`]+)`", cells[0]):
+            name, _, nums = ref.partition(":")
+            if nums:
+                for x in nums.split(","):
+                    if x.strip():
+                        allow.lines.setdefault(name, {})[int(x)] = texts
+            else:
+                allow.texts.setdefault(name, set()).update(texts)
+    return allow
+
+
+def check_vendored(root: Path, findings: list[Finding], errors: list[str]) -> list[Finding]:
+    """Drop vendored findings VENDORED.md lists; report stale entries."""
+    doc_path = root / VENDOR_DOC
+    allow = parse_vendored(doc_path.read_text(encoding="utf-8")) if doc_path.exists() else VendorAllow({}, {})
+    by_file: dict[str, list[Finding]] = {}
+    for f in findings:
+        if f.path.startswith(VENDOR_DIR):
+            by_file.setdefault(f.path[len(VENDOR_DIR) :], []).append(f)
+    # Every listed file:line must still be what the table describes: either
+    # a line this script flags, or a line holding one of the row's listed
+    # texts (some rows list upstream comments that aren't markers here).
+    for name, nums in allow.lines.items():
+        hit = {f.line for f in by_file.get(name, [])}
+        path = root / VENDOR_DIR / name
+        src = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        for n, texts in sorted(nums.items()):
+            if n in hit:
+                continue
+            line = src[n - 1] if 0 < n <= len(src) else ""
+            if not any(t.removesuffix("...").strip() in line for t in texts if t.removesuffix("...").strip()):
+                errors.append(f"{VENDOR_DOC}: listed marker {name}:{n} is not there any more (update the table)")
+    for name in allow.texts:
+        if not (root / VENDOR_DIR / name).exists():
+            errors.append(f"{VENDOR_DOC}: listed file {name} does not exist")
+    keep = []
+    for f in findings:
+        if not f.path.startswith(VENDOR_DIR):
+            keep.append(f)
+            continue
+        name = f.path[len(VENDOR_DIR) :]
+        if f.line in allow.lines.get(name, {}):
+            continue
+        if f.text.strip() in allow.texts.get(name, set()):
+            if f.kind != "NotImplementedError":
+                continue
+            src = (root / f.path).read_text(encoding="utf-8")
+            if f.line in abstract_lines(src):
+                continue
+        keep.append(f)
+    return keep
+
+
+def list_files(root: Path) -> list[str]:
+    out = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        check=True,
+        capture_output=True,
+    ).stdout.decode()
+    return sorted({p for p in out.split("\0") if p})
+
+
+def scan_repo(root: Path) -> tuple[list[Finding], list[str]]:
+    findings: list[Finding] = []
+    errors: list[str] = []
+    for path in list_files(root):
+        if is_exempt(path) or not is_code(path):
+            continue
+        full = root / path
+        if not full.is_file():
+            continue  # deleted but not yet staged
+        try:
+            text = full.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue  # binary
+        findings.extend(scan_text(path, text))
+    return check_vendored(root, findings, errors), errors
+
+
+def main(argv: list[str]) -> int:
+    root = Path(argv[1]) if len(argv) > 1 else Path(__file__).resolve().parent.parent
+    findings, errors = scan_repo(root)
+    for f in findings:
+        print(f, file=sys.stderr)
+    for e in errors:
+        print(e, file=sys.stderr)
+    if findings or errors:
+        print(
+            f"check-markers: {len(findings)} marker(s), {len(errors)} allowlist error(s) "
+            "(finish or remove the work; see scripts/check-markers)",
+            file=sys.stderr,
+        )
+        return 1
+    print("check-markers: clean")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,151 @@
+# Values for the OpenArcanum chart (docs/kubernetes.md). The defaults suit a
+# cluster where the relay has a public address; values-kind.yaml overrides
+# them for the local kind cluster.
+
+image:
+  # Images built from deploy/container/Containerfile, one per server:
+  # <repository>-<names.relay>, -<names.meta>, -<names.community>. The
+  # defaults are the released images (.github/workflows/containers.yml,
+  # docs/release.md): ghcr.io/hyperkubeorg/openarcanum-relay, -maintainer and
+  # -community, at the release this chart came with.
+  repository: ghcr.io/hyperkubeorg/openarcanum
+  # Empty: the chart's appVersion (VERSION; scripts/version keeps them equal).
+  tag: ""
+  names:
+    relay: relay
+    meta: maintainer
+    community: community
+  pullPolicy: IfNotPresent
+
+# Settings for every server's logs (internal/ops).
+logLevel: info
+
+meta:
+  enabled: true
+  port: 7100
+  storage:
+    size: 1Gi
+    storageClassName: ""
+  # More OPENARCANUM_META_* settings (docs/operations.md), e.g.
+  #   OPENARCANUM_META_WRITES_PER_MINUTE: "600"
+  env: {}
+  resources: {}
+  # TLS on the node's API, for browser clients (docs/kubernetes.md "TLS for
+  # browsers"): "off", "acme" (certificates from Let's Encrypt, obtained and
+  # renewed by the node and kept on its volume; the CA checks port 443 of
+  # the first domain) or "files" (secretName: a kubernetes.io/tls Secret,
+  # such as cert-manager makes). With TLS on, the Service listens on 443 and
+  # the chart's servers reach the node at https://<first domain>.
+  tls:
+    mode: "off"
+    domains: []
+    email: ""
+    secretName: ""
+  # A maintainer cluster (docs/kubernetes.md "A maintainer cluster"): one
+  # entry per node, each with its own volume claim, Service and Deployment
+  # (<release>-meta-<name>). Empty: one node, <release>-meta.
+  #   - name: root              # lower case letters, digits and -
+  #     role: root              # root or member (only the order clients try)
+  #     nodeKeySecret: ""       # a Secret with node.key and node.noise
+  #                             # (`meta id -data DIR`); empty: made on the volume
+  #     tlsDomains: []          # this node's names, instead of meta.tls.domains
+  #     env: {}                 # this node's own OPENARCANUM_META_* settings
+  #     storage: {}             # instead of meta.storage
+  #     resources: {}           # instead of meta.resources
+  nodes: []
+  cluster:
+    # The cluster's operator key (base64url; `meta operator keygen`).
+    operatorKey: ""
+    # A Secret with set.bin, the signed member list (`meta operator
+    # sign-set`), published by each node at start.
+    setSecret: ""
+
+relay:
+  enabled: true
+  port: 7000
+  # What clients and community servers use to reach this relay. It's
+  # registered with the maintainer node and goes into community routes and
+  # claim codes, so it has to work from both (docs/kubernetes.md). With
+  # relay.tls on and domains set, it defaults to wss://<first domain>/ws.
+  publicURL: ""
+  # TLS on the relay (wss://), for browser clients (docs/kubernetes.md "TLS
+  # for browsers"): "off", "acme" (certificates from Let's Encrypt, kept on
+  # the storage claim below; the CA checks port 443 of each domain) or
+  # "files" (secretName: a kubernetes.io/tls Secret). domains may hold the
+  # relay's public IP address instead of a name. With TLS on, the Service
+  # listens on 443.
+  tls:
+    mode: "off"
+    domains: []
+    email: ""
+    secretName: ""
+    storage:
+      size: 16Mi
+      storageClassName: ""
+  # Maintainer nodes the relay registers with (empty: this chart's node).
+  registryURLs: []
+  # Call media (UDP). The SFU advertises mediaPublicIPs to clients.
+  calls: true
+  mediaUDPPort: 7000
+  mediaPublicIPs: []
+  mediaLoopback: false
+  # Run on the node's network: the SFU's UDP port is the node's, and a
+  # community server on the same node can reach the relay at 127.0.0.1.
+  hostNetwork: false
+  # Dedicate the relay to this chart's community server (docs/kubernetes.md
+  # "A dedicated relay"): it then runs in the community server's pod, serves
+  # only that community, and can block the network addresses of members it
+  # bans. Off by default; it doesn't register with maintainer nodes.
+  dedicated: false
+  # Where a dedicated relay keeps its network blocks (a volume claim).
+  blockStorage:
+    size: 64Mi
+    storageClassName: ""
+  env: {}
+  resources: {}
+
+community:
+  enabled: true
+  # Relays the community server attaches to (empty: this chart's relay at
+  # relay.publicURL). These URLs go into its claim code and route.
+  relays: []
+  # Maintainer nodes it publishes to (empty: this chart's node).
+  maintainers: []
+  # Status listener for the health probes (loopback only).
+  metricsListen: 127.0.0.1:7201
+  hostNetwork: false
+  storage:
+    dataSize: 2Gi
+    keysSize: 16Mi
+    storageClassName: ""
+  env: {}
+  resources: {}
+
+# The project website (docs/operations.md "Website"), off by default. Admins
+# are created in the pod: kubectl exec -it deploy/<release>-site -- site admin add NAME
+site:
+  enabled: false
+  port: 7300
+  storage:
+    size: 1Gi
+    keysSize: 16Mi
+    storageClassName: ""
+  # More OPENARCANUM_SITE_* settings, e.g.
+  #   OPENARCANUM_SITE_CONTACT_COMMUNITY: "OpenArcanum"
+  #   OPENARCANUM_SITE_TRUSTED_PROXY_HEADER: "X-Real-IP"   (behind an ingress)
+  env: {}
+  resources: {}
+  # "off" (behind a TLS-terminating ingress), "acme" (the CA checks port
+  # 443 of the domains, so the Service must be reachable there) or "files"
+  # (secretName: a kubernetes.io/tls Secret).
+  tls:
+    mode: "off"
+    domains: []
+    email: ""
+    secretName: ""
+
+# The servers' user (the images run as 65532, distroless "nonroot").
+securityContext:
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532

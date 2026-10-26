@@ -1,0 +1,10 @@
+# Build context for deploy/container/Containerfile (the repo root): only the
+# Go sources. BuildKit reads <Containerfile>.dockerignore next to the file;
+# podman/buildah take it with --ignorefile.
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+internal/**/testdata/
+**/*_test.go

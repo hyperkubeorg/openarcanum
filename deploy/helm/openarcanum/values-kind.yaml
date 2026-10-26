@@ -1,0 +1,42 @@
+# The local kind cluster (`make kind-up`, docs/kubernetes.md).
+#
+# Clients run on this computer (scripts/dev-client) and reach the cluster on
+# 127.0.0.1: TCP through `make kind-proxy` (port-forwards), the relay's call
+# media (UDP) through kind's port mapping (deploy/kind/cluster.yaml). The
+# relay and the community server use the node's network, so the community
+# server reaches the relay at the same ws://127.0.0.1:7000/ws that clients
+# use, the one URL that goes into claim codes and routes.
+
+# Images built locally by scripts/kind.sh (one tag per build, --set image.tag).
+image:
+  repository: localhost/openarcanum
+  tag: dev
+  names:
+    meta: meta
+
+relay:
+  publicURL: ws://127.0.0.1:7000/ws
+  hostNetwork: true
+  mediaPublicIPs: ["127.0.0.1"]
+  mediaLoopback: true
+  env:
+    # Every client reaches the relay from the port-forward's one address.
+    OPENARCANUM_RELAY_POW_MODE: "off"
+
+community:
+  hostNetwork: true
+
+meta:
+  env:
+    # Every client's writes arrive from the port-forward's one address.
+    OPENARCANUM_META_WRITES_PER_MINUTE: "60000"
+    OPENARCANUM_META_LISTINGS_PER_HOUR: "1000"
+    OPENARCANUM_META_NAMEPLATES_PER_MINUTE: "600"
+    OPENARCANUM_META_MAILBOX_DROPS_PER_MINUTE: "6000"
+    # The relay registers at ws://127.0.0.1:7000/ws, which the node's pod
+    # can't reach (it's the kind node's address): accept the local address
+    # and skip proof of control. Development only.
+    OPENARCANUM_META_ALLOW_PRIVATE_RELAYS: "true"
+    OPENARCANUM_META_RELAY_PROOF: "false"
+
+logLevel: debug

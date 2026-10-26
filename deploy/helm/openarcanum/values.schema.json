@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "names": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "relay": {"type": "string", "minLength": 1},
+            "meta": {"type": "string", "minLength": 1},
+            "community": {"type": "string", "minLength": 1}
+          }
+        },
+        "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "logLevel": {"enum": ["info", "debug"]},
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {"type": "string"},
+            "storageClassName": {"type": "string"}
+          }
+        },
+        "env": {"$ref": "#/definitions/env"},
+        "resources": {"type": "object"},
+        "tls": {"$ref": "#/definitions/tls"},
+        "nodes": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]{0,18}[a-z0-9])?$"},
+              "role": {"enum": ["root", "member"]},
+              "nodeKeySecret": {"type": "string"},
+              "tlsDomains": {"$ref": "#/definitions/tlsDomains"},
+              "env": {"$ref": "#/definitions/env"},
+              "storage": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "size": {"type": "string"},
+                  "storageClassName": {"type": "string"}
+                }
+              },
+              "resources": {"type": "object"}
+            }
+          }
+        },
+        "cluster": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operatorKey": {"type": "string", "pattern": "^([A-Za-z0-9_-]{43})?$"},
+            "setSecret": {"type": "string"}
+          }
+        }
+      }
+    },
+    "relay": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "publicURL": {"type": "string", "pattern": "^(|wss?://.+)$"},
+        "registryURLs": {"type": "array", "items": {"type": "string", "pattern": "^https?://.+"}},
+        "calls": {"type": "boolean"},
+        "mediaUDPPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "mediaPublicIPs": {"type": "array", "items": {"type": "string"}},
+        "mediaLoopback": {"type": "boolean"},
+        "hostNetwork": {"type": "boolean"},
+        "dedicated": {"type": "boolean"},
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {"$ref": "#/definitions/tlsMode"},
+            "domains": {"$ref": "#/definitions/tlsDomains"},
+            "email": {"type": "string"},
+            "secretName": {"type": "string"},
+            "storage": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "size": {"type": "string"},
+                "storageClassName": {"type": "string"}
+              }
+            }
+          }
+        },
+        "blockStorage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {"type": "string"},
+            "storageClassName": {"type": "string"}
+          }
+        },
+        "env": {"$ref": "#/definitions/env"},
+        "resources": {"type": "object"}
+      }
+    },
+    "community": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "relays": {"type": "array", "items": {"type": "string", "pattern": "^wss?://.+"}},
+        "maintainers": {"type": "array", "items": {"type": "string", "pattern": "^https?://.+"}},
+        "metricsListen": {"type": "string", "pattern": "^127\\.0\\.0\\.1:[0-9]+$"},
+        "hostNetwork": {"type": "boolean"},
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "dataSize": {"type": "string"},
+            "keysSize": {"type": "string"},
+            "storageClassName": {"type": "string"}
+          }
+        },
+        "env": {"$ref": "#/definitions/env"},
+        "resources": {"type": "object"}
+      }
+    },
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {"type": "string"},
+            "keysSize": {"type": "string"},
+            "storageClassName": {"type": "string"}
+          }
+        },
+        "env": {"$ref": "#/definitions/env"},
+        "resources": {"type": "object"},
+        "tls": {"$ref": "#/definitions/tls"}
+      }
+    },
+    "securityContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runAsUser": {"type": "integer"},
+        "runAsGroup": {"type": "integer"},
+        "fsGroup": {"type": "integer"}
+      }
+    }
+  },
+  "definitions": {
+    "tlsDomains": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^([a-zA-Z0-9]([-a-zA-Z0-9]*[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([-a-zA-Z0-9]*[a-zA-Z0-9])?)+\\.?|[0-9.]+|[0-9a-fA-F:.]*:[0-9a-fA-F:.]*)$"}
+    },
+    "tlsMode": {"enum": ["off", "acme", "files"]},
+    "tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {"$ref": "#/definitions/tlsMode"},
+        "domains": {"$ref": "#/definitions/tlsDomains"},
+        "email": {"type": "string"},
+        "secretName": {"type": "string"}
+      }
+    },
+    "env": {
+      "type": "object",
+      "propertyNames": {"pattern": "^OPENARCANUM_[A-Z0-9_]+$"},
+      "additionalProperties": {"type": "string"}
+    }
+  }
+}

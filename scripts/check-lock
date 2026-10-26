@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Check that clients/desktop/uv.lock pins every package with hashes.
+
+    scripts/check-lock [path/to/uv.lock]
+
+Every package from a registry must be pinned to one version, and every
+artifact uv may install for it (the sdist and each wheel) must carry a
+sha256 hash, so `uv sync --locked` and `uv export --frozen` (which
+`make audit` feeds to pip-audit with --require-hashes) can verify downloads.
+The only package allowed without hashes is the client project itself
+(`source = { editable = "." }`). `make lock-check` runs this after
+`uv lock --check` (which fails if the lock is out of date with
+pyproject.toml). Python standard library only.
+"""
+
+from __future__ import annotations
+
+import sys
+import tomllib
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def problems(lock: dict) -> list[str]:
+    out = []
+    packages = lock.get("package", [])
+    if not packages:
+        return ["no packages in the lock file"]
+    for pkg in packages:
+        name = pkg.get("name", "?")
+        source = pkg.get("source", {})
+        if source.get("editable") == "." or source.get("virtual") == ".":
+            continue
+        if "registry" not in source:
+            out.append(f"{name}: not from a package registry ({source})")
+            continue
+        if not pkg.get("version"):
+            out.append(f"{name}: no pinned version")
+        artifacts = ([pkg["sdist"]] if "sdist" in pkg else []) + pkg.get("wheels", [])
+        if not artifacts:
+            out.append(f"{name}: no sdist or wheels listed")
+        for a in artifacts:
+            if not str(a.get("hash", "")).startswith("sha256:"):
+                out.append(f"{name}: {a.get('url', 'artifact')} has no sha256 hash")
+    return out
+
+
+def main(argv: list[str]) -> int:
+    path = Path(argv[1]) if len(argv) > 1 else ROOT / "clients" / "desktop" / "uv.lock"
+    with path.open("rb") as f:
+        found = problems(tomllib.load(f))
+    for p in found:
+        print(f"{path}: {p}", file=sys.stderr)
+    if found:
+        return 1
+    print(f"check-lock: every package in {path.name} is pinned with sha256 hashes")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

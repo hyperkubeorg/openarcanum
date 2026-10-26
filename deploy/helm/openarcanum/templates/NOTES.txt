@@ -1,0 +1,10 @@
+OpenArcanum is installed in namespace {{ .Release.Namespace }}.
+
+Relay URL (clients and the community server): {{ include "openarcanum.relayURL" . }}
+Maintainer nodes inside the cluster: {{ include "openarcanum.metaURLs" . }}
+
+The community server's claim code (until it's claimed):
+  kubectl -n {{ .Release.Namespace }} logs {{ include "openarcanum.fullname" . }}-community-0 -c init
+
+On the local kind cluster: `make kind-proxy`, then `make client-image` once
+and `make client NAME=alice` per copy (docs/kubernetes.md).

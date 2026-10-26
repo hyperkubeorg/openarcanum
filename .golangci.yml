@@ -1,0 +1,24 @@
+version: "2"
+linters:
+  settings:
+    errcheck:
+      # Best-effort cleanup calls whose errors carry no useful action.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Rows).Close
+        - (*github.com/coder/websocket.Conn).Close
+        - (*github.com/coder/websocket.Conn).CloseNow
+        - (*github.com/pion/webrtc/v4.PeerConnection).Close
+        - (*net.conn).Close
+        - (*github.com/hyperkubeorg/openarcanum/internal/sfu.SFU).Close
+        - (*flag.FlagSet).Parse
+        - (*net/http.Server).Shutdown
+        - os.Remove
+        - os.RemoveAll
+        - (*os.File).Close
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [errcheck]

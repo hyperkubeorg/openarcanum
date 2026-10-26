@@ -1,0 +1,1613 @@
+// Community protocol: requests over a Noise session between a client and its
+// community server, and the signed, encrypted events the server publishes to
+// channel topics on relays. See docs/protocol.md §4 to §6.
+syntax = "proto3";
+
+package openarcanum.v1;
+
+import "openarcanum/v1/call.proto";
+
+import "openarcanum/v1/session.proto";
+
+option go_package = "github.com/hyperkubeorg/openarcanum/internal/wire;wire";
+
+// ---------------------------------------------------------------- envelopes
+
+// Client -> server. id is non-zero and unique per session; the reply carries it.
+message ClientMessage {
+  uint64 id = 1;
+  oneof body {
+    GetInfo get_info = 2;
+    Claim claim = 3;
+    Join join = 4;
+    Sync sync = 5;
+    History history = 6;
+    Post post = 7;
+    Edit edit = 8;
+    DeleteMessage delete = 9;
+    Leave leave = 10;
+    SetProfile set_profile = 11;
+    SignedAction admin = 12;
+    ListMembers list_members = 13;
+    ListJoinKeys list_join_keys = 14;
+    ListPending list_pending = 15;
+    ListBans list_bans = 16;
+    AuditQuery audit_log = 17;
+    SearchQuery search = 18;
+    UploadBegin upload_begin = 19;
+    UploadChunk upload_chunk = 20;
+    UploadFinish upload_finish = 21;
+    FileGet file_get = 22;
+    ListDevices list_devices = 23;
+    SignedDeviceRevocation revoke_device = 24;
+    PublishContactCard publish_contact_card = 25;
+    GetContactCard get_contact_card = 26;
+    VoiceJoin voice_join = 27;
+    VoiceState voice_state = 100;
+    VoiceLeave voice_leave = 28;
+    CheckStatus check_status = 29;
+    AddKeyPackages add_key_packages = 30;
+    GetAvatar get_avatar = 31;
+    AdoptServer adopt_server = 32;
+    // Messaging (docs/protocol.md §4.3).
+    React react = 60;
+    Pin pin = 61;
+    ListPins list_pins = 62;
+    Typing typing = 63;
+    UpdateProfile update_profile = 64;
+    // Moderation and custom emoji (docs/protocol.md §4.7 to §4.10).
+    ReportMessage report_message = 80;
+    ListReports list_reports = 81;
+    ListAutoModRules list_automod_rules = 82;
+    GetEmoji get_emoji = 83;
+    EmojiUpload emoji_upload = 84;
+    // Statuses, end-to-end encrypted (docs/protocol.md §4.11).
+    SetStatusDevice set_status_device = 90;
+    SetStatus set_status = 91;
+    ListStatuses list_statuses = 92;
+    SendStatusKeys send_status_keys = 93;
+    FetchStatusKeys fetch_status_keys = 94;
+    RequestStatusKey request_status_key = 95;
+  }
+}
+
+// Server -> client. reply_to is the request id, or 0 for a pushed event.
+message ServerMessage {
+  uint64 reply_to = 1;
+  oneof body {
+    RpcError error = 2;
+    Ok ok = 3;
+    CommunityInfo info = 4;
+    ClaimResult claim_result = 5;
+    JoinResult join_result = 6;
+    SyncState state = 7;
+    MessageList messages = 8;
+    Message message = 9;
+    AdminResult admin_result = 10;
+    MemberList members = 11;
+    JoinKeyList join_keys = 12;
+    BanList bans = 13;
+    AuditList audit = 14;
+    SearchResults search_results = 15;
+    UploadStarted upload_started = 16;
+    FileChunk file_chunk = 17;
+    DeviceList devices = 18;
+    ContactCardResult contact_card = 19;
+    VoiceSession voice_session = 20;
+    SessionStatus status = 21;
+    AvatarResult avatar = 22;
+    ReportList reports = 90;
+    AutoModRuleList automod_rules = 91;
+    EmojiImage emoji_image = 92;
+    // Pushed events.
+    StateChanged state_changed = 40;
+    VoiceUpdate voice_update = 41;
+    VoiceRooms voice_rooms = 101;
+    // Messaging replies and pushed events (docs/protocol.md §4.3).
+    PinList pins = 70;
+    PresenceUpdate presence = 71;
+    StagedFile staged_file = 72;
+    // Reply to React and Pin: what changed, without the message body.
+    MessageUpdate message_update = 73;
+    // To members who can see the report queue: a new report or AutoMod alert.
+    ModAlert mod_alert = 100;
+    // Presence changes, batched (docs/protocol.md "Presence"); replaces
+    // sending one PresenceUpdate per change.
+    PresenceBatch presence_batch = 102;
+    // To members who can see the report queue or the approval queue: how
+    // much is waiting there now, whenever it changes.
+    ModQueue mod_queue = 103;
+    // Statuses (docs/protocol.md §4.11): the reply to ListStatuses; key
+    // drops for this member's devices (reply to FetchStatusKeys, or pushed
+    // when new ones arrive); another member asking this one's devices for
+    // a status key it is missing.
+    StatusList statuses = 104;
+    StatusKeys status_keys = 105;
+    StatusKeyRequest status_key_request = 106;
+  }
+}
+
+message Ok {}
+
+message RpcError {
+  RpcErrorCode code = 1;
+  string message = 2;
+}
+
+enum RpcErrorCode {
+  RPC_ERROR_CODE_UNSPECIFIED = 0;
+  RPC_ERROR_CODE_PERMISSION_DENIED = 1;
+  RPC_ERROR_CODE_NOT_FOUND = 2;
+  RPC_ERROR_CODE_INVALID = 3;
+  RPC_ERROR_CODE_NOT_MEMBER = 4;
+  RPC_ERROR_CODE_RATE_LIMITED = 5;
+  RPC_ERROR_CODE_TOO_LARGE = 6;
+  RPC_ERROR_CODE_CONFLICT = 7;
+  RPC_ERROR_CODE_INTERNAL = 8;
+  RPC_ERROR_CODE_DISABLED = 9;
+}
+
+// First message the server sends after the handshake: what the member roll
+// says about this identity and device.
+message SessionStatus {
+  MemberStatus status = 1;
+  bool claimed = 2;
+}
+
+enum MemberStatus {
+  MEMBER_STATUS_UNSPECIFIED = 0;
+  MEMBER_STATUS_UNKNOWN = 1;   // not on the roll
+  MEMBER_STATUS_ACTIVE = 2;
+  MEMBER_STATUS_PENDING = 3;   // waiting in the approval queue
+  MEMBER_STATUS_REMOVED = 4;   // left, kicked, denied or replaced
+  MEMBER_STATUS_BANNED = 5;
+  MEMBER_STATUS_DEVICE_REVOKED = 6;
+  MEMBER_STATUS_DEVICE_LIMIT = 7;
+}
+
+// ---------------------------------------------------------------- settings
+
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  VISIBILITY_PRIVATE = 1;
+  VISIBILITY_PUBLIC = 2;
+}
+
+enum JoinPolicy {
+  JOIN_POLICY_UNSPECIFIED = 0;
+  JOIN_POLICY_INVITE_ONLY = 1;
+  JOIN_POLICY_REQUEST = 2;
+  JOIN_POLICY_OPEN = 3;
+}
+
+enum AuditVisibility {
+  AUDIT_VISIBILITY_UNSPECIFIED = 0;
+  AUDIT_VISIBILITY_ADMINS = 1;
+  AUDIT_VISIBILITY_EVERYONE = 2;
+}
+
+enum RelayMode {
+  RELAY_MODE_UNSPECIFIED = 0;
+  RELAY_MODE_AUTOMATIC = 1;
+  RELAY_MODE_PINNED = 2;
+}
+
+// Community settings (docs/settings.md). Every change is an audited admin action.
+message CommunitySettings {
+  string name = 1;
+  string description = 2;
+  bytes icon = 3;
+  string language = 4;
+  repeated string tags = 5;
+  Visibility visibility = 6;
+  JoinPolicy join_policy = 7;
+  AuditVisibility audit_visibility = 8;
+  // 0 keeps messages forever.
+  uint32 message_retention_days = 9;
+  uint32 file_retention_days = 10;
+  bool search_enabled = 11;
+  uint64 max_file_size = 12;
+  // Bytes per second the server sends for file downloads; 0 = no limit.
+  uint64 file_bandwidth_limit = 13;
+  RelayMode relay_mode = 14;
+  repeated string pinned_relays = 15;
+  uint32 max_devices_per_member = 16;
+  bool allow_contact_cards = 17;
+  // 0 = no limit.
+  uint32 max_members = 18;
+
+  // Feature toggles (docs/admin-guide.md "Feature toggles"). Absent means
+  // the documented default; the server stores every one explicitly. Off
+  // makes the feature unavailable everywhere: the server refuses it and
+  // clients hide it.
+  optional bool attachments_enabled = 20;      // default on (max size: max_file_size)
+  AttachmentKinds attachment_kinds = 21;       // default all
+  optional bool link_previews_enabled = 22;    // default off
+  optional bool reactions_enabled = 23;        // default on
+  optional bool custom_emoji_enabled = 24;     // default on
+  optional bool voice_enabled = 25;            // default on
+  optional bool video_enabled = 26;            // default on
+  optional bool screen_share_enabled = 27;     // default on
+  optional bool edit_own_enabled = 28;         // default on
+  optional bool delete_own_enabled = 29;       // default on
+  optional bool typing_enabled = 30;           // default on
+  optional bool new_members_see_history = 31;  // default on
+  optional bool join_leave_messages = 32;      // default on
+  // Where join and leave messages go (0 = the first text channel).
+  int64 join_leave_channel = 33;
+  // search_enabled (11) and allow_contact_cards (17) are toggles too.
+  // Member screening: minutes a new member waits after joining before they
+  // can post, react or fetch contact cards (0 = off, at most 10080 = 7 days).
+  uint32 screening_minutes = 60;
+  // How many custom emoji the community may have (1 to 250, default 50);
+  // the custom emoji toggle is custom_emoji_enabled (24).
+  uint32 max_custom_emoji = 62;
+  // Raid mode (lockdown): while on, every new join waits in the approval
+  // queue (with an invite or public join key too) and no invites can be
+  // created. Turning it off doesn't admit anyone waiting.
+  bool lockdown = 63;
+  // New-member restrictions: for this many minutes after joining, a member
+  // without a role can't post links, attach files or mention anyone (0 =
+  // off, at most 10080 = 7 days).
+  uint32 new_member_minutes = 64;
+}
+
+enum AttachmentKinds {
+  ATTACHMENT_KINDS_UNSPECIFIED = 0;  // treated as ALL
+  ATTACHMENT_KINDS_ALL = 1;
+  ATTACHMENT_KINDS_IMAGES_ONLY = 2;
+}
+
+// A channel's setting for a feature the community allows: inherit the
+// community setting, or turn it off in this channel.
+enum ChannelToggle {
+  CHANNEL_TOGGLE_INHERIT = 0;
+  CHANNEL_TOGGLE_OFF = 1;
+}
+
+// ---------------------------------------------------------------- core types
+
+message Channel {
+  int64 id = 1;
+  string name = 2;
+  ChannelKind kind = 3;
+  int32 position = 4;
+  // Only present for channels the member can read.
+  bytes topic = 5;
+  bytes key = 6;
+  uint32 key_epoch = 7;
+  // Effective permissions of the receiving member in this channel.
+  uint64 permissions = 8;
+  // Retention overrides; absent = use the community setting.
+  optional uint32 message_retention_days = 9;
+  optional uint32 file_retention_days = 10;
+  repeated ChannelOverride overrides = 11;
+  // The channel's topic text shown in its header ("topic" above is the
+  // relay topic).
+  string description = 20;
+  // 0 = not in a category.
+  int64 category_id = 21;
+  // The overrides are a copy of the category's (docs/admin-guide.md).
+  bool permissions_synced = 22;
+  // Seconds a member waits between messages; 0 = off.
+  uint32 slowmode_seconds = 23;
+  ChannelToggle attachments = 24;
+  ChannelToggle link_previews = 25;
+  ChannelToggle reactions = 26;
+  // OFF: members see only messages posted since they joined.
+  ChannelToggle history_for_new_members = 27;
+}
+
+// A category groups channels; its overrides are copied to the channels
+// synced with it.
+message Category {
+  int64 id = 1;
+  string name = 2;
+  int32 position = 3;
+  // Only sent to members who can manage channels or roles.
+  repeated ChannelOverride overrides = 4;
+}
+
+enum ChannelKind {
+  CHANNEL_KIND_UNSPECIFIED = 0;
+  CHANNEL_KIND_TEXT = 1;
+  CHANNEL_KIND_VOICE = 2;
+}
+
+// A per-channel override for a role (role_id) or one member (member;
+// role_id 0).
+message ChannelOverride {
+  int64 role_id = 1;
+  uint64 allow = 2;
+  uint64 deny = 3;
+  bytes member = 4;
+}
+
+message Role {
+  int64 id = 1;
+  string name = 2;
+  uint64 permissions = 3;
+  // 0 is @everyone; higher positions outrank lower ones.
+  int32 position = 4;
+  uint32 color = 5;
+  bool builtin = 6;
+  // Shown as its own group in the member list.
+  bool hoist = 10;
+  // Members may @mention it (Mention @everyone holders always may).
+  bool mentionable = 11;
+}
+
+message Member {
+  bytes key = 1;
+  string display_name = 2;
+  bool has_avatar = 3;
+  repeated int64 role_ids = 4;
+  int64 joined_at = 5;
+  int64 join_key_id = 6;
+  MemberStatus status = 7;
+  // The member holds a key in the community's current owner set.
+  bool owner = 8;
+  reserved 9;
+  reserved "co_owner";
+  uint32 avatar_version = 10;
+  // An owner invited this member to become an owner (docs/protocol.md §4.5).
+  bool owner_invited = 11;
+  // Server mute and deafen (Mute Members / Deafen Members).
+  bool voice_muted = 30;
+  bool voice_deafened = 31;
+  // Per-community nickname (shown instead of display_name when set), profile
+  // text and pronouns.
+  string nickname = 32;
+  string about = 33;
+  string pronouns = 34;
+  // The member has at least one open session (presence).
+  bool online = 35;
+  // Unix ms until which the member is timed out (0 = not timed out). Only
+  // sent to the member themself and to members who can time others out.
+  int64 timeout_until = 40;
+  // Unix ms from which member screening lets the member post (0 = now).
+  // Only sent to the member themself.
+  int64 can_post_at = 41;
+}
+
+message FileRef {
+  int64 file_id = 1;
+  string name = 2;
+  uint64 size = 3;
+  string mime = 4;
+  // ChaCha20-Poly1305 key for the stored chunks (docs/protocol.md §6.3).
+  bytes key = 5;
+  uint32 chunk_size = 6;
+}
+
+message Message {
+  int64 id = 1;
+  int64 channel_id = 2;
+  bytes author = 3;
+  string author_name = 4;
+  string text = 5;
+  int64 created_at = 6;  // unix milliseconds
+  int64 edited_at = 7;
+  bool deleted = 8;
+  reserved 9;
+  reserved "file";
+  int64 reply_to = 10;
+  // Members this message mentions (server-parsed from `<@member>` tokens).
+  repeated bytes mentions = 11;
+  // Up to 10 attachments.
+  repeated FileRef files = 20;
+  // Roles mentioned (`<@&role>`) that the author was allowed to mention.
+  repeated int64 mention_roles = 21;
+  // @everyone / @here, only when the author was allowed to mention them.
+  bool mention_everyone = 22;
+  bool mention_here = 23;
+  repeated Reaction reactions = 24;
+  bool pinned = 25;
+  LinkPreview preview = 26;
+  // Set on join/leave system messages (text is empty).
+  SystemEvent system = 27;
+}
+
+// One emoji's reactions. emoji is a Unicode emoji (at most 32 characters) or
+// a custom emoji reference ":name:id" (docs/protocol.md §4.3).
+message Reaction {
+  string emoji = 1;
+  repeated bytes members = 2;
+}
+
+// A link preview the community server fetched (docs/protocol.md §4.3).
+message LinkPreview {
+  string url = 1;
+  string title = 2;
+  string description = 3;
+  string site_name = 4;
+  // The og:image, fetched by the server and stored as a file.
+  FileRef image = 5;
+}
+
+message SystemEvent {
+  SystemEventKind kind = 1;
+  bytes member = 2;
+}
+
+enum SystemEventKind {
+  SYSTEM_EVENT_KIND_UNSPECIFIED = 0;
+  SYSTEM_EVENT_KIND_JOINED = 1;
+  SYSTEM_EVENT_KIND_LEFT = 2;
+}
+
+message JoinKey {
+  int64 id = 1;
+  string label = 2;
+  // The secret is only returned when the key is created.
+  string secret = 3;
+  bytes created_by = 4;
+  int64 created_at = 5;
+  int64 expires_at = 6;   // 0 = never
+  uint32 max_uses = 7;    // 0 = unlimited
+  uint32 uses = 8;
+  repeated int64 role_ids = 9;
+  bool request_only = 10;
+  bool revoked = 11;
+  bool public = 12;
+  string created_by_name = 13;
+}
+
+// ---------------------------------------------------------------- requests
+
+message GetInfo {}
+
+message CommunityInfo {
+  bytes owner_key = 1;
+  bytes server_key = 2;
+  string name = 3;
+  string description = 4;
+  string member_range = 5;
+  JoinPolicy join_policy = 6;
+  Visibility visibility = 7;
+  bytes icon = 8;
+  repeated string tags = 9;
+  string language = 10;
+  bool claimed = 11;
+}
+
+// Claims an unclaimed server. secret comes from the claim code; cert is the
+// new owner's certificate for this server's key.
+message Claim {
+  bytes secret = 1;
+  SignedServerCert cert = 2;
+  CommunitySettings settings = 3;
+  string display_name = 4;
+}
+
+message ClaimResult {
+  SyncState state = 1;
+  JoinKey first_invite = 2;
+}
+
+message Join {
+  // Join key secret; empty for open/request communities.
+  string join_key = 1;
+  string display_name = 2;
+}
+
+message JoinResult {
+  JoinStatus status = 1;
+  RefusalReason reason = 2;
+  SyncState state = 3;
+}
+
+enum JoinStatus {
+  JOIN_STATUS_UNSPECIFIED = 0;
+  JOIN_STATUS_ADMITTED = 1;
+  JOIN_STATUS_PENDING = 2;
+  JOIN_STATUS_REFUSED = 3;
+}
+
+enum RefusalReason {
+  REFUSAL_REASON_UNSPECIFIED = 0;
+  REFUSAL_REASON_KEY_INVALID = 1;
+  REFUSAL_REASON_KEY_REVOKED = 2;
+  REFUSAL_REASON_KEY_EXPIRED = 3;
+  REFUSAL_REASON_KEY_EXHAUSTED = 4;
+  REFUSAL_REASON_BANNED = 5;
+  REFUSAL_REASON_FULL = 6;
+  REFUSAL_REASON_INVITE_REQUIRED = 7;
+  REFUSAL_REASON_DENIED = 8;
+}
+
+message CheckStatus {}
+
+message Sync {}
+
+// Everything a member needs after login, filtered by their permissions.
+message SyncState {
+  CommunityInfo info = 1;
+  Member self = 2;
+  repeated Role roles = 3;
+  repeated Channel channels = 4;
+  CommunitySettings settings = 5;
+  // Effective community-level permissions of this member.
+  uint64 permissions = 6;
+  // The current cert, with the owner chain that verifies it.
+  SignedServerCert cert = 7;
+  reserved 8;
+  reserved "co_owners";
+  // The current owners (founder first while they remain). Clients check
+  // these keys against the verified owner chain in cert.
+  repeated OwnerEntry owners = 9;
+  // Owners only: members invited to become owners, and their key requests.
+  repeated PendingOwner pending_owners = 10;
+  // Channel categories, in order (docs/protocol.md §4.4).
+  repeated Category categories = 20;
+  // The community's custom emoji (empty while the toggle is off). Images
+  // are fetched with GetEmoji.
+  repeated CustomEmoji emoji = 40;
+  // The community runs on a dedicated relay that can block network
+  // addresses: it is pinned to relays that are all dedicated to this server
+  // (docs/protocol.md §2 "Dedicated relays"). Bans can then ask for a
+  // network block.
+  bool dedicated_relay = 41;
+  // What waits for this member in the moderator queues: only the counts
+  // their permissions let them see (docs/protocol.md §4.9).
+  ModQueue mod_queue = 42;
+}
+
+message OwnerEntry {
+  bytes owner_key = 1;
+  bytes member = 2;
+  string display_name = 3;
+  // The owner asked to be removed (docs/protocol.md §4.5): the server no
+  // longer treats them as an owner, and another owner's client signs the
+  // removal into the chain.
+  bool leaving = 4;
+}
+
+message PendingOwner {
+  bytes member = 1;
+  string display_name = 2;
+  // Absent until the member's client submits its owner key.
+  OwnerAdd add = 3;
+}
+
+message StateChanged {
+  SyncState state = 1;
+  // Present when the member's own status changed (admitted, removed, banned).
+  MemberStatus status = 2;
+}
+
+message History {
+  int64 channel_id = 1;
+  // Return messages with id < before_id (0 = newest), or id > after_id.
+  int64 before_id = 2;
+  int64 after_id = 3;
+  uint32 limit = 4;
+}
+
+message MessageList {
+  repeated Message messages = 1;
+  bool more = 2;
+}
+
+message Post {
+  int64 channel_id = 1;
+  string text = 2;
+  int64 reply_to = 3;
+  // Staged uploads (UploadBegin.staged) to attach, at most 10.
+  repeated int64 file_ids = 20;
+}
+
+message Edit {
+  int64 message_id = 1;
+  string text = 2;
+}
+
+message DeleteMessage {
+  int64 message_id = 1;
+}
+
+message Leave {}
+
+message SetProfile {
+  string display_name = 1;
+  bytes avatar = 2;
+  bool clear_avatar = 3;
+}
+
+message GetAvatar {
+  bytes member = 1;
+}
+
+message AvatarResult {
+  bytes member = 1;
+  bytes avatar = 2;
+  uint32 version = 3;
+}
+
+message ListMembers {}
+
+message MemberList {
+  repeated Member members = 1;
+}
+
+message ListJoinKeys {}
+
+message JoinKeyList {
+  repeated JoinKey keys = 1;
+}
+
+message ListPending {}
+
+message ListBans {}
+
+message Ban {
+  bytes key = 1;
+  string display_name = 2;
+  string reason = 3;
+  bytes banned_by = 4;
+  int64 at = 5;
+  // The ban's network block on the dedicated relay, if one was asked for,
+  // and when it ends (0 = when the ban is lifted).
+  NetworkBlockStatus network_block = 6;
+  int64 network_block_until = 7;
+}
+
+message BanList {
+  repeated Ban bans = 1;
+}
+
+message AuditQuery {
+  int64 before_id = 1;
+  uint32 limit = 2;
+  // Filters (all optional, combined with AND). action is an AdminAction op
+  // name (e.g. "ban") or "automod".
+  string action = 3;
+  bytes actor = 4;
+  bytes target = 5;
+  int64 since = 6;  // unix ms, inclusive
+  int64 until = 7;  // unix ms, exclusive
+}
+
+message AuditEntry {
+  int64 id = 1;
+  int64 at = 2;
+  bytes actor = 3;
+  string actor_name = 4;
+  string summary = 5;
+  // The admin's signed action, verifiable by anyone who can see the log.
+  // Absent for entries the server wrote itself (system = true).
+  SignedAction action = 6;
+  // The op name ("ban", "timeout", ...; "automod" for AutoMod entries;
+  // "delete_message", "pin" and "unpin" for message moderation).
+  string action_name = 7;
+  bytes target = 8;
+  string target_name = 9;
+  // Recorded by the server, not a signed admin action: AutoMod (no actor),
+  // or a moderator deleting someone else's message or (un)pinning one
+  // (actor set; target is the message's author).
+  bool system = 10;
+}
+
+message AuditList {
+  repeated AuditEntry entries = 1;
+  // Older entries may match: ask again with before_id = next_before_id.
+  bool more = 2;
+  int64 next_before_id = 3;
+}
+
+message SearchQuery {
+  string query = 1;
+  int64 channel_id = 2;  // 0 = all readable channels
+  uint32 limit = 3;
+}
+
+message SearchResults {
+  repeated Message messages = 1;
+}
+
+// Files (docs/protocol.md §6.3): upload in chunks over the session.
+message UploadBegin {
+  int64 channel_id = 1;
+  string name = 2;
+  uint64 size = 3;
+  string mime = 4;
+  string text = 5;
+  // Staged: UploadFinish answers with a StagedFile instead of posting a
+  // message; a later Post attaches it (with up to 9 others) by file id.
+  bool staged = 20;
+}
+
+message StagedFile {
+  FileRef file = 1;
+}
+
+message UploadStarted {
+  int64 upload_id = 1;
+  uint32 chunk_size = 2;
+}
+
+message UploadChunk {
+  int64 upload_id = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message UploadFinish {
+  int64 upload_id = 1;
+  bytes sha256 = 2;
+}
+
+message FileGet {
+  int64 file_id = 1;
+  uint32 chunk = 2;
+}
+
+// One stored chunk, still encrypted with FileRef.key.
+message FileChunk {
+  int64 file_id = 1;
+  uint32 chunk = 2;
+  uint32 chunks = 3;
+  bytes data = 4;
+}
+
+// ---------------------------------------------------------------- devices
+
+message ListDevices {}
+
+message Device {
+  bytes device_key = 1;  // Noise static key
+  string name = 2;
+  int64 first_seen = 3;
+  int64 last_seen = 4;
+  bool revoked = 5;
+}
+
+message DeviceList {
+  repeated Device devices = 1;
+}
+
+message DeviceRevocation {
+  bytes community = 1;  // owner key
+  bytes identity_key = 2;
+  bytes device_key = 3;
+  int64 at = 4;
+}
+
+// signature = Sign(identity_key, "openarcanum/device-revocation/v1" || revocation)
+message SignedDeviceRevocation {
+  bytes revocation = 1;
+  bytes signature = 2;
+}
+
+// ---------------------------------------------------------------- admin actions
+
+// Every admin action is signed by the acting member's identity key and kept in
+// the audit log. signature = Sign(actor, "openarcanum/admin-action/v1" || action).
+message SignedAction {
+  bytes action = 1;
+  bytes signature = 2;
+}
+
+message AdminAction {
+  bytes community = 1;  // owner key, so an action can't be replayed elsewhere
+  bytes actor = 2;
+  int64 at = 3;         // unix milliseconds; the server rejects stale actions
+  bytes nonce = 4;
+  oneof op {
+    CommunitySettings update_settings = 10;
+    CreateJoinKey create_join_key = 11;
+    RevokeJoinKey revoke_join_key = 12;
+    CreateChannel create_channel = 13;
+    EditChannel edit_channel = 14;
+    DeleteChannel delete_channel = 15;
+    CreateRole create_role = 16;
+    EditRole edit_role = 17;
+    DeleteRole delete_role = 18;
+    ReorderRoles reorder_roles = 19;
+    SetChannelOverride set_channel_override = 20;
+    AssignRoles assign_roles = 21;
+    Kick kick = 22;
+    BanMember ban = 23;
+    Unban unban = 24;
+    Approve approve = 25;
+    Deny deny = 26;
+    RaidRevoke raid_revoke = 27;
+    ReplaceMember replace_member = 28;
+    PrepareKeyRotation prepare_key_rotation = 30;
+    CommitKeyRotation commit_key_rotation = 31;
+    ServerBackup server_backup = 32;
+    InviteOwner invite_owner = 33;
+    SubmitOwnerKey submit_owner_key = 34;
+    ChangeOwners change_owners = 35;
+    CreateCategory create_category = 40;
+    EditCategory edit_category = 41;
+    DeleteCategory delete_category = 42;
+    ReorderCategories reorder_categories = 43;
+    ReorderChannels reorder_channels = 44;
+    VoiceMute voice_mute = 120;
+    VoiceDeafen voice_deafen = 121;
+    VoiceMove voice_move = 122;
+    // Messaging (docs/protocol.md §4.3).
+    SetNickname set_nickname = 60;
+    TimeoutMember timeout = 70;
+    BulkDelete bulk_delete = 71;
+    SaveAutoModRule save_automod_rule = 72;
+    DeleteAutoModRule delete_automod_rule = 73;
+    ResolveReport resolve_report = 74;
+    AddEmoji add_emoji = 75;
+    RenameEmoji rename_emoji = 76;
+    DeleteEmoji delete_emoji = 77;
+    BulkRemove bulk_remove = 78;
+  }
+  reserved 29;
+  reserved "set_co_owner";
+}
+
+message CreateJoinKey {
+  string label = 1;
+  uint64 expires_in_seconds = 2;  // 0 = never
+  uint32 max_uses = 3;            // 0 = unlimited
+  repeated int64 role_ids = 4;
+  bool request_only = 5;
+  bool public = 6;
+}
+
+message RevokeJoinKey { int64 id = 1; }
+
+message CreateChannel {
+  string name = 1;
+  ChannelKind kind = 2;
+  // 0 = no category. A new channel in a category starts synced with it.
+  int64 category_id = 3;
+  string description = 4;
+}
+
+// Absent optional fields are left unchanged.
+message EditChannel {
+  int64 id = 1;
+  string name = 2;
+  int32 position = 3;
+  optional uint32 message_retention_days = 4;
+  optional uint32 file_retention_days = 5;
+  bool clear_retention = 6;
+  optional string description = 7;
+  // Move to another category (0 = none). A synced channel takes the new
+  // category's overrides.
+  optional int64 category_id = 8;
+  // Copy the category's overrides to the channel and keep it synced.
+  bool sync_permissions = 9;
+  optional uint32 slowmode_seconds = 10;
+  optional ChannelToggle attachments = 11;
+  optional ChannelToggle link_previews = 12;
+  optional ChannelToggle reactions = 13;
+  optional ChannelToggle history_for_new_members = 14;
+}
+
+message CreateCategory { string name = 1; }
+
+message EditCategory {
+  int64 id = 1;
+  string name = 2;
+}
+
+// Its channels move out of the category; they are kept.
+message DeleteCategory { int64 id = 1; }
+
+// Every category id, top first.
+message ReorderCategories { repeated int64 category_ids = 1; }
+
+// Every channel id in one category (0 = uncategorized), top first.
+message ReorderChannels {
+  int64 category_id = 1;
+  repeated int64 channel_ids = 2;
+}
+
+message DeleteChannel { int64 id = 1; }
+
+message CreateRole {
+  string name = 1;
+  uint64 permissions = 2;
+  uint32 color = 3;
+  bool hoist = 4;
+  bool mentionable = 5;
+}
+
+message EditRole {
+  int64 id = 1;
+  string name = 2;
+  uint64 permissions = 3;
+  uint32 color = 4;
+  bool hoist = 5;
+  bool mentionable = 6;
+}
+
+message DeleteRole { int64 id = 1; }
+
+// Role ids from lowest to highest; @everyone is always lowest and omitted.
+message ReorderRoles { repeated int64 role_ids = 1; }
+
+// Sets (or, with allow = deny = 0, removes) one override on a channel, or
+// on a category (category_id, channel_id 0), for a role or one member
+// (member set, role_id 0). Editing a channel's overrides unsyncs it;
+// editing a category's updates its synced channels.
+message SetChannelOverride {
+  int64 channel_id = 1;
+  int64 role_id = 2;
+  uint64 allow = 3;
+  uint64 deny = 4;
+  bytes member = 5;
+  int64 category_id = 6;
+}
+
+message AssignRoles {
+  bytes member = 1;
+  repeated int64 role_ids = 2;
+}
+
+message Kick {
+  bytes member = 1;
+  string reason = 2;
+}
+
+message BanMember {
+  bytes member = 1;
+  string reason = 2;
+  // Also delete the member's messages from this many seconds before the ban
+  // (0, 3600, 21600, 86400, 259200 or 604800).
+  uint32 delete_message_seconds = 3;
+  // Also block the member's network address on the community's dedicated
+  // relay (docs/protocol.md §4.7 "Network blocks"), for block_seconds
+  // (86400, 604800 or 2592000; 0 = until the ban is lifted).
+  bool block_network = 4;
+  uint32 block_seconds = 5;
+}
+
+// A network block on the community's dedicated relay (§4.7).
+enum NetworkBlockStatus {
+  NETWORK_BLOCK_STATUS_UNSPECIFIED = 0;  // none asked for
+  NETWORK_BLOCK_STATUS_BLOCKED = 1;      // the relay blocks the address
+  // The member wasn't connected: their address is blocked when they next
+  // try to connect through the dedicated relay.
+  NETWORK_BLOCK_STATUS_PENDING = 2;
+  // Their address is the community server's own network, which a relay
+  // never blocks.
+  NETWORK_BLOCK_STATUS_SKIPPED = 3;
+}
+
+message Unban { bytes member = 1; }
+
+message Approve { bytes member = 1; }
+
+message Deny { bytes member = 1; }
+
+// Revoke a join key and remove everyone who joined with it in the last `hours`.
+message RaidRevoke {
+  int64 join_key_id = 1;
+  uint32 hours = 2;
+}
+
+// Move the old key's roles to the new key (which must already be a member)
+// and remove the old key.
+message ReplaceMember {
+  bytes old_key = 1;
+  bytes new_key = 2;
+}
+
+// Owner set (docs/protocol.md §4.5). An owner invites a member (or cancels
+// the invitation; the member may decline their own). The invited member's
+// client submits an owner key it generated. An owner then signs the change
+// that adds it, or one that removes an owner key, together with a new cert
+// for the current server key under the changed set.
+message InviteOwner {
+  bytes member = 1;
+  bool cancel = 2;
+}
+
+message SubmitOwnerKey {
+  OwnerAdd add = 1;
+}
+
+message ChangeOwners {
+  SignedOwnerChange change = 1;
+  SignedServerCert cert = 2;
+}
+
+// A member's nickname: their own (Change Nickname) or someone else's (Manage
+// Nicknames, below the actor's highest role). Empty clears it.
+message SetNickname {
+  bytes member = 1;
+  string nickname = 2;
+}
+
+message PrepareKeyRotation {}
+
+message CommitKeyRotation {
+  SignedServerCert cert = 1;
+}
+
+message ServerBackup {}
+
+message AdminResult {
+  JoinKey join_key = 1;
+  int64 id = 2;
+  bytes new_server_key = 3;
+  string backup_path = 4;
+  uint32 removed = 5;
+  // Messages deleted by a bulk delete or a ban's history deletion.
+  uint32 deleted = 30;
+  // A ban's network block (BanMember.block_network).
+  NetworkBlockStatus network_block = 31;
+}
+
+// Used when moving a community to new hardware: the owner presents a cert for
+// the restored server's new key (docs/protocol.md §8).
+message AdoptServer {
+  bytes secret = 1;
+  SignedServerCert cert = 2;
+}
+
+// ---------------------------------------------------------------- contact cards
+
+// One-time keys are stored per device (the device's Olm curve25519 key) and
+// handed out one per device per request, then deleted (docs/protocol.md §9.2).
+message KeyPackage {
+  bytes device = 1;
+  // Serialized OneTimeKey (dm.proto); opaque to the server.
+  bytes package = 2;
+}
+
+message DeviceKeyCount {
+  bytes device = 1;
+  uint32 left = 2;
+}
+
+message PublishContactCard {
+  // Serialized SignedContactCard (dm.proto); empty removes the card and
+  // every key package.
+  bytes card = 1;
+  repeated KeyPackage key_packages = 3;
+  // Every device in the card. Key packages of any other device are deleted.
+  repeated bytes devices = 4;
+  reserved 2;
+}
+
+message AddKeyPackages {
+  repeated KeyPackage key_packages = 2;
+  reserved 1;
+}
+
+message GetContactCard {
+  bytes member = 1;
+}
+
+message ContactCardResult {
+  bytes card = 1;
+  // One key package per device that has any left, each handed out once.
+  repeated KeyPackage key_packages = 4;
+  // Packages left per device (so the card's owner knows when to top up).
+  repeated DeviceKeyCount left = 5;
+  reserved 2, 3;
+}
+
+// ---------------------------------------------------------------- voice (docs/protocol.md §12)
+//
+// Media is WebRTC between each participant and the call's relay, whose SFU
+// forwards it without keys (call.proto). The server picks the relay, admits
+// participants with signed grants, sends moderator controls to the relay,
+// and hands out the call key, which changes on every join and leave. A
+// sender's SFrame key id is key_epoch << 8 | slot.
+
+message VoiceJoin {
+  int64 channel_id = 1;
+  // Already in this call: a fresh grant for the same participant (to
+  // reconnect to the relay), without changing the key.
+  bool rejoin = 2;
+  // The call's relay can't be reached from here (docs/protocol.md §12.4).
+  string failed_relay = 3;
+}
+
+message VoiceLeave {
+  int64 channel_id = 1;
+}
+
+// What this participant is doing, for everyone's participant list.
+message VoiceState {
+  int64 channel_id = 1;
+  bool self_mute = 2;
+  bool self_deaf = 3;
+  bool camera = 4;
+  bool screen = 5;
+  // Priority speaker switched on (others are quieter while this participant
+  // talks); honoured only with the Priority speaker permission. Off by
+  // default.
+  bool priority = 6;
+}
+
+message VoiceParticipant {
+  bytes member = 1;
+  string display_name = 2;
+  reserved 3, 4;
+  reserved "topic", "kid";
+  // No Speak permission: listens only.
+  bool listen_only = 5;
+  // Random per join: the relay's name for this participant (its media
+  // tracks carry it, hex, as their stream id).
+  bytes participant = 10;
+  // 1..255; the low byte of every SFrame key id it sends under.
+  uint32 slot = 11;
+  bool self_mute = 12;
+  bool self_deaf = 13;
+  bool server_mute = 14;
+  bool server_deaf = 15;
+  bool camera = 16;
+  bool screen = 17;
+  bool priority = 18;
+}
+
+message VoiceSession {
+  int64 channel_id = 1;
+  reserved 2, 3;
+  reserved "own_topic", "own_kid";
+  bytes call_key = 4;
+  uint32 key_epoch = 5;
+  repeated VoiceParticipant participants = 6;
+  // The relay (ws URL) whose SFU carries the call.
+  string relay = 7;
+  // This member lacks Speak: they only listen.
+  bool listen_only = 8;
+  // Admission to the relay's SFU (call.proto), valid for 10 minutes; ask
+  // again with VoiceJoin{rejoin} to reconnect later.
+  SignedCallGrant grant = 10;
+  bytes participant = 11;
+  uint32 slot = 12;
+  // What this member may do in this channel.
+  bool can_video = 13;
+  bool can_screen = 14;
+  bool can_voice_activity = 15;
+  bool priority = 16;
+  bool server_mute = 17;
+  bool server_deaf = 18;
+  // Set when the call ended for this member: a moderator moved them
+  // (moved_to is the channel to join), disconnected them, or the channel
+  // went away.
+  int64 moved_to = 19;
+  string ended = 20;
+  // The call's current control, to hand to the relay with CallJoin.
+  SignedCallControl control = 21;
+}
+
+message VoiceUpdate {
+  VoiceSession session = 1;
+}
+
+// Who is in each voice channel the member can see (the whole list, sent
+// after sync and whenever it changes). No participant ids or keys.
+message VoiceRooms {
+  repeated VoiceRoom rooms = 1;
+}
+
+message VoiceRoom {
+  int64 channel_id = 1;
+  repeated VoiceParticipant participants = 2;
+}
+
+// Moderator actions on voice (AdminAction): Mute Members, Deafen Members,
+// Move Members. A server mute or deafen stays with the member across calls
+// until lifted.
+message VoiceMute {
+  bytes member = 1;
+  bool muted = 2;
+}
+
+message VoiceDeafen {
+  bytes member = 1;
+  bool deafened = 2;
+}
+
+// channel_id 0 disconnects the member from voice.
+message VoiceMove {
+  bytes member = 1;
+  int64 channel_id = 2;
+}
+
+// ---------------------------------------------------------------- channel topics
+
+// What the server publishes to a channel topic: signed by the server key,
+// encrypted with the channel key.
+// signature = Sign(server_key, "openarcanum/channel-envelope/v1" || envelope)
+message SignedEnvelope {
+  bytes envelope = 1;
+  bytes signature = 2;
+}
+
+// ciphertext = ChaCha20-Poly1305(channel key, nonce, ChannelEvent,
+//              aad = "openarcanum/channel-event/v1" || channel_id (8 bytes BE) || key_epoch (4 bytes BE))
+message ChannelEnvelope {
+  int64 channel_id = 1;
+  uint32 key_epoch = 2;
+  bytes nonce = 3;
+  bytes ciphertext = 4;
+}
+
+message ChannelEvent {
+  // 11 is reserved: an earlier whole-message update, superseded by `update`.
+  reserved 11;
+  reserved "updated";
+  oneof kind {
+    Message message = 1;
+    Message edited = 2;
+    int64 deleted = 3;
+    // Live only, never stored.
+    TypingEvent typing = 10;
+    // Reactions, pin state or link preview changed (not an edit). Carries
+    // the message id and the changed part only, never the message text:
+    // everyone holding the channel key receives it, including members who
+    // may not read that message's history.
+    MessageUpdate update = 12;
+    // Several messages deleted at once (bulk delete, ban history deletion).
+    DeletedMessages deleted_many = 20;
+  }
+}
+
+// A change to a message that isn't an edit (docs/protocol.md §4.3): its
+// reactions, pin state or link preview. Clients apply it to a message they
+// already have and ignore it otherwise.
+message MessageUpdate {
+  int64 message_id = 1;
+  int64 channel_id = 2;
+  oneof change {
+    ReactionList reactions = 3;
+    bool pinned = 4;
+    LinkPreview preview = 5;
+  }
+}
+
+message ReactionList {
+  repeated Reaction reactions = 1;
+}
+
+message TypingEvent {
+  bytes member = 1;
+  string name = 2;
+}
+
+// ---------------------------------------------------------------- messaging requests
+
+// Add (or, with remove, take back) the caller's reaction.
+message React {
+  int64 message_id = 1;
+  string emoji = 2;
+  bool remove = 3;
+}
+
+// Pin or unpin a message (Manage Messages).
+message Pin {
+  int64 message_id = 1;
+  bool unpin = 2;
+}
+
+message ListPins {
+  int64 channel_id = 1;
+}
+
+// Newest pin first.
+message PinList {
+  repeated Message messages = 1;
+}
+
+// "I'm typing" in a channel; the server publishes a TypingEvent to the
+// channel topic (rate limited, not stored).
+message Typing {
+  int64 channel_id = 1;
+}
+
+// The caller's profile in this community. Nicknames are set with the
+// SetNickname admin action.
+message UpdateProfile {
+  string about = 1;
+  string pronouns = 2;
+}
+
+// Pushed when a member's first session opens or last session closes.
+message PresenceUpdate {
+  bytes member = 1;
+  bool online = 2;
+}
+
+// Members who came online or went offline since the last batch, at most one
+// entry per member (their latest state).
+message PresenceBatch {
+  repeated PresenceUpdate updates = 1;
+  // Members whose status devices or status ciphertext changed since the
+  // last batch, each with its current entry (docs/protocol.md §4.11).
+  repeated StatusEntry statuses = 2;
+}
+
+// ---------------------------------------------------------------- statuses (docs/protocol.md §4.11)
+//
+// A member's status (state, custom text, expiry) is end-to-end encrypted by
+// their client (vodozemac Megolm, one outbound session per audience; the
+// session key goes to each recipient device over Olm). The server stores
+// and forwards only opaque bytes: public status-device entries, Olm key
+// drops and Megolm ciphertexts. The one thing it reads is `invisible`,
+// which it must honour to hide the member's presence.
+
+// Register (or replace) one of the caller's devices as able to receive
+// statuses here. `entry` is a serialized SignedStatusDevice (dm.proto),
+// signed by the member key; the server stores it opaquely. An empty entry
+// removes the device.
+message SetStatusDevice {
+  bytes entry = 1;
+  // The device's status Olm key (curve25519): which entry this replaces.
+  bytes device = 2;
+}
+
+message SetStatus {
+  // The caller's status for this community's audience: "FDM2" || Envelope
+  // (dm.proto) holding a Megolm message. Empty: no status shared here.
+  bytes blob = 1;
+  // Hide the caller's online state from other members (Invisible).
+  bool invisible = 2;
+  // Change only `invisible`, leaving the stored blob as it is.
+  bool keep_blob = 3;
+}
+
+// One page of entries, in member key order, starting after `after`.
+message ListStatuses {
+  bytes after = 1;
+}
+
+message StatusEntry {
+  bytes member = 1;
+  // Serialized SignedStatusDevice entries (dm.proto), at most 10.
+  repeated bytes devices = 2;
+  bytes blob = 3;
+}
+
+message StatusList {
+  repeated StatusEntry entries = 1;
+  // The caller's own Invisible flag as the server holds it.
+  bool invisible = 2;
+  // More entries follow: ask again with `after` = the last member here.
+  bool more = 3;
+}
+
+// An Olm message for one recipient device: "FDM2" || Envelope (dm.proto)
+// holding an OlmEnvelope whose payload is a StatusKey.
+message StatusKeyDrop {
+  bytes member = 1;
+  // The recipient device's status Olm key (curve25519).
+  bytes device = 2;
+  bytes envelope = 3;
+}
+
+message SendStatusKeys {
+  repeated StatusKeyDrop drops = 1;
+}
+
+// Returns the key drops waiting for one of the caller's devices (its status
+// Olm key, `device`); `ack` deletes drops it has handled (ids from an
+// earlier StatusKeys).
+message FetchStatusKeys {
+  repeated uint64 ack = 1;
+  bytes device = 2;
+}
+
+message StatusKeyItem {
+  uint64 id = 1;
+  bytes sender = 2;
+  bytes device = 3;
+  bytes envelope = 4;
+}
+
+message StatusKeys {
+  repeated StatusKeyItem items = 1;
+  // More are waiting than fit in one reply.
+  bool more = 2;
+}
+
+// The caller's device `device` can't decrypt `member`'s status: the server
+// passes the request to that member's sessions (StatusKeyRequest).
+message RequestStatusKey {
+  bytes member = 1;
+  bytes device = 2;
+}
+
+message StatusKeyRequest {
+  // Who is asking, and for which of their devices.
+  bytes member = 1;
+  bytes device = 2;
+}
+
+message DeletedMessages {
+  repeated int64 ids = 1;
+}
+
+// ---------------------------------------------------------------- moderation (docs/protocol.md §4.7 to §4.9)
+
+// Time a member out for `seconds` (60 to 2419200 = 28 days); 0 lifts a
+// timeout. A timed-out member can read but can't post, react, speak, start
+// typing or change their nickname.
+message TimeoutMember {
+  bytes member = 1;
+  uint32 seconds = 2;
+  string reason = 3;
+}
+
+// Delete up to 100 messages in one channel: the listed ids, or the channel's
+// `last` newest messages. One audit entry.
+// Kick or ban up to 100 members at once (the member list's selection). Every
+// member is checked as for Kick or BanMember before any is removed; a ban
+// may delete their recent messages (BanMember.delete_message_seconds).
+message BulkRemove {
+  repeated bytes members = 1;
+  bool ban = 2;
+  string reason = 3;
+  uint32 delete_message_seconds = 4;
+}
+
+message BulkDelete {
+  int64 channel_id = 1;
+  repeated int64 message_ids = 2;
+  uint32 last = 3;
+}
+
+// Any member reports a message to the moderator queue.
+message ReportMessage {
+  int64 message_id = 1;
+  string reason = 2;  // at most 500 characters
+}
+
+message ListReports {
+  // Also list resolved and dismissed reports.
+  bool include_closed = 1;
+  int64 before_id = 2;
+  uint32 limit = 3;
+}
+
+enum ReportKind {
+  REPORT_KIND_UNSPECIFIED = 0;
+  REPORT_KIND_MEMBER = 1;   // a member reported a message
+  REPORT_KIND_AUTOMOD = 2;  // an AutoMod rule alerted moderators
+}
+
+enum ReportStatus {
+  REPORT_STATUS_UNSPECIFIED = 0;
+  REPORT_STATUS_OPEN = 1;
+  REPORT_STATUS_RESOLVED = 2;
+  REPORT_STATUS_DISMISSED = 3;
+}
+
+message Report {
+  int64 id = 1;
+  ReportKind kind = 2;
+  ReportStatus status = 3;
+  int64 created_at = 4;
+  bytes reporter = 5;  // empty for AutoMod alerts
+  string reporter_name = 6;
+  // The reported message (0 when AutoMod blocked it, so it was never stored).
+  int64 message_id = 7;
+  int64 channel_id = 8;
+  bytes author = 9;
+  string author_name = 10;
+  string reason = 11;
+  int64 rule_id = 12;
+  string rule_name = 13;
+  // What AutoMod did: "blocked", "alerted", "timed out for 10 minutes".
+  string automod_action = 14;
+  bytes resolved_by = 15;
+  string resolved_by_name = 16;
+  int64 resolved_at = 17;
+}
+
+message ReportList {
+  repeated Report reports = 1;
+  bool more = 2;
+}
+
+message ResolveReport {
+  int64 id = 1;
+  bool dismiss = 2;
+}
+
+message ModAlert {
+  Report report = 1;
+}
+
+// Counts of what waits in the moderator queues. Each count is filled only
+// for a member allowed to see that queue, and is 0 otherwise.
+message ModQueue {
+  // Open reports and AutoMod alerts (Manage Messages).
+  uint32 open_reports = 1;
+  // Join requests in the approval queue (Approve Members).
+  uint32 pending_members = 2;
+}
+
+// ---------------------------------------------------------------- AutoMod
+
+enum AutoModTrigger {
+  AUTOMOD_TRIGGER_UNSPECIFIED = 0;
+  // Keyword list and/or RE2 regular expressions.
+  AUTOMOD_TRIGGER_KEYWORD = 1;
+  // More than mention_limit distinct @mentions in one message.
+  AUTOMOD_TRIGGER_MENTION_SPAM = 2;
+  // Any link whose host isn't in allowed_domains (empty = every link).
+  AUTOMOD_TRIGGER_LINKS = 3;
+}
+
+message AutoModRule {
+  int64 id = 1;
+  string name = 2;
+  bool enabled = 3;
+  AutoModTrigger trigger = 4;
+  repeated string keywords = 5;
+  repeated string patterns = 6;
+  uint32 mention_limit = 7;
+  repeated string allowed_domains = 8;
+  // Actions (at least one).
+  bool block = 9;
+  bool alert = 10;
+  uint32 timeout_seconds = 11;
+  repeated int64 exempt_role_ids = 12;
+  repeated int64 exempt_channel_ids = 13;
+}
+
+// id 0 creates a rule.
+message SaveAutoModRule {
+  AutoModRule rule = 1;
+}
+
+message DeleteAutoModRule {
+  int64 id = 1;
+}
+
+message ListAutoModRules {}
+
+message AutoModRuleList {
+  repeated AutoModRule rules = 1;
+}
+
+// ---------------------------------------------------------------- custom emoji
+
+message CustomEmoji {
+  int64 id = 1;
+  string name = 2;  // [a-z0-9_]{2,32}, unique
+  bool animated = 3;
+  string mime = 4;
+  uint32 size = 5;
+  // Bumped when the image is replaced (cache key).
+  uint32 version = 6;
+}
+
+// The signed half of an emoji upload: the image itself travels next to the
+// signed action in EmojiUpload, so the audit log keeps only its hash.
+message AddEmoji {
+  string name = 1;
+  bytes sha256 = 2;
+  uint32 size = 3;
+}
+
+message EmojiUpload {
+  SignedAction action = 1;  // an AdminAction with add_emoji
+  bytes image = 2;          // PNG, GIF or WebP, at most 256 KiB and 128x128 px
+}
+
+message RenameEmoji {
+  int64 id = 1;
+  string name = 2;
+}
+
+message DeleteEmoji {
+  int64 id = 1;
+}
+
+message GetEmoji {
+  int64 id = 1;
+}
+
+message EmojiImage {
+  int64 id = 1;
+  bytes image = 2;
+  string mime = 3;
+  uint32 version = 4;
+}

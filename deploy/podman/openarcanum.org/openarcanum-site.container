@@ -1,0 +1,52 @@
+# OpenArcanum website on openarcanum.org.
+# Quadlet file: /home/openarcanum/.config/containers/systemd/openarcanum-site.container
+# systemd (user openarcanum) generates openarcanum-site.service from it.
+
+[Unit]
+Description=OpenArcanum website (openarcanum.org)
+
+[Container]
+# Pin the release. To upgrade or roll back, change the tag (README.md).
+Image=ghcr.io/hyperkubeorg/openarcanum-site:2026.10.0
+ContainerName=openarcanum-site
+# podman auto-update pulls this tag again and restarts when its digest changed.
+AutoUpdate=registry
+Exec=-config /etc/openarcanum/site.json
+
+# Host network: the site binds 443 itself (sysctl ip_unprivileged_port_start)
+# and sees real client addresses for the report forms' rate limits.
+Network=host
+# The image runs as uid 65532. Map that uid to the host user openarcanum,
+# so the bind-mounted directories are simply owned by openarcanum.
+UserNS=keep-id:uid=65532,gid=65532
+# :Z gives each directory a private SELinux label for this container.
+Volume=/home/openarcanum/site/config:/etc/openarcanum:ro,Z
+Volume=/home/openarcanum/site/data:/data:Z
+Volume=/home/openarcanum/site/keys:/keys:Z
+Volume=/home/openarcanum/site/acme:/acme:Z
+
+# The image sets OPENARCANUM_SITE_LISTEN=:7300, and the environment wins
+# over the config file, so the public port is set here. Plain HTTP (the
+# redirect to https) listens on 7380; firewalld forwards port 80 to it.
+Environment=OPENARCANUM_SITE_LISTEN=:443
+Environment=OPENARCANUM_SITE_HTTP_LISTEN=:7380
+
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+Ulimit=nofile=65536:65536
+LogDriver=journald
+# The image's health check asks http://127.0.0.1:7301/healthz, the status
+# listener. Restart the service when it fails.
+HealthOnFailure=kill
+PodmanArgs=--stop-timeout=30
+
+[Service]
+Restart=always
+RestartSec=5
+# The first start pulls the image.
+TimeoutStartSec=900
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: openarcanum
+description: >-
+  The OpenArcanum servers: a maintainer node (directory, relay registry, DM
+  mailboxes and blob store), a relay (WebSocket routing and the keyless call
+  SFU) and a community server. docs/kubernetes.md explains the values and
+  the local kind cluster (`make kind-up`).
+type: application
+version: 2026.10.0
+appVersion: "2026.10.0"

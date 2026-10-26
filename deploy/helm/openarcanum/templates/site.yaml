@@ -1,0 +1,138 @@
+{{- if .Values.site.enabled }}
+{{- /*
+The project website (docs/operations.md "Website"): one pod, its database
+on one volume claim and the key that seals reports on another (as in the
+image: a copy of the data never carries the key). Create admins with
+  kubectl exec -it deploy/<release>-site -- site admin add NAME
+*/}}
+{{- $tls := .Values.site.tls }}
+{{- include "openarcanum.checkTLS" (dict "what" "site" "tls" $tls "domains" $tls.domains) }}
+{{- $name := printf "%s-site" (include "openarcanum.fullname" .) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: site
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.site.storage.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.site.storage.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-keys
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: site
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.site.storage.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.site.storage.keysSize }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: site
+spec:
+  selector:
+    {{- include "openarcanum.selector" (dict "root" . "component" "site") | nindent 4 }}
+  ports:
+    - name: {{ ternary "http" "https" (eq $tls.mode "off") }}
+      port: {{ include "openarcanum.servicePort" (dict "tls" $tls "port" .Values.site.port) }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: site
+spec:
+  replicas: 1
+  # One writer for the SQLite database on the volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openarcanum.selector" (dict "root" . "component" "site") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openarcanum.selector" (dict "root" . "component" "site") | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "openarcanum.podSecurity" . | nindent 8 }}
+      containers:
+        - name: site
+          image: {{ include "openarcanum.image" (dict "root" . "component" "site") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "openarcanum.containerSecurity" . | nindent 12 }}
+          env:
+            - name: OPENARCANUM_SITE_LISTEN
+              value: ":{{ .Values.site.port }}"
+            - name: OPENARCANUM_SITE_DATA_DIR
+              value: /data
+            - name: OPENARCANUM_SITE_STORAGE_KEY_FILE
+              value: /keys/storage.key
+            - name: OPENARCANUM_SITE_METRICS_LISTEN
+              value: 127.0.0.1:7301
+            - name: OPENARCANUM_SITE_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            {{- /* acme_cache_dir: the site's default, /data/acme on its volume. */}}
+            {{- include "openarcanum.tlsEnv" (dict "prefix" "OPENARCANUM_SITE" "tls" $tls "domains" $tls.domains "cache" "") | nindent 12 }}
+            {{- include "openarcanum.extraEnv" .Values.site.env | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.site.port }}
+          # The status listener is on loopback, and the site answers only
+          # its own host names: the probes run the binary's health check.
+          readinessProbe:
+            exec: {command: ["/usr/local/bin/site", "healthcheck", "http://127.0.0.1:7301/healthz"]}
+            periodSeconds: 10
+          livenessProbe:
+            exec: {command: ["/usr/local/bin/site", "healthcheck", "http://127.0.0.1:7301/healthz"]}
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: keys, mountPath: /keys}
+            - {name: tmp, mountPath: /tmp}
+            {{- if eq $tls.mode "files" }}
+            - {name: tls, mountPath: /tls, readOnly: true}
+            {{- end }}
+          {{- with .Values.site.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+        - name: keys
+          persistentVolumeClaim:
+            claimName: {{ $name }}-keys
+        - name: tmp
+          emptyDir: {}
+        {{- if eq $tls.mode "files" }}
+        - name: tls
+          secret:
+            secretName: {{ $tls.secretName }}
+            defaultMode: 0440
+        {{- end }}
+{{- end }}

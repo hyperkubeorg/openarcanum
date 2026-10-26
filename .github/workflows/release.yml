@@ -1,0 +1,370 @@
+# Release build (docs/release.md): on a version tag v<VERSION>, or by hand.
+#
+#   version   the tag must equal v<VERSION> (scripts/version); outputs the
+#             version, whether it is a beta, and whether this run releases
+#   linux     ubuntu-22.04 (glibc 2.35): the bundle, smoke-run, as an AppImage
+#             and a tar.gz
+#   windows   the Inno Setup installer (per-user), installed, smoke-run,
+#             upgraded and uninstalled first
+#   macos     Apple silicon: the .app in a .dmg, smoke-run from the image
+#   servers   static relay/meta/community for linux amd64 and arm64, run
+#             (arm64 under qemu-user) and version-checked
+#   manifest  the signed update manifest (only for a tag; the "release"
+#             environment with required reviewers holds the key)
+#   release   a DRAFT GitHub Release for the tag with every file, SHA256SUMS
+#             and its keyless Sigstore signature; a maintainer publishes it
+#
+# Every desktop build is self-contained: PyInstaller bundles the Python
+# runtime and every library, and the Go community server (servers/) is
+# built per platform inside the bundle, so users install neither Python nor
+# Go. Release file names use "openarcanum".
+#
+# Signing happens only when the secrets exist; otherwise the step logs a
+# notice and the artifact is unsigned (docs/release.md "Without the secrets"):
+#   WINDOWS_CERT_PFX (base64 PFX), WINDOWS_CERT_PASSWORD         -> signtool
+#   APPLE_DEVELOPER_ID_P12 (base64), APPLE_DEVELOPER_ID_PASSWORD  -> codesign
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD                   -> notarytool + stapler
+#   RELEASE_SIGNING_KEY (Ed25519 PKCS#8 PEM; a secret of the "release"
+#     environment, which has required reviewers)                 -> manifest.json
+# The manifest names the files at
+# https://github.com/hyperkubeorg/openarcanum/releases/download/<tag>/<file>,
+# or at <RELEASE_BASE_URL>/<version>/<file> when that repository variable is
+# set (another host).
+#
+# Manual dispatch from a tag does the same as pushing it (a re-run adds to,
+# or replaces files in, that tag's draft); from a branch it builds and
+# keeps the files as workflow artifacts only (no manifest, no release).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.13.5"
+  REPO_URL: https://github.com/hyperkubeorg/openarcanum
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - id: v
+        name: The tag matches VERSION and its copies
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            python3 scripts/version info --tag "$GITHUB_REF_NAME" --github-output "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            python3 scripts/version info --github-output "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Not a release::$GITHUB_REF_NAME is not a tag: the files are kept as workflow artifacts; no manifest and no GitHub Release."
+          fi
+
+  linux:
+    needs: version
+    # The oldest supported runner, so the AppImage runs on older glibc too.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Python
+        working-directory: clients/desktop
+        run: uv python install
+      - uses: ./.github/actions/qt-runtime-linux
+      # The bundle carries the community server (make bundle-server).
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - name: AppImage
+        run: make appimage
+      - name: Smoke-run the bundle and the AppImage
+        run: make bundle-smoke
+      - name: Name them for the release
+        run: |
+          mkdir -p out
+          cp clients/desktop/dist/OpenArcanum-x86_64.AppImage "out/openarcanum-$VERSION-linux-x86_64.AppImage"
+          tar -C clients/desktop/dist --transform "s,^OpenArcanum,openarcanum-$VERSION-linux-x86_64," \
+            -czf "out/openarcanum-$VERSION-linux-x86_64.tar.gz" OpenArcanum
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux
+          path: out/
+          if-no-files-found: error
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Python
+        working-directory: clients/desktop
+        run: uv python install
+      - name: GNU make
+        run: choco install make --no-progress -y
+      # The bundle carries the community server (make bundle-server).
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - name: Bundle
+        run: make bundle
+      - name: Installer (signed when the certificate is configured)
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: clients/desktop/packaging/windows/build_installer.sh
+      - name: Install, smoke-run, upgrade, uninstall
+        run: clients/desktop/packaging/windows/test_installer.sh "clients/desktop/dist/OpenArcanum-Setup-$VERSION.exe"
+      - name: Name it for the release
+        run: |
+          mkdir -p out
+          cp "clients/desktop/dist/OpenArcanum-Setup-$VERSION.exe" "out/openarcanum-$VERSION-windows-x86_64-setup.exe"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows
+          path: out/
+          if-no-files-found: error
+
+  macos:
+    needs: version
+    # Apple silicon only (docs/packaging.md "macOS architecture").
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Python
+        working-directory: clients/desktop
+        run: uv python install
+      # The bundle carries the community server (make bundle-server).
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - name: App and .dmg (signed and notarized when configured)
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: clients/desktop/packaging/macos/build_dmg.sh
+      - name: Check the .dmg and smoke-run the app in it
+        run: clients/desktop/packaging/macos/test_dmg.sh "clients/desktop/dist/OpenArcanum-$VERSION.dmg"
+      - name: Name it for the release
+        run: |
+          mkdir -p out
+          cp "clients/desktop/dist/OpenArcanum-$VERSION.dmg" "out/openarcanum-$VERSION-macos-arm64.dmg"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos
+          path: out/
+          if-no-files-found: error
+
+  # Static server binaries for people who run the servers without containers
+  # (docs/admin-guide.md "Installing the servers"; the images are built by
+  # containers.yml).
+  servers:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Python
+        working-directory: clients/desktop
+        run: uv python install
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+      - name: qemu-user (runs the arm64 binaries)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static
+      - name: Static binaries, checked, run and version-checked
+        run: make release-servers QEMU_AARCH64=/usr/bin/qemu-aarch64-static
+      - name: Archives
+        run: |
+          mkdir -p out
+          for arch in amd64 arm64; do
+            d="openarcanum-servers-$VERSION-linux-$arch"
+            mkdir -p "stage/$d"
+            cp dist/servers/linux-$arch/relay dist/servers/linux-$arch/meta dist/servers/linux-$arch/community "stage/$d/"
+            cp LICENSE THIRD_PARTY_NOTICES.md "stage/$d/"
+            tar -C stage -czf "out/$d.tar.gz" "$d"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: servers
+          path: out/
+          if-no-files-found: error
+
+  # The only job that can use the release signing key. The key is a secret of
+  # the GitHub Environment "release", which the repository owner configures
+  # with required reviewers (docs/release.md "The release key"), so a pushed
+  # tag alone can't get a manifest signed. Within the job only the signing
+  # step sees the key: the client environment is installed before it (from
+  # the hash-pinned uv.lock), the step runs it without syncing, and every
+  # action here is pinned by commit.
+  manifest:
+    needs: [version, linux, windows, macos]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+      BASE_URL: ${{ vars.RELEASE_BASE_URL }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Python and the client environment (before the key is in reach)
+        working-directory: clients/desktop
+        run: |
+          uv python install
+          uv sync --locked
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: "{linux,windows,macos}"
+          path: release
+          merge-multiple: true
+      - name: Sign the update manifest (the only step that sees the key)
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          linux="openarcanum-$VERSION-linux-x86_64.AppImage"
+          windows="openarcanum-$VERSION-windows-x86_64-setup.exe"
+          macos="openarcanum-$VERSION-macos-arm64.dmg"
+          if [ -n "$BASE_URL" ]; then base="${BASE_URL%/}/$VERSION"; else base="$REPO_URL/releases/download/$TAG"; fi
+          ls -l release
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "::notice title=No update manifest::RELEASE_SIGNING_KEY is not set, so no manifest.json was made; installed apps won't see this release."
+            exit 0
+          fi
+          RELEASE_KEY_FILE="$RUNNER_TEMP/release-key.pem"
+          umask 077
+          trap 'rm -f "$RELEASE_KEY_FILE"' EXIT
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RELEASE_KEY_FILE"
+          mkdir -p manifest
+          uv run --frozen --no-sync --project clients/desktop python clients/desktop/scripts/release_manifest.py sign \
+            --key "$RELEASE_KEY_FILE" --version "$VERSION" \
+            --asset "linux-x86_64=release/$linux=$base/$linux" \
+            --asset "windows-x86_64=release/$windows=$base/$windows" \
+            --asset "macos-universal=release/$macos=$base/$macos" \
+            --expires-days "${{ vars.RELEASE_MANIFEST_DAYS || 30 }}" \
+            --out manifest/manifest.json
+      # What installed copies will do with it: the client's own verification
+      # against the release keys built into this version. A manifest they
+      # would refuse (wrong key, or no built-in keys) fails the release.
+      - name: Check the manifest as the client will (built-in release keys)
+        if: hashFiles('manifest/manifest.json') != ''
+        run: uv run --frozen --no-sync --project clients/desktop python clients/desktop/scripts/release_manifest.py verify --builtin manifest/manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: manifest
+          path: manifest/
+          if-no-files-found: ignore
+
+  # A draft release: nothing is public until a maintainer reviews it and
+  # clicks "Publish release" (docs/release.md).
+  release:
+    needs: [version, linux, windows, macos, servers, manifest]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the draft release and upload its files
+      id-token: write # cosign keyless signature of SHA256SUMS (Sigstore)
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign SHA256SUMS with cosign (keyless)
+        working-directory: release
+        run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+      - name: Release notes
+        run: |
+          manifest="no (RELEASE_SIGNING_KEY is not set: installed apps won't offer this update)"
+          if [ -f release/manifest.json ]; then manifest="yes (manifest.json)"; fi
+          sed -e "s|@VERSION@|$VERSION|g" -e "s|@TAG@|$TAG|g" -e "s|@REPO_URL@|$REPO_URL|g" \
+              -e "s|@MANIFEST@|$manifest|g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
+          {
+            echo
+            echo '```'
+            cat release/SHA256SUMS
+            echo '```'
+          } >> "$RUNNER_TEMP/notes.md"
+      - name: Draft GitHub Release
+        run: |
+          if state="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$state" != true ]; then
+              echo "::error::release $TAG is already published; not changing its files"
+              exit 1
+            fi
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release upload "$TAG" release/* --clobber
+          else
+            flags=()
+            if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+            gh release create "$TAG" --draft --verify-tag --title "OpenArcanum $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}" release/*
+          fi
+          {
+            echo "Draft release **$TAG** is ready for review: $REPO_URL/releases"
+            echo
+            echo '```'
+            cat release/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

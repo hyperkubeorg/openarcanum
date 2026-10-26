@@ -1,0 +1,15 @@
+# Daily maintainer node backup (started by openarcanum-maintainer-backup.timer).
+# User unit: /home/openarcanum/.config/systemd/user/openarcanum-maintainer-backup.service
+# Writes /home/openarcanum/maintainer/data/backups/meta-<UTC time>.tar and
+# keeps the newest 7. Safe while the node runs.
+
+[Unit]
+Description=OpenArcanum maintainer node backup
+Requisite=openarcanum-maintainer.service
+After=openarcanum-maintainer.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/podman exec openarcanum-maintainer meta backup -data /data -out /data/backups -keep 7
+Nice=10
+IOSchedulingClass=idle

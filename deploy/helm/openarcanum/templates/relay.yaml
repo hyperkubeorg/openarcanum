@@ -1,0 +1,82 @@
+{{- if .Values.relay.enabled }}
+{{- include "openarcanum.checkDedicated" . }}
+{{- include "openarcanum.checkTLS" (dict "what" "relay" "tls" .Values.relay.tls "domains" .Values.relay.tls.domains) }}
+{{- $name := printf "%s-relay" (include "openarcanum.fullname" .) }}
+{{- if and (eq .Values.relay.tls.mode "acme") (not .Values.relay.dedicated) }}
+# The relay's ACME account key and certificates, kept across restarts
+# (Let's Encrypt limits how often the same certificate is issued again).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-acme
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: relay
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.relay.tls.storage.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.relay.tls.storage.size }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: relay
+spec:
+  selector:
+    {{- /* A dedicated relay runs in the community server's pod. */}}
+    {{- include "openarcanum.selector" (dict "root" . "component" (ternary "community" "relay" .Values.relay.dedicated)) | nindent 4 }}
+  ports:
+    - name: {{ ternary "ws" "wss" (eq .Values.relay.tls.mode "off") }}
+      port: {{ include "openarcanum.servicePort" (dict "tls" .Values.relay.tls "port" .Values.relay.port) }}
+      targetPort: ws
+{{- if not .Values.relay.dedicated }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: relay
+spec:
+  replicas: 1
+  # On the node's network the port can't be held twice during a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "openarcanum.selector" (dict "root" . "component" "relay") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openarcanum.selector" (dict "root" . "component" "relay") | nindent 8 }}
+    spec:
+      {{- if .Values.relay.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      securityContext:
+        {{- include "openarcanum.podSecurity" . | nindent 8 }}
+      containers:
+        {{- include "openarcanum.relayContainer" . | nindent 8 }}
+      volumes:
+        - name: state
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if eq .Values.relay.tls.mode "acme" }}
+        - name: acme
+          persistentVolumeClaim:
+            claimName: {{ $name }}-acme
+        {{- end }}
+        {{- include "openarcanum.relayTLSVolume" . | nindent 8 }}
+{{- end }}
+{{- end }}

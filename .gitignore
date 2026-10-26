@@ -1,0 +1,50 @@
+# Only the product's code and docs are published. scripts/public-check
+# (`make public-check`) fails if anything below is tracked.
+
+# Build output and local dev state
+/bin/
+/dist/
+/build/
+/.dev/
+/.proto-tmp/
+/.proto-check/
+/.audit/
+
+
+# Python
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.venv/
+clients/desktop/build/
+clients/desktop/dist/
+*.egg-info/
+
+# Test and load-test results
+load-results*.jsonl
+*.prof
+coverage.out
+*.coverprofile
+
+# Secrets that must never be committed (test fixtures live under testdata/)
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+/*.key
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Server binaries from a bare `go build ./cmd/...` at the root
+/relay
+/meta
+/community

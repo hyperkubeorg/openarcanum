@@ -1,0 +1,31 @@
+{{define "content"}}
+<h1>Overview</h1>
+<div class="stats">
+  <a class="box" href="/admin/reports?kind=security&amp;status=new">
+    <div class="stat">{{index .Data.Counts.security "new"}}</div>
+    <div class="stat-label">New security reports</div>
+  </a>
+  <a class="box" href="/admin/reports?kind=bug&amp;status=new">
+    <div class="stat">{{index .Data.Counts.bug "new"}}</div>
+    <div class="stat-label">New bug reports</div>
+  </a>
+  <div class="box">
+    <div class="stat">{{index .Data.Open "security"}} / {{index .Data.Open "bug"}}</div>
+    <div class="stat-label">Open (new, triaged or in progress): security / bugs</div>
+  </div>
+</div>
+<h2 class="section-title">By status</h2>
+<table class="list">
+  <thead><tr><th scope="col">Status</th><th scope="col">Security</th><th scope="col">Bugs</th></tr></thead>
+  <tbody>
+  {{range statuses}}
+  <tr>
+    <td>{{label .}}</td>
+    <td><a href="/admin/reports?kind=security&amp;status={{.}}">{{index $.Data.Counts.security .}}</a></td>
+    <td><a href="/admin/reports?kind=bug&amp;status={{.}}">{{index $.Data.Counts.bug .}}</a></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+<p><a class="btn" href="/admin/announcements/new">New announcement</a></p>
+{{end}}

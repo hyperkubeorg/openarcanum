@@ -1,0 +1,33 @@
+{{define "content"}}
+<section class="hero">
+  <img src="/static/brand.svg" alt="" width="96" height="96">
+  <h1>{{.Product}}</h1>
+  <p class="tagline">Private community chat with no accounts. Your keys are your login, each community runs its own server, and direct messages are end-to-end encrypted.</p>
+  {{if or .Download .Source}}
+  <div class="actions">
+    {{if .Download}}<a class="btn primary" href="{{.Download}}" rel="noopener noreferrer">Download {{.Product}}</a>{{end}}
+    {{if .Source}}<a class="btn" href="{{.Source}}" rel="noopener noreferrer">Source code</a>{{end}}
+  </div>
+  {{end}}
+</section>
+
+<h2 class="section-title" id="announcements">Announcements</h2>
+{{range .Data}}
+<article class="box ann" aria-labelledby="ann-{{.ID}}">
+  <h2 id="ann-{{.ID}}"><a href="/announcements/{{.ID}}">{{.Title}}</a></h2>
+  <div class="meta">
+    {{if .Pinned}}<span class="pill accent">Pinned</span>{{end}}
+    <time datetime="{{iso .PublishedAt}}">{{date .PublishedAt}}</time>
+  </div>
+  <div class="ann-body">{{md .Body}}</div>
+</article>
+{{else}}
+<p class="box empty">No announcements yet.</p>
+{{end}}
+
+<h2 class="section-title">Found a problem?</h2>
+<div class="report-links">
+  <a href="/report/bug"><strong>Report a bug</strong><span>Something doesn't work as it should.</span></a>
+  <a href="/report/security" class="sec"><strong>Report a security issue</strong><span>A vulnerability. Please don't post it publicly. Read the <span class="sr-only">security </span>disclosure policy first.</span></a>
+</div>
+{{end}}

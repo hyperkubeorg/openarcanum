@@ -1,0 +1,16 @@
+# Daily website backup (started by openarcanum-site-backup.timer).
+# User unit: /home/openarcanum/.config/systemd/user/openarcanum-site-backup.service
+# Writes /home/openarcanum/site/data/backups/site-backup-<UTC time>.db and
+# keeps the newest 14. Safe while the site runs. The storage key in
+# /home/openarcanum/site/keys is not in these backups: keep a copy elsewhere.
+
+[Unit]
+Description=OpenArcanum website backup
+Requisite=openarcanum-site.service
+After=openarcanum-site.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/podman exec openarcanum-site site backup -out /data/backups -keep 14
+Nice=10
+IOSchedulingClass=idle

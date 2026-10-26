@@ -1,0 +1,54 @@
+{{define "content"}}
+{{$f := .Data.Filter}}
+<h1>Reports</h1>
+{{if eq .Data.Done "deleted"}}<div class="notice ok" role="status"><p>The report was deleted.</p></div>{{end}}
+<form method="get" action="/admin/reports" class="toolbar" aria-label="Filter reports">
+  <div class="field">
+    <label for="f-kind">Kind</label>
+    <select id="f-kind" name="kind">
+      <option value="">All</option>
+      {{range kinds}}<option value="{{.}}"{{if eq . $f.Kind}} selected{{end}}>{{kindLabel .}}</option>{{end}}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-status">Status</label>
+    <select id="f-status" name="status">
+      <option value="">All</option>
+      {{range statuses}}<option value="{{.}}"{{if eq . $f.Status}} selected{{end}}>{{label .}}</option>{{end}}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-severity">Severity</label>
+    <select id="f-severity" name="severity">
+      <option value="">All</option>
+      {{range severities}}{{if .}}<option value="{{.}}"{{if eq . $f.Severity}} selected{{end}}>{{label .}}</option>{{end}}{{end}}
+    </select>
+  </div>
+  <button type="submit" class="btn">Filter</button>
+  {{if .Data.Filtered}}<a class="btn" href="/admin/reports">Clear</a>{{end}}
+</form>
+
+<table class="list">
+  <caption class="sr-only">Reports, newest first. Security reports are marked in red.</caption>
+  <thead><tr><th scope="col">Ref</th><th scope="col">Kind</th><th scope="col">Summary</th><th scope="col">Status</th><th scope="col">Severity</th><th scope="col" class="hide-narrow">Assignee</th><th scope="col" class="hide-narrow">Received</th></tr></thead>
+  <tbody>
+  {{range .Data.List}}
+  <tr{{if eq .Kind "security"}} class="security"{{end}}>
+    <td class="nowrap"><a href="/admin/reports/{{.ID}}"><code>{{.Ref}}</code></a></td>
+    <td>{{if eq .Kind "security"}}<span class="pill danger">Security</span>{{else}}<span class="pill">Bug</span>{{end}}</td>
+    <td class="title"><a href="/admin/reports/{{.ID}}">{{.Content.Title}}</a></td>
+    <td class="nowrap">{{if eq .Status "new"}}<span class="pill warn">New</span>{{else}}{{label .Status}}{{end}}</td>
+    <td class="nowrap">{{if or (eq .Severity "high") (eq .Severity "critical")}}<span class="pill danger">{{label .Severity}}</span>{{else}}{{label .Severity}}{{end}}</td>
+    <td class="hide-narrow">{{with .AssigneeN}}{{.}}{{else}}-{{end}}</td>
+    <td class="nowrap hide-narrow"><time datetime="{{iso .CreatedAt}}">{{datetime .CreatedAt}}</time></td>
+  </tr>
+  {{else}}
+  <tr><td colspan="7" class="empty">No reports{{if .Data.Filtered}} match these filters{{end}}.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+<nav class="pager" aria-label="Pages">
+  <span>{{with .Data.Prev}}<a href="{{.}}">← Newer</a>{{end}}</span>
+  <span>{{with .Data.Next}}<a href="{{.}}">Older →</a>{{end}}</span>
+</nav>
+{{end}}

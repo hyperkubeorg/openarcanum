@@ -1,0 +1,310 @@
+// Relay protocol. One WebSocket connection carries a stream of binary
+// messages, each one serialized RelayFrame. See docs/protocol.md §2.
+syntax = "proto3";
+
+package openarcanum.v1;
+
+import "openarcanum/v1/call.proto";
+
+option go_package = "github.com/hyperkubeorg/openarcanum/internal/wire;wire";
+
+message RelayFrame {
+  oneof kind {
+    Hello hello = 1;
+    Subscribe subscribe = 2;
+    Unsubscribe unsubscribe = 3;
+    Publish publish = 4;
+    Deliver deliver = 5;
+    RegisterEndpoint register_endpoint = 6;
+    OpenStream open_stream = 7;
+    StreamOpened stream_opened = 8;
+    StreamData stream_data = 9;
+    StreamClose stream_close = 10;
+    Ack ack = 11;
+    Error error = 12;
+    // Calls through the relay's SFU (call.proto).
+    CallJoin call_join = 13;
+    CallAnswer call_answer = 14;
+    CallSignal call_signal = 15;
+    CallLeave call_leave = 16;
+    CallLayer call_layer = 17;
+    CallUpdate call_update = 18;
+    CallState call_state = 19;
+    // Version choice and proof-of-work (§2 "Starting").
+    Start start = 20;
+    // A community server's fan-out token (§2 "Large fan-outs").
+    FanoutAuth fanout_auth = 21;
+    // A community server's command to the relay dedicated to it (§2
+    // "Dedicated relays"), and the relay's answer.
+    RelayModeration moderation = 22;
+    ModerationResult moderation_result = 23;
+    // Calls: what a participant listens to, and who receives what it
+    // sends (call.proto).
+    CallListen call_listen = 24;
+    CallWatchers call_watchers = 25;
+  }
+}
+
+// First frame the relay sends on every connection.
+message Hello {
+  // Random per-connection challenge. Endpoint registrations, fan-out
+  // tokens and moderation commands are bound to it together with the
+  // relay's key and URL (RelayBinding).
+  bytes nonce = 1;
+  // Largest data field accepted in a single Publish or StreamData frame.
+  uint32 max_chunk = 2;
+  // Largest total size of one published message (sum of its chunks).
+  uint64 max_message = 3;
+  string region = 4;
+  // This relay carries calls (its SFU is on).
+  bool calls = 5;
+  // Protocol versions this relay speaks. The client picks the highest one it
+  // also speaks and names it in Start; with none in common it disconnects.
+  repeated uint32 versions = 6;
+  // Proof-of-work the client must include in Start: 0 = none (the relay
+  // isn't under load), else the number of leading zero bits required.
+  uint32 pow_bits = 7;
+  // How long the client has to send Start (milliseconds).
+  uint32 start_window_ms = 8;
+  // The relay keeps cacheable messages this long for Subscribe.replay_ms
+  // (0 = no chunk cache).
+  uint32 cache_ttl_ms = 9;
+  // Publishing to a topic with more subscribers than this needs a fan-out
+  // token (0 = never).
+  uint32 fanout_threshold = 10;
+  // Set when the relay is dedicated to one community server: that server's
+  // key. Such a relay carries only that server's streams, topics and calls,
+  // and takes moderation commands from it (§2 "Dedicated relays").
+  bytes dedicated_to = 11;
+  // The relay's Ed25519 identity key (the registry key, §7.3), the
+  // canonical URL it is configured to be reached at (public_url; empty
+  // when it has none), and its proof of the key for this connection:
+  // relay_signature = Sign(relay_key, "openarcanum/relay-hello/v1" ||
+  // RelayBinding{relay_key, url, nonce}). Clients refuse a Hello without a
+  // valid proof (§2 "Relay identity").
+  bytes relay_key = 12;
+  string url = 13;
+  bytes relay_signature = 14;
+}
+
+// What everything a client signs for one relay connection is bound to: the
+// relay's key, the relay's canonical URL (internal/relayurl) and the
+// connection's Hello nonce. Serialized deterministically (fields in order).
+// In a Hello proof, url is the relay's own Hello.url; in what clients sign
+// (endpoint registrations, fan-out tokens, moderation commands) it is the
+// canonical URL the client dialled, and a relay with a url accepts only
+// that one (§2 "Relay identity").
+message RelayBinding {
+  bytes relay_key = 1;
+  string url = 2;
+  bytes nonce = 3;
+}
+
+// The client's first frame: the protocol version it chose from
+// Hello.versions, and the proof-of-work counter when Hello.pow_bits > 0.
+// Answered with Ack{req}, or Error and the connection is closed.
+message Start {
+  uint32 version = 1;
+  // SHA-256("openarcanum/relay-pow/v1" || 0x00 || Hello.nonce || pow) must
+  // start with Hello.pow_bits zero bits (Hashcash with SHA-256).
+  bytes pow = 2;
+  uint32 req = 3;
+}
+
+// fan-out token: the holder of `issuer` lets the connection whose Hello
+// nonce is relay_nonce, on the relay with key relay_key reached at url,
+// publish to topics that commit to issuer (§2).
+message FanoutToken {
+  bytes issuer = 1;
+  bytes relay_nonce = 2;
+  int64 expires_at = 3;
+  bytes relay_key = 4;
+  string url = 5;
+}
+
+// signature = Sign(issuer, "openarcanum/fanout-token/v2" || token)
+message SignedFanoutToken {
+  bytes token = 1;
+  bytes signature = 2;
+}
+
+message FanoutAuth {
+  SignedFanoutToken token = 1;
+  uint32 req = 2;
+}
+
+// A moderation command from a community server to the relay dedicated to it
+// (§2 "Dedicated relays"). Bound to the relay (relay_key, url) and its
+// connection whose Hello nonce is relay_nonce, valid until expires_at (at
+// most 5 minutes ahead), and accepted once per command_id.
+message ModerationCommand {
+  bytes server_key = 1;
+  bytes relay_nonce = 2;
+  // 16 random bytes.
+  bytes command_id = 3;
+  // Unix milliseconds.
+  int64 expires_at = 4;
+  oneof action {
+    NetworkBlock block = 5;
+    NetworkUnblock unblock = 6;
+  }
+  bytes relay_key = 7;
+  string url = 8;
+}
+
+// Block the networks (IPv4 address, IPv6 /64) of the client connections
+// behind these streams: inbound stream ids on the connection the command is
+// sent on (the server's own endpoint connection).
+message NetworkBlock {
+  repeated uint32 stream_ids = 1;
+  // How long the block lasts; 0 = until it is lifted.
+  uint32 seconds = 2;
+}
+
+// Lift a block by the id the relay returned for it.
+message NetworkUnblock {
+  bytes block_id = 1;
+}
+
+// signature = Sign(server_key, "openarcanum/relay-moderation/v2" || command)
+message SignedModerationCommand {
+  bytes command = 1;
+  bytes signature = 2;
+}
+
+// Answered with ModerationResult{req}, or Error{req}.
+message RelayModeration {
+  SignedModerationCommand command = 1;
+  uint32 req = 2;
+}
+
+message ModerationResult {
+  uint32 req = 1;
+  // NetworkBlock: the new block's opaque id (16 random bytes; empty when
+  // there was nothing to block). Never an address.
+  bytes block_id = 2;
+  // NetworkBlock: how many networks the block covers, and how many
+  // connections from them were closed.
+  uint32 networks = 3;
+  uint32 closed = 4;
+  // NetworkBlock: streams whose network is the server's own connection's,
+  // which a relay never blocks.
+  uint32 skipped = 5;
+  // NetworkUnblock: no such block (it expired or was lifted already).
+  bool not_found = 6;
+}
+
+// Requests carry a non-zero `req` and are answered with Ack or Error.
+message Subscribe {
+  bytes topic = 1;
+  uint32 req = 2;
+  // Also deliver cacheable messages published to the topic in the last
+  // replay_ms milliseconds, if the relay has a chunk cache.
+  uint32 replay_ms = 3;
+}
+
+message Unsubscribe {
+  bytes topic = 1;
+  uint32 req = 2;
+}
+
+// One chunk of a published message. A message is the ordered chunks with the
+// same message_id from one connection, ending with final = true.
+message Publish {
+  bytes topic = 1;
+  uint64 message_id = 2;
+  uint32 seq = 3;
+  bool final = 4;
+  bytes data = 5;
+  // The publisher marks end-to-end encrypted payloads the relay may keep in
+  // its chunk cache. Nothing else is ever cached.
+  bool cacheable = 6;
+}
+
+// A chunk forwarded to a subscriber. `sender` is a relay-local connection
+// number, so receivers can reassemble (sender, message_id) pairs.
+message Deliver {
+  bytes topic = 1;
+  uint64 sender = 2;
+  uint64 message_id = 3;
+  uint32 seq = 4;
+  bool final = 5;
+  bytes data = 6;
+  // Delivered from the chunk cache in answer to Subscribe.replay_ms.
+  bool replayed = 7;
+}
+
+// Registers this connection as the endpoint for `endpoint_key` (an Ed25519
+// public key). signature = Sign(endpoint_key, "openarcanum/relay-endpoint/v2" ||
+// RelayBinding{Hello.relay_key, url, Hello.nonce}), url being the canonical
+// URL the client dialled (§2 "Relay identity").
+// A newer registration with a valid signature replaces an older one.
+message RegisterEndpoint {
+  bytes endpoint_key = 1;
+  bytes signature = 2;
+  uint32 req = 3;
+  string url = 4;
+}
+
+// Client -> relay: open a byte stream to a registered endpoint. The client
+// picks stream_id, unique among its own open streams.
+message OpenStream {
+  bytes endpoint_key = 1;
+  uint32 stream_id = 2;
+}
+
+// Relay -> client: the stream is open. Relay -> endpoint: a new incoming
+// stream (stream_id is then chosen by the relay).
+message StreamOpened {
+  uint32 stream_id = 1;
+  bytes endpoint_key = 2;
+}
+
+message StreamData {
+  uint32 stream_id = 1;
+  bytes data = 2;
+}
+
+message StreamClose {
+  uint32 stream_id = 1;
+  string reason = 2;
+}
+
+message Ack {
+  uint32 req = 1;
+}
+
+message Error {
+  uint32 req = 1;
+  ErrorCode code = 2;
+  string message = 3;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_BAD_FRAME = 1;
+  ERROR_CODE_TOO_LARGE = 2;
+  ERROR_CODE_RATE_LIMITED = 3;
+  ERROR_CODE_NO_ENDPOINT = 4;
+  ERROR_CODE_BAD_SIGNATURE = 5;
+  ERROR_CODE_LIMIT = 6;
+  ERROR_CODE_SLOW_CONSUMER = 7;
+  // A call frame was refused (bad grant, removed, full, not in that call).
+  ERROR_CODE_CALL_REFUSED = 8;
+  // This relay doesn't carry calls.
+  ERROR_CODE_NO_CALLS = 9;
+  // No protocol version in common, or a frame before Start.
+  ERROR_CODE_UNSUPPORTED_VERSION = 10;
+  // Start's proof-of-work is missing, wrong or late.
+  ERROR_CODE_POW_REQUIRED = 11;
+  // The topic is large and this connection has no fan-out token for it.
+  ERROR_CODE_FANOUT_TOKEN_REQUIRED = 12;
+  // A fan-out token that doesn't verify, is expired or for another connection.
+  ERROR_CODE_BAD_TOKEN = 13;
+  // This relay is dedicated to another community server (or to none, for a
+  // moderation command), so it refuses the frame.
+  ERROR_CODE_NOT_DEDICATED = 14;
+  // A moderation command that doesn't verify, is expired, replayed, for
+  // another connection, or names nothing this relay knows.
+  ERROR_CODE_BAD_COMMAND = 15;
+}

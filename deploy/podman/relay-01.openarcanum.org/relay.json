@@ -1,0 +1,18 @@
+{
+  "public_url": "wss://relay-01.openarcanum.org/ws",
+  "registry_urls": ["https://maintainer-01.openarcanum.org"],
+  "registry_key_file": "/keys/registry.key",
+  "tls_mode": "acme",
+  "tls_domains": ["relay-01.openarcanum.org"],
+  "acme_cache_dir": "/acme",
+  "calls": true,
+  "media_udp_port": 7000,
+  "media_public_ips": [],
+  "max_connections": 10000,
+  "max_calls": 1000,
+  "max_call_peers": 5000,
+  "call_peer_bitrate": 8000000,
+  "metrics_listen": "127.0.0.1:7000",
+  "log_format": "text",
+  "log_level": "info"
+}

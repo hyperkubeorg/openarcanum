@@ -1,0 +1,23 @@
+{{define "content"}}
+<div class="toolbar">
+  <h1>Announcements</h1>
+  <a class="btn primary" href="/admin/announcements/new">New announcement</a>
+</div>
+{{if eq .Data.Saved "deleted"}}<div class="notice ok" role="status"><p>The announcement was deleted.</p></div>{{end}}
+<p class="hint">Published announcements show on the start page, pinned ones first, then the newest.</p>
+<table class="list">
+  <thead><tr><th scope="col">Title</th><th scope="col">State</th><th scope="col" class="hide-narrow">Published</th><th scope="col" class="hide-narrow">Updated</th></tr></thead>
+  <tbody>
+  {{range .Data.List}}
+  <tr>
+    <td class="title"><a href="/admin/announcements/{{.ID}}">{{.Title}}</a></td>
+    <td class="nowrap">{{if .Published}}<span class="pill ok">Published</span>{{else}}<span class="pill">Draft</span>{{end}} {{if .Pinned}}<span class="pill accent">Pinned</span>{{end}}</td>
+    <td class="nowrap hide-narrow">{{if .Published}}{{datetime .PublishedAt}}{{else}}-{{end}}</td>
+    <td class="nowrap hide-narrow">{{datetime .UpdatedAt}}{{with .Author}} by {{.}}{{end}}</td>
+  </tr>
+  {{else}}
+  <tr><td colspan="4" class="empty">No announcements yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}

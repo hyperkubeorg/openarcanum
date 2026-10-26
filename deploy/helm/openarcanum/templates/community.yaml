@@ -1,0 +1,152 @@
+{{- if .Values.community.enabled }}
+{{- include "openarcanum.checkDedicated" . }}
+{{- $name := printf "%s-community" (include "openarcanum.fullname" .) }}
+{{- $dedicated := and .Values.relay.enabled .Values.relay.dedicated }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: community
+spec:
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- include "openarcanum.selector" (dict "root" . "component" "community") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openarcanum.selector" (dict "root" . "component" "community") | nindent 8 }}
+    spec:
+      {{- if or .Values.community.hostNetwork (and $dedicated .Values.relay.hostNetwork) }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      securityContext:
+        {{- include "openarcanum.podSecurity" . | nindent 8 }}
+      initContainers:
+        # Creates the server the first time and prints the claim code, kept
+        # in /keys/claim.txt (and printed again on restarts) until the server
+        # is claimed and deletes it; does nothing else on later starts.
+        # `make kind-claim` shows it.
+        - name: init
+          image: {{ include "openarcanum.image" (dict "root" . "component" "community") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "openarcanum.containerSecurity" . | nindent 12 }}
+          args:
+            - init
+            - -if-needed
+            - -data
+            - /data
+            - -claim-file
+            - /keys/claim.txt
+            {{- range splitList "," (include "openarcanum.communityRelays" .) }}
+            - -relay
+            - {{ . | quote }}
+            {{- end }}
+            {{- range splitList "," (include "openarcanum.communityMaintainers" .) }}
+            - -maintainer
+            - {{ . | quote }}
+            {{- end }}
+            - -metrics-listen
+            - {{ .Values.community.metricsListen | quote }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: keys, mountPath: /keys}
+      containers:
+        - name: community
+          image: {{ include "openarcanum.image" (dict "root" . "component" "community") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "openarcanum.containerSecurity" . | nindent 12 }}
+          args: ["run", "-data", "/data"]
+          env:
+            # These win over config.json, so changing the values takes effect
+            # on the next start.
+            - name: OPENARCANUM_COMMUNITY_RELAYS
+              value: {{ include "openarcanum.communityRelays" . | quote }}
+            - name: OPENARCANUM_COMMUNITY_MAINTAINERS
+              value: {{ include "openarcanum.communityMaintainers" . | quote }}
+            - name: OPENARCANUM_COMMUNITY_METRICS_LISTEN
+              value: {{ .Values.community.metricsListen | quote }}
+            - name: OPENARCANUM_COMMUNITY_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            {{- if $dedicated }}
+            # For the dedicated relay next to it (openarcanum.relayContainer).
+            - name: OPENARCANUM_COMMUNITY_SERVER_PUBLIC_KEY_FILE
+              value: /serverkey/server.pub
+            {{- end }}
+            {{- include "openarcanum.extraEnv" .Values.community.env | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: ["/usr/local/bin/community", "healthcheck", "http://{{ .Values.community.metricsListen }}/readyz"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["/usr/local/bin/community", "healthcheck", "http://{{ .Values.community.metricsListen }}/healthz"]
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: keys, mountPath: /keys}
+            - {name: tmp, mountPath: /tmp}
+            {{- if $dedicated }}
+            - {name: serverkey, mountPath: /serverkey}
+            {{- end }}
+          {{- with .Values.community.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- if $dedicated }}
+        {{- include "openarcanum.relayContainer" . | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if $dedicated }}
+        # The server's public key, written by the server, read by the relay.
+        - name: serverkey
+          emptyDir: {}
+        - name: relay-tmp
+          emptyDir: {}
+        {{- include "openarcanum.relayTLSVolume" . | nindent 8 }}
+        {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.community.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.community.storage.dataSize }}
+    # The storage key apart from /data, which holds the backups it opens.
+    - metadata:
+        name: keys
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.community.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.community.storage.keysSize }}
+    {{- if $dedicated }}
+    # The dedicated relay's network blocks (they hold IP addresses).
+    - metadata:
+        name: relay-state
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.relay.blockStorage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.relay.blockStorage.size }}
+    {{- end }}
+{{- end }}

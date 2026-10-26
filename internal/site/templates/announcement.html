@@ -1,0 +1,11 @@
+{{define "content"}}
+<p><a href="/">← All announcements</a></p>
+<article class="ann">
+  <h1>{{.Data.Title}}</h1>
+  <div class="meta">
+    {{if .Data.Pinned}}<span class="pill accent">Pinned</span>{{end}}
+    <time datetime="{{iso .Data.PublishedAt}}">{{date .Data.PublishedAt}}</time>
+  </div>
+  <div class="ann-body">{{md .Data.Body}}</div>
+</article>
+{{end}}

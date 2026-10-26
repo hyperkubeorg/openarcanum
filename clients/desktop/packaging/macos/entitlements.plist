@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for every binary in OpenArcanum.app, including
+  Qt WebEngine's helper (QtWebEngineProcess.app), which PyInstaller signs with
+  the same file (docs/packaging.md).
+    allow-jit, allow-unsigned-executable-memory: Chromium's V8 JIT.
+    device.audio-input, device.camera: calls (microphone, camera); macOS
+      still asks the user (Info.plist usage strings).
+  Library validation stays on: PyInstaller re-signs every Mach-O in the
+  bundle (Python, Qt, the extension modules) with the same Developer ID, so
+  they all carry the app's Team ID, and a dylib planted in the bundle by
+  someone else won't load. The signed release proves it: build_dmg.sh checks
+  this entitlement is absent and test_dmg.sh runs the app from the .dmg.
+  No network-server, file-access or Apple Events entitlements: the app is not
+  sandboxed, and needs no exceptions beyond these.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.device.camera</key>
+    <true/>
+</dict>
+</plist>

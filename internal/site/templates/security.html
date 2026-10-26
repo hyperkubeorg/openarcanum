@@ -1,0 +1,47 @@
+{{/*
+  The disclosure policy, its response times (3 working days to acknowledge,
+  10 to assess, 90 days to disclosure) and the safe-harbour wording are
+  commitments the maintainers make, not legal advice. Keep them to what the
+  team can deliver. docs/operations.md "Website" lists this file.
+*/}}
+{{define "content"}}
+<article class="policy">
+<h1>Security disclosure policy</h1>
+<p>{{.Product}} is built for people who need their conversations to stay private, so we take security reports seriously and thank everyone who sends one. This page says how to report an issue, what you can expect from us, and what we promise in return.</p>
+
+<p><a class="btn primary" href="/report/security">Report a security issue</a></p>
+
+<h2>How to report</h2>
+<p>Use the <a href="/report/security">security report form</a>. Reports sent there are stored encrypted and read only by the maintainers. Please don't report vulnerabilities in public places (communities, issue trackers, social media) before they are fixed.</p>
+<p>A good report includes:</p>
+<ul>
+  <li>the component (desktop app, community server, relay, maintainer node, this website) and the version;</li>
+  <li>what an attacker can do, to whom, and what they need first (a network position, membership in a community, a malicious server or relay…);</li>
+  <li>steps to reproduce, or a proof of concept as text;</li>
+  <li>your user ID and a community we can message you in, so we can ask questions. An e-mail address is optional.</li>
+</ul>
+<p>Please send plain text only, and don't include other people's data, keys or messages.</p>
+
+<h2>What you can expect from us</h2>
+<ul>
+  <li>We confirm we've received your report within <strong>3 working days</strong>.</li>
+  <li>We tell you our assessment (whether we can reproduce it, and how severe we think it is) within <strong>10 working days</strong>.</li>
+  <li>We keep you updated while we work on a fix and tell you before we publish it.</li>
+  <li>We aim to fix issues and publish an advisory within <strong>90 days</strong>, sooner for severe ones. If we need longer, we'll explain why and agree a date with you.</li>
+  <li>With your permission, we credit you by the name you choose in the advisory.</li>
+</ul>
+
+<h2>Safe harbour</h2>
+<p>We will not pursue or support legal action against you for security research done in good faith under this policy. Good faith means that you:</p>
+<ul>
+  <li>test only against your own accounts, communities, servers and data, or with the explicit permission of their owners;</li>
+  <li>don't access, change, keep or share other people's data beyond the minimum needed to show the issue, and stop and tell us at once if you come across any;</li>
+  <li>don't degrade the service for others (no denial-of-service testing, spam or social engineering of users or maintainers);</li>
+  <li>give us a reasonable time to fix the issue before you disclose it, as above.</li>
+</ul>
+<p>If in doubt whether something is in scope, ask us first through the form. If someone else brings legal action against you for research that followed this policy, we will make it known that you acted with our authorisation.</p>
+
+<h2>Scope</h2>
+<p>In scope: the {{.Product}} desktop app, the community server, relay and maintainer node software, and this website. Out of scope: issues that need a compromised device of the victim, reports from automated scanners without a demonstrated impact, and missing best practices without a concrete attack.</p>
+</article>
+{{end}}

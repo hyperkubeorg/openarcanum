@@ -1,0 +1,108 @@
+{{define "head"}}<script src="/static/pow.js" defer></script>{{end}}
+{{define "content"}}
+{{$f := .Data.Form}}
+{{$sec := eq $f.Kind "security"}}
+<h1>{{if $sec}}Report a security issue{{else}}Report a bug{{end}}</h1>
+
+{{if $sec}}
+<div class="notice danger">
+  <p><strong>Please don't share a vulnerability publicly</strong> (in a community, an issue tracker or social media) until we have fixed it. Reports sent here go only to the maintainers.</p>
+  <p>Before you send one, read the <a href="/security">security disclosure policy</a>: what to include, when you'll hear from us, and our safe-harbour promise for good-faith research.</p>
+</div>
+{{else}}
+<p>Tell us what went wrong. If it could let someone read, change or block what they shouldn't, use <a href="/report/security">Report a security issue</a> instead.</p>
+{{end}}
+
+<div class="notice info">
+  <p>We reply by <strong>direct message in {{.Product}}</strong>, so we need your user ID and a community we're both in. An e-mail address is optional.</p>
+</div>
+
+{{with $f.Errors}}{{with .form}}<div class="notice danger" role="alert"><p>{{.}}</p></div>{{end}}{{end}}
+{{if $f.Errors}}<p class="error" role="alert">Please fix the fields marked below.</p>{{end}}
+
+<form method="post" action="/report/{{$f.Kind}}" class="box" novalidate
+      data-pow-challenge="{{.Data.Challenge}}" data-pow-bits="{{.Data.Bits}}" data-pow-context="{{.Data.PoWContext}}">
+  <input type="hidden" name="pow_challenge" value="{{.Data.Challenge}}">
+  <input type="hidden" name="pow_counter" value="">
+
+  <div class="field">
+    <label for="title">Summary</label>
+    <input type="text" id="title" name="title" value="{{$f.Title}}" maxlength="200" required aria-describedby="title-hint{{with $f.Errors}}{{with .title}} title-err{{end}}{{end}}"{{with $f.Errors}}{{with .title}} aria-invalid="true"{{end}}{{end}}>
+    <p class="hint" id="title-hint">One line: what is wrong, and where.</p>
+    {{with $f.Errors}}{{with .title}}<p class="error" id="title-err">{{.}}</p>{{end}}{{end}}
+  </div>
+
+  <div class="field">
+    <label for="description">{{if $sec}}The issue and its impact{{else}}What happened, and what you expected{{end}}</label>
+    <textarea id="description" name="description" maxlength="20000" required aria-describedby="description-hint{{with $f.Errors}}{{with .description}} description-err{{end}}{{end}}"{{with $f.Errors}}{{with .description}} aria-invalid="true"{{end}}{{end}}>{{$f.Description}}</textarea>
+    <p class="hint" id="description-hint">{{if $sec}}What an attacker can do, against whom, and what they need first (network position, membership, a malicious server…). Plain text only.{{else}}Plain text only. Leave out passphrases, keys and anyone's private messages.{{end}}</p>
+    {{with $f.Errors}}{{with .description}}<p class="error" id="description-err">{{.}}</p>{{end}}{{end}}
+  </div>
+
+  <div class="field">
+    <label for="steps">Steps to reproduce <span class="optional">(optional)</span></label>
+    <textarea id="steps" name="steps" class="short" maxlength="20000" aria-describedby="steps-hint{{with $f.Errors}}{{with .steps}} steps-err{{end}}{{end}}">{{$f.Steps}}</textarea>
+    <p class="hint" id="steps-hint">{{if $sec}}A proof of concept as text, if you have one.{{else}}1, 2, 3… as exactly as you can.{{end}}</p>
+    {{with $f.Errors}}{{with .steps}}<p class="error" id="steps-err">{{.}}</p>{{end}}{{end}}
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label for="version">App version and system <span class="optional">(optional)</span></label>
+      <input type="text" id="version" name="version" value="{{$f.Version}}" maxlength="200" aria-describedby="version-hint">
+      <p class="hint" id="version-hint">For example "0.1.0, Windows 11".</p>
+      {{with $f.Errors}}{{with .version}}<p class="error">{{.}}</p>{{end}}{{end}}
+    </div>
+    {{if $sec}}
+    <div class="field">
+      <label for="severity">Your severity estimate <span class="optional">(optional)</span></label>
+      <select id="severity" name="severity">
+        {{range severities}}<option value="{{.}}"{{if eq . $f.Severity}} selected{{end}}>{{if eq . ""}}Not sure{{else}}{{label .}}{{end}}</option>{{end}}
+      </select>
+      {{with $f.Errors}}{{with .severity}}<p class="error">{{.}}</p>{{end}}{{end}}
+    </div>
+    {{end}}
+  </div>
+
+  <h2 class="section-title">How we reach you</h2>
+
+  <div class="field">
+    <label for="user_id">Your user ID</label>
+    <input type="text" id="user_id" name="user_id" class="mono" value="{{$f.UserID}}" maxlength="{{userIDLen}}" minlength="{{userIDLen}}" required
+           autocomplete="off" spellcheck="false" aria-describedby="user_id-hint{{with $f.Errors}}{{with .user_id}} user_id-err{{end}}{{end}}"{{with $f.Errors}}{{with .user_id}} aria-invalid="true"{{end}}{{end}}>
+    <p class="hint" id="user_id-hint">In the {{.Product}} app, right-click your own name in that community (in the member list or on one of your messages) and choose <strong>Copy user ID</strong>. It is 43 letters, digits, - and _.</p>
+    {{with $f.Errors}}{{with .user_id}}<p class="error" id="user_id-err">{{.}}</p>{{end}}{{end}}
+  </div>
+
+  <div class="field">
+    <label for="community">Community we can message you in</label>
+    <input type="text" id="community" name="community" value="{{$f.Community}}" maxlength="200" required aria-describedby="community-hint{{with $f.Errors}}{{with .community}} community-err{{end}}{{end}}"{{with $f.Errors}}{{with .community}} aria-invalid="true"{{end}}{{end}}>
+    <p class="hint" id="community-hint">{{with .Data.ContactCommunity}}Join <strong>{{.}}</strong> if you haven't, or name another community the maintainers are in. {{end}}Publish a contact card there (community menu → Your profile here → Publish a contact card here) so we can start a direct message with you.</p>
+    {{with $f.Errors}}{{with .community}}<p class="error" id="community-err">{{.}}</p>{{end}}{{end}}
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label for="name">Name to credit <span class="optional">(optional)</span></label>
+      <input type="text" id="name" name="name" value="{{$f.Name}}" maxlength="64" autocomplete="nickname">
+      {{with $f.Errors}}{{with .name}}<p class="error">{{.}}</p>{{end}}{{end}}
+    </div>
+    <div class="field">
+      <label for="email">E-mail <span class="optional">(optional)</span></label>
+      <input type="email" id="email" name="email" value="{{$f.Email}}" maxlength="254" autocomplete="email"{{with $f.Errors}}{{with .email}} aria-invalid="true"{{end}}{{end}}>
+      {{with $f.Errors}}{{with .email}}<p class="error">{{.}}</p>{{end}}{{end}}
+    </div>
+  </div>
+
+  <div class="hp" aria-hidden="true">
+    <label for="website">Leave this empty</label>
+    <input type="text" id="website" name="website" value="" tabindex="-1" autocomplete="off">
+  </div>
+
+  <div class="form-foot">
+    <span class="status" id="pow-status" role="status" aria-live="polite">The anti-spam check needs JavaScript; it runs in your browser and sends nothing anywhere.</span>
+    <button type="submit" class="btn primary">Send report</button>
+  </div>
+</form>
+<p class="hint">We keep reports encrypted on our server and use what you send only to handle your report.</p>
+{{end}}

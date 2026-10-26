@@ -1,0 +1,49 @@
+# OpenArcanum maintainer node on maintainer-01.openarcanum.org.
+# Quadlet file: /home/openarcanum/.config/containers/systemd/openarcanum-maintainer.container
+# systemd (user openarcanum) generates openarcanum-maintainer.service from it.
+
+[Unit]
+Description=OpenArcanum maintainer node (maintainer-01.openarcanum.org)
+
+[Container]
+# Pin the release. To upgrade or roll back, change the tag (README.md).
+Image=ghcr.io/hyperkubeorg/openarcanum-maintainer:2026.10.0
+ContainerName=openarcanum-maintainer
+# podman auto-update pulls this tag again and restarts when its digest changed.
+AutoUpdate=registry
+Exec=-config /etc/openarcanum/meta.json
+
+# Host network: the node binds 443 itself (sysctl ip_unprivileged_port_start)
+# and sees real client addresses for its per-network rate limits.
+Network=host
+# The image runs as uid 65532. Map that uid to the host user openarcanum,
+# so the bind-mounted directories are simply owned by openarcanum.
+UserNS=keep-id:uid=65532,gid=65532
+# :Z gives each directory a private SELinux label for this container.
+Volume=/home/openarcanum/maintainer/config:/etc/openarcanum:ro,Z
+Volume=/home/openarcanum/maintainer/data:/data:Z
+Volume=/home/openarcanum/maintainer/acme:/acme:Z
+
+# The image sets OPENARCANUM_META_LISTEN=:7100, and the environment wins over
+# the config file, so the public port is set here.
+Environment=OPENARCANUM_META_LISTEN=:443
+
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+Ulimit=nofile=65536:65536
+LogDriver=journald
+# The image's health check asks http://127.0.0.1:7100/healthz, the status
+# listener (metrics_listen in meta.json). Restart the service when it fails.
+HealthOnFailure=kill
+PodmanArgs=--stop-timeout=30
+
+[Service]
+Restart=always
+RestartSec=5
+# The first start pulls the image.
+TimeoutStartSec=900
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

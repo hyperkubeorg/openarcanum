@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""Check the release server binaries (`make release-servers`).
+
+    scripts/check-release-bins [--version V] [--qemu-aarch64 PATH] DIR
+
+DIR holds linux-amd64/ and linux-arm64/, each with relay, community and
+meta. For every binary this checks, from the ELF header, that it is a
+64-bit little-endian executable for the right machine (x86-64, AArch64)
+and statically linked (no PT_INTERP and no PT_DYNAMIC segment, so it runs
+on any Linux of that architecture, a Raspberry Pi OS included); `file`'s
+description is printed too when `file` is installed.
+
+Then it runs them: binaries for this machine's architecture natively, the
+other architecture under qemu-user when --qemu-aarch64 (or
+qemu-aarch64[-static] on PATH) is available; otherwise it says that the
+arm64 binaries were not run. Each run starts a relay and a maintainer node
+(SQLite) on loopback and checks their /healthz with the binaries' own
+`healthcheck` command, and creates a community server with
+`community init` (keys, storage key, database). With --version, each
+binary's `version` command must report that release version (VERSION,
+linked in by the Makefile).
+
+Python standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import platform
+import shutil
+import socket
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+SERVERS = ("relay", "community", "meta")
+ARCHES = {"amd64": (62, "x86-64"), "arm64": (183, "aarch64")}
+PT_DYNAMIC, PT_INTERP = 2, 3
+
+
+def elf_info(path: Path) -> tuple[int, bool]:
+    """(e_machine, static) of a 64-bit little-endian ELF executable."""
+    with path.open("rb") as f:
+        head = f.read(64)
+        if len(head) < 64 or head[:4] != b"\x7fELF":
+            raise ValueError("not an ELF file")
+        if head[4] != 2 or head[5] != 1:
+            raise ValueError("not a 64-bit little-endian ELF file")
+        e_type, e_machine = struct.unpack_from("<HH", head, 16)
+        if e_type != 2:
+            raise ValueError(f"ELF type {e_type}, not an executable")
+        (e_phoff,) = struct.unpack_from("<Q", head, 32)
+        e_phentsize, e_phnum = struct.unpack_from("<HH", head, 54)
+        static = True
+        for i in range(e_phnum):
+            f.seek(e_phoff + i * e_phentsize)
+            (p_type,) = struct.unpack("<I", f.read(4))
+            if p_type in (PT_DYNAMIC, PT_INTERP):
+                static = False
+    return e_machine, static
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def wait_healthy(prefix: list[str], binary: Path, url: str, proc: subprocess.Popen, timeout: float = 60) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"{binary.name} exited: {proc.stderr.read() if proc.stderr else ''}")
+        r = subprocess.run([*prefix, str(binary), "healthcheck", url], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.startswith("200 ok"):
+            return
+        time.sleep(0.3)
+    raise RuntimeError(f"{binary.name}: {url} never answered 200")
+
+
+def check_versions(d: Path, prefix: list[str], want: str) -> None:
+    """Each binary's `version` command names the release version."""
+    for name in SERVERS:
+        out = subprocess.run([*prefix, str(d / name), "version"], capture_output=True, text=True, timeout=60)
+        if out.returncode != 0 or not out.stdout.startswith(f"{name} {want} ("):
+            raise RuntimeError(f"{name} version: {out.stdout.strip() or out.stderr.strip()!r}, expected {want}")
+
+
+def run_servers(d: Path, prefix: list[str]) -> None:
+    """Start relay and meta, check /healthz, init a community server."""
+    with tempfile.TemporaryDirectory() as tmp:
+        procs = []
+        try:
+            rport, mport = free_port(), free_port()
+            env = dict(
+                os.environ,
+                OPENARCANUM_RELAY_LISTEN=f"127.0.0.1:{rport}",
+                OPENARCANUM_RELAY_MEDIA_UDP_PORT="0",
+                OPENARCANUM_RELAY_MEDIA_LOOPBACK="true",
+                OPENARCANUM_META_LISTEN=f"127.0.0.1:{mport}",
+                OPENARCANUM_META_DATA_DIR=str(Path(tmp) / "meta"),
+            )
+            for name, port in (("relay", rport), ("meta", mport)):
+                p = subprocess.Popen(
+                    [*prefix, str(d / name)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
+                )
+                procs.append(p)
+                wait_healthy(prefix, d / name, f"http://127.0.0.1:{port}/healthz", p)
+            out = subprocess.run(
+                [*prefix, str(d / "community"), "init", "-data", str(Path(tmp) / "community"),
+                 "-relay", f"ws://127.0.0.1:{rport}/ws", "-maintainer", f"http://127.0.0.1:{mport}"],
+                capture_output=True, text=True, timeout=120,
+            )  # fmt: skip
+            if out.returncode != 0 or "openarcanum-claim:" not in out.stdout:
+                raise RuntimeError(f"community init failed: {out.stderr}")
+        finally:
+            for p in procs:
+                p.terminate()
+                try:
+                    p.wait(10)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    p.wait()
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("dir")
+    ap.add_argument("--qemu-aarch64", default="")
+    ap.add_argument("--version", default="", help="the release version every binary must report")
+    a = ap.parse_args()
+    root = Path(a.dir)
+    errors = []
+    has_file = shutil.which("file")
+    for arch, (machine, label) in ARCHES.items():
+        for name in SERVERS:
+            path = root / f"linux-{arch}" / name
+            if not path.exists():
+                errors.append(f"{path} is missing")
+                continue
+            try:
+                m, static = elf_info(path)
+            except ValueError as e:
+                errors.append(f"{path}: {e}")
+                continue
+            if m != machine:
+                errors.append(f"{path}: ELF machine {m}, expected {machine} ({label})")
+            if not static:
+                errors.append(f"{path}: dynamically linked (needs CGO_ENABLED=0)")
+            desc = (
+                subprocess.run(["file", "-b", str(path)], capture_output=True, text=True).stdout.strip()
+                if has_file
+                else ""
+            )
+            print(
+                f"{path}: {label}, {'static' if static else 'DYNAMIC'}, {path.stat().st_size >> 20} MiB"
+                + (f"\n    file: {desc}" if desc else "")
+            )
+    if errors:
+        for e in errors:
+            print("check-release-bins:", e, file=sys.stderr)
+        return 1
+
+    host = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine().lower())
+    qemu = a.qemu_aarch64 or shutil.which("qemu-aarch64-static") or shutil.which("qemu-aarch64") or ""
+    for arch in ARCHES:
+        d = root / f"linux-{arch}"
+        if not sys.platform.startswith("linux"):
+            print(f"linux-{arch}: not run (this is not Linux)")
+            continue
+        if arch == host:
+            prefix: list[str] = []
+        elif arch == "arm64" and qemu:
+            prefix = [qemu]
+        else:
+            print(f"linux-{arch}: not run (no qemu-user for this architecture here)")
+            continue
+        try:
+            if a.version:
+                check_versions(d, prefix, a.version)
+            run_servers(d, prefix)
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            print(f"check-release-bins: linux-{arch}: {e}", file=sys.stderr)
+            return 1
+        how = f"under {Path(qemu).name}" if prefix else "natively"
+        ver = f", version {a.version}" if a.version else ""
+        print(f"linux-{arch}: relay and meta answered /healthz, community init created a server ({how}{ver})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

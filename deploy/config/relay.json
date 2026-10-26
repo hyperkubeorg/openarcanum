@@ -1,0 +1,10 @@
+{
+  "listen": ":7000",
+  "region": "eu-west",
+  "registry_urls": ["https://maintainer-01.openarcanum.org"],
+  "public_url": "wss://relay.example.invalid/ws",
+  "media_udp_port": 7000,
+  "media_public_ips": [],
+  "log_format": "json",
+  "metrics_listen": "127.0.0.1:7001"
+}

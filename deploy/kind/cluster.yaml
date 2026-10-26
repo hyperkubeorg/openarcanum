@@ -1,0 +1,17 @@
+# The local kind cluster for development (`make kind-up`, docs/kubernetes.md).
+#
+# One node. The relay runs on the node's network (values-kind.yaml), so its
+# call media port, 7000/udp, is mapped to 127.0.0.1:7000 on this computer:
+# clients get 127.0.0.1 as the relay's media address. TCP (the relay's
+# WebSocket and the maintainer node's API) goes through `make kind-proxy`
+# instead, so nothing else is published.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: openarcanum
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 7000
+        hostPort: 7000
+        listenAddress: "127.0.0.1"
+        protocol: UDP

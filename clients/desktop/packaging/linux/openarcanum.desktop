@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=OpenArcanum
+GenericName=Community chat
+Comment=Private community chat
+Exec=OpenArcanum -- %u
+Icon=openarcanum
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=chat;community;voice;
+MimeType=x-scheme-handler/openarcanum;
+StartupWMClass=openarcanum

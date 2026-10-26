@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Check what git would publish: only the product's code and docs.
+
+    scripts/public-check [ROOT]        (make public-check)
+
+Lists the tracked files (`git ls-files`, what a commit of the current index
+publishes) and fails if
+
+  - any of them is local state or build output (`bin/`, `.dev/`, `dist/`,
+    `build/`, virtualenvs, caches, `*.jsonl` results) or something that
+    looks like a secret (`*.key`, `*.pem`,
+    `*.p12`, `*.pfx`, `.env`, SSH private keys) outside a `testdata/` folder;
+  - a tracked text file contains a leftover that would confuse or expose
+    something to a reader: absolute paths from a development machine, or the
+    git user's email
+    address (from
+    `git config user.email`, plus any in $PUBLIC_CHECK_EMAILS, comma
+    separated) anywhere.
+
+It prints the number of files per top-level directory, and lists files that
+are neither tracked nor ignored as a warning (`git add -A` would publish
+them). Leftover-work markers are scripts/check-markers' job. Python standard library only.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+SELF = "scripts/public-check"
+SELF_TEST = "clients/desktop/tests/test_public_check.py"
+
+# Whole files or folders (as path prefixes) at the repository root.
+EXCLUDED_ROOT = {
+    ".dev/": "local run data",
+    "bin/": "build output",
+}
+# Any path component with one of these names.
+EXCLUDED_DIRS = {
+    "dist": "build output",
+    "build": "build output",
+    "__pycache__": "Python cache",
+    ".venv": "virtualenv",
+    "node_modules": "Node packages",
+    ".pytest_cache": "test cache",
+    ".ruff_cache": "lint cache",
+    ".hypothesis": "test cache",
+}
+SECRET_SUFFIXES = (".key", ".pem", ".p12", ".pfx")
+SECRET_NAMES = re.compile(r"^(\.env(\..+)?|id_(rsa|dsa|ecdsa|ed25519))$")
+
+# Leftover text. Built from parts so this file doesn't match itself.
+HOME_PATHS = re.compile("(?<![\\w.-])/(?:" + "home/" + "dev|" + "work" + "space)(?![\\w-])")
+TEXT_EXEMPT = {SELF, SELF_TEST}
+
+
+def excluded_reason(path: str) -> str | None:
+    """Why `path` (repo-relative, forward slashes) must not be published, or None."""
+    for prefix, why in EXCLUDED_ROOT.items():
+        if path == prefix or (prefix.endswith("/") and path.startswith(prefix)):
+            return why
+    parts = path.split("/")
+    for part in parts[:-1]:
+        if part in EXCLUDED_DIRS:
+            return EXCLUDED_DIRS[part]
+    name = parts[-1]
+    if name.endswith(".jsonl"):
+        return "test or load-test results"
+    secretish = name.endswith(SECRET_SUFFIXES) or SECRET_NAMES.match(name)
+    if secretish and "testdata" not in parts:
+        return "looks like a key or secret (test fixtures belong under testdata/)"
+    return None
+
+
+def leftovers(path: str, text: str, emails: list[str]) -> list[str]:
+    """Lines of `text` that shouldn't be published, as 'path:line: what'."""
+    if path in TEXT_EXEMPT:
+        return []
+    found = []
+    lowered = [e.lower() for e in emails if e]
+    for n, line in enumerate(text.splitlines(), 1):
+        if HOME_PATHS.search(line):
+            found.append(f"{path}:{n}: absolute development path: {line.strip()[:100]}")
+        low = line.lower()
+        for e in lowered:
+            if e in low:
+                found.append(f"{path}:{n}: the git user's email address")
+    return found
+
+
+def git(root: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True).stdout
+
+
+def emails_to_hide(root: Path) -> list[str]:
+    out = [e.strip() for e in os.environ.get("PUBLIC_CHECK_EMAILS", "").split(",")]
+    try:
+        out.append(git(root, "config", "user.email").strip())
+    except subprocess.CalledProcessError:
+        pass
+    return [e for e in out if "@" in e]
+
+
+def read_text(p: Path) -> str | None:
+    try:
+        data = p.read_bytes()
+    except OSError:
+        return None
+    if b"\0" in data[:8192]:
+        return None
+    return data.decode("utf-8", errors="replace")
+
+
+def summary(paths: list[str]) -> list[str]:
+    counts = Counter(p.split("/", 1)[0] + ("/" if "/" in p else "") for p in paths)
+    width = max((len(k) for k in counts), default=0)
+    return [f"  {k:<{width}}  {v:5d}" for k, v in sorted(counts.items())]
+
+
+def main(argv: list[str]) -> int:
+    root = Path(argv[1]) if len(argv) > 1 else Path(__file__).resolve().parent.parent
+    tracked = [p for p in git(root, "ls-files", "-z").split("\0") if p]
+    untracked = [p for p in git(root, "ls-files", "-z", "--others", "--exclude-standard").split("\0") if p]
+
+    print(f"public-check: {len(tracked)} tracked files would be published")
+    for line in summary(tracked):
+        print(line)
+
+    problems = []
+    for p in tracked:
+        why = excluded_reason(p)
+        if why:
+            problems.append(f"{p}: must not be published ({why}); git rm --cached it and keep it in .gitignore")
+    emails = emails_to_hide(root)
+    for p in tracked:
+        text = read_text(root / p)
+        if text is not None:
+            problems.extend(leftovers(p, text, emails))
+
+    if untracked:
+        n = len(untracked)
+        print(f"public-check: warning: {n} file(s) neither tracked nor ignored (git add -A would publish them):")
+        for p in untracked[:20]:
+            print(f"  {p}{'  <- excluded: ' + excluded_reason(p) if excluded_reason(p) else ''}")
+        if len(untracked) > 20:
+            print(f"  … and {len(untracked) - 20} more")
+
+    for line in problems:
+        print(line, file=sys.stderr)
+    if problems:
+        print(f"public-check: {len(problems)} problem(s)", file=sys.stderr)
+        return 1
+    print("public-check: ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

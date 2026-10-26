@@ -1,0 +1,51 @@
+{{define "content"}}
+{{$a := .Data.Ann}}
+<p><a href="/admin/announcements">← Announcements</a></p>
+<h1>{{if $a.ID}}Edit announcement{{else}}New announcement{{end}}</h1>
+{{if eq .Data.Done "saved"}}<div class="notice ok" role="status"><p>Saved.{{if $a.Published}} <a href="/announcements/{{$a.ID}}">View it on the site</a>.{{end}}</p></div>{{end}}
+<form method="post" action="{{if $a.ID}}/admin/announcements/{{$a.ID}}{{else}}/admin/announcements/new{{end}}" class="box">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="field">
+    <label for="title">Title</label>
+    <input type="text" id="title" name="title" value="{{$a.Title}}" maxlength="200" required{{with .Data.Errors}}{{with .title}} aria-invalid="true" aria-describedby="title-err"{{end}}{{end}}>
+    {{with .Data.Errors}}{{with .title}}<p class="error" id="title-err">{{.}}</p>{{end}}{{end}}
+  </div>
+  <div class="field">
+    <label for="body">Text</label>
+    <textarea id="body" name="body" maxlength="50000" required aria-describedby="body-hint{{with .Data.Errors}}{{with .body}} body-err{{end}}{{end}}">{{$a.Body}}</textarea>
+    <p class="hint" id="body-hint">Markdown: blank lines between paragraphs, <code>#</code> headings, <code>**bold**</code>, <code>*italic*</code>, <code>`code`</code>, <code>- lists</code>, <code>&gt; quotes</code>, <code>[links](https://…)</code>. HTML is shown as text, never run.</p>
+    {{with .Data.Errors}}{{with .body}}<p class="error" id="body-err">{{.}}</p>{{end}}{{end}}
+  </div>
+  <div class="row">
+    <div class="field">
+      <label for="status">State</label>
+      <select id="status" name="status">
+        <option value="draft"{{if not $a.Published}} selected{{end}}>Draft (only admins see it)</option>
+        <option value="published"{{if $a.Published}} selected{{end}}>Published</option>
+      </select>
+    </div>
+    <div class="field">
+      <span class="group-label">Position</span>
+      <label class="check"><input type="checkbox" name="pinned"{{if $a.Pinned}} checked{{end}}> Pinned to the top</label>
+    </div>
+  </div>
+  <div class="form-foot">
+    {{if $a.ID}}<span class="status">Created {{datetime $a.CreatedAt}}{{with $a.Author}} by {{.}}{{end}}; updated {{datetime $a.UpdatedAt}}</span>{{end}}
+    <a class="btn" href="/admin/announcements">Cancel</a>
+    <button type="submit" class="btn primary">Save</button>
+  </div>
+</form>
+
+{{if $a.ID}}
+<h2 class="section-title">Preview</h2>
+<article class="box ann">
+  <h2>{{$a.Title}}</h2>
+  <div class="ann-body">{{md $a.Body}}</div>
+</article>
+
+<form method="post" action="/admin/announcements/{{$a.ID}}/delete" data-confirm="Delete this announcement? This can't be undone.">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <button type="submit" class="btn small danger">Delete announcement</button>
+</form>
+{{end}}
+{{end}}

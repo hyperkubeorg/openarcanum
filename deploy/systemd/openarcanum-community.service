@@ -1,0 +1,65 @@
+# OpenArcanum community server (docs/admin-guide.md "Running the servers with systemd").
+#
+#   install -m 0755 community /usr/local/bin/community
+#   cp openarcanum-community.service /etc/systemd/system/ && systemctl daemon-reload
+#   # Create the server as the service's own user, in its state directory
+#   # (guided setup; prints the claim code):
+#   systemd-run --pty --wait -p DynamicUser=yes -p User=openarcanum-community \
+#       -p StateDirectory=openarcanum-community \
+#       /usr/local/bin/community init -interactive -data /var/lib/openarcanum-community
+#   systemctl enable --now openarcanum-community
+#
+# The server only connects out (relays, maintainer nodes, link previews);
+# it listens on nothing unless metrics_listen is set. Keeping the storage
+# key off the data disk: see openarcanum-community-storage-key.conf.
+
+[Unit]
+Description=OpenArcanum community server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/community run -data /var/lib/openarcanum-community
+Restart=on-failure
+RestartSec=5s
+# A clean stop checkpoints the database; give it time.
+TimeoutStopSec=60s
+LimitNOFILE=65536
+
+DynamicUser=yes
+User=openarcanum-community
+StateDirectory=openarcanum-community
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+DevicePolicy=closed
+
+[Install]
+WantedBy=multi-user.target

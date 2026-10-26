@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Run every Go native fuzz target for a bounded time.
+
+    scripts/fuzz-go [--fuzztime 5s] [--minimizetime 2s] [--list] [PATTERN]
+
+Finds each `func FuzzXxx(f *testing.F)` in the module's `*_test.go` files and
+runs `go test -run '^$' -fuzz '^FuzzXxx$' -fuzztime T` in its package, one
+target at a time (Go fuzzes one target per invocation). PATTERN (a regular
+expression) limits the run to matching target names. A failure leaves the
+crashing input in the package's testdata/fuzz/ directory, where plain
+`go test` replays it from then on: commit it with the fix.
+
+`make fuzz-short` runs this with FUZZTIME (default 5s); the nightly CI job
+runs it longer. Python standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+FUZZ_FUNC = re.compile(r"^func (Fuzz\w+)\(\w+ \*testing\.F\)", re.M)
+
+
+def targets(root: Path) -> list[tuple[str, str]]:
+    """(package dir relative to root, target name), sorted."""
+    out = []
+    for path in sorted(root.glob("**/*_test.go")):
+        rel = path.relative_to(root)
+        if any(part.startswith(".") or part == "testdata" for part in rel.parts):
+            continue
+        for name in FUZZ_FUNC.findall(path.read_text(encoding="utf-8")):
+            out.append(("./" + rel.parent.as_posix(), name))
+    return sorted(out)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--fuzztime", default=os.environ.get("FUZZTIME", "5s"))
+    ap.add_argument("--minimizetime", default=os.environ.get("FUZZMINIMIZETIME", "2s"))
+    ap.add_argument("--go", default=os.environ.get("GO", "go"))
+    ap.add_argument("--list", action="store_true", help="print the targets and exit")
+    ap.add_argument("pattern", nargs="?", default="")
+    args = ap.parse_args()
+
+    found = [(pkg, name) for pkg, name in targets(ROOT) if re.search(args.pattern, name)]
+    if not found:
+        print("fuzz-go: no fuzz targets found", file=sys.stderr)
+        return 1
+    if args.list:
+        for pkg, name in found:
+            print(f"{pkg} {name}")
+        return 0
+    failed = []
+    for pkg, name in found:
+        cmd = [
+            args.go, "test", "-run", "^$", "-fuzz", f"^{name}$",
+            "-fuzztime", args.fuzztime, "-fuzzminimizetime", args.minimizetime, pkg,
+        ]  # fmt: skip
+        start = time.monotonic()
+        proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        took = time.monotonic() - start
+        if proc.returncode != 0:
+            failed.append(name)
+            print(f"FAIL {pkg} {name} ({took:.0f}s)")
+            sys.stdout.write(proc.stdout + proc.stderr)
+        else:
+            execs = re.findall(r"execs: (\d+)", proc.stdout + proc.stderr)
+            print(f"ok   {pkg} {name} ({took:.0f}s, {execs[-1] if execs else '?'} execs)")
+        sys.stdout.flush()
+    if failed:
+        print(f"fuzz-go: {len(failed)} of {len(found)} targets failed: {', '.join(failed)}", file=sys.stderr)
+        return 1
+    print(f"fuzz-go: {len(found)} targets passed ({args.fuzztime} each)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

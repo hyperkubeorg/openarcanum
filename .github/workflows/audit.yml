@@ -1,0 +1,58 @@
+# Known-vulnerability scans of the Go and Python dependencies: govulncheck
+# over the Go module and pip-audit over the hashed export of
+# clients/desktop/uv.lock. Runs on every pull request, on pushes that touch
+# dependencies, and daily (new advisories appear without code changes).
+
+name: Audit
+
+on:
+  pull_request:
+  push:
+    paths:
+      - go.mod
+      - go.sum
+      - clients/desktop/pyproject.toml
+      - clients/desktop/uv.lock
+      - .github/workflows/audit.yml
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOVULNCHECK_VERSION: v1.9.0
+  UV_VERSION: "0.13.5"
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: clients/desktop/uv.lock
+
+      - name: Python (version from clients/desktop/.python-version)
+        working-directory: clients/desktop
+        run: uv python install
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Lock file is current and pinned with hashes
+        run: make lock-check
+
+      - name: make audit
+        run: make audit

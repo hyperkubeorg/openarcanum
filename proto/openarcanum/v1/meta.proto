@@ -1,0 +1,511 @@
+// Maintainer node protocol: HTTP endpoints with protobuf bodies
+// (Content-Type: application/x-protobuf). See docs/protocol.md §7.
+syntax = "proto3";
+
+package openarcanum.v1;
+
+import "openarcanum/v1/community.proto";
+import "openarcanum/v1/session.proto";
+
+option go_package = "github.com/hyperkubeorg/openarcanum/internal/wire;wire";
+
+// ---------------------------------------------------------------- routes
+
+// Where a community's server can be reached. Published for every community,
+// public or private. route_id is an opaque random value.
+message Route {
+  bytes route_id = 1;
+  bytes server_key = 2;
+  repeated string relays = 3;
+  uint64 seq = 4;
+  int64 published_at = 5;
+  // Set (unix milliseconds) once an operator brought the community back
+  // after maintainers reaped it (docs/protocol.md §7.4), and carried on every
+  // route from then on. A maintainer that still holds the community's
+  // tombstone accepts a route only if this is later than the last time it
+  // saw the server; 0 = never re-registered.
+  int64 reregistered_at = 6;
+}
+
+// signature = Sign(server_key, "openarcanum/route/v1" || route); cert proves the
+// owner authorized server_key, so a moved community can update its route.
+message SignedRoute {
+  bytes route = 1;
+  bytes signature = 2;
+  SignedServerCert cert = 3;
+}
+
+// ---------------------------------------------------------------- directory
+
+message Listing {
+  bytes community = 1;  // owner key
+  bytes server_key = 2;
+  bytes route_id = 3;
+  string name = 4;
+  string description = 5;
+  repeated string tags = 6;
+  string language = 7;
+  string member_range = 8;
+  // 9 is reserved: the icon travels next to the signed bytes
+  // (SignedListing.icon) so directory snapshots can leave it out.
+  reserved 9;
+  reserved "icon";
+  JoinPolicy join_policy = 10;
+  // Public join key, if the community publishes one.
+  string public_join_key = 11;
+  repeated string relays = 12;
+  uint64 seq = 13;
+  int64 published_at = 14;
+  // A withdrawn listing removes the community from the directory.
+  bool withdrawn = 15;
+  // SHA-256 of the community icon (empty = no icon).
+  bytes icon_sha256 = 16;
+}
+
+// signature = Sign(server_key, "openarcanum/listing/v1" || listing)
+message SignedListing {
+  bytes listing = 1;
+  bytes signature = 2;
+  SignedServerCert cert = 3;
+  // The icon, outside the signature: it must hash to listing.icon_sha256.
+  // Empty in directory snapshots.
+  bytes icon = 4;
+}
+
+message SearchResponse {
+  repeated SignedListing listings = 1;
+  // Whether each listed community's server is reporting (§7.4), for the
+  // listings above that have a status on this node.
+  repeated CommunityStatus statuses = 2;
+}
+
+// One page of the directory for local search (GET /v1/directory/snapshot,
+// docs/protocol.md §7.2): every listed community's signed listing without
+// its icon, in a stable order. Clients verify each listing like a search
+// result.
+message DirectorySnapshot {
+  repeated SignedListing listings = 1;
+  // Pass as ?after= for the next page; more = false on the last page.
+  uint64 next = 2;
+  bool more = 3;
+  // Listed communities on this node when the page was made.
+  uint64 total = 4;
+  int64 generated_at = 5;
+}
+
+// ---------------------------------------------------------------- relay registry
+
+message RelayHeartbeat {
+  string url = 1;
+  string region = 2;
+  uint32 capacity = 3;     // connections it is willing to take
+  uint32 connections = 4;  // current connections
+  bytes relay_key = 5;     // the operator's registry key
+  int64 at = 6;            // unix milliseconds
+}
+
+// signature = Sign(relay_key, "openarcanum/relay-heartbeat/v1" || heartbeat)
+message SignedHeartbeat {
+  bytes heartbeat = 1;
+  bytes signature = 2;
+}
+
+message RelayInfo {
+  string url = 1;
+  string region = 2;
+  uint32 capacity = 3;
+  uint32 connections = 4;
+  int64 last_seen = 5;
+}
+
+message RelayList {
+  repeated RelayInfo relays = 1;
+}
+
+// ---------------------------------------------------------------- community status (docs/protocol.md §7.4)
+
+// A community server's liveness report, sent to every maintainer node every
+// heartbeat_interval while it runs, and once more (stopping) when it shuts
+// down cleanly. Verified against the server key of the stored route for
+// route_id, so a heartbeat needs the route posted first.
+message CommunityHeartbeat {
+  bytes route_id = 1;
+  bytes server_key = 2;
+  int64 at = 3;  // unix milliseconds
+  // A clean shutdown: show the community offline now, not after the
+  // offline window.
+  bool stopping = 4;
+  // Relays the server is attached to, and how many it wants (its pinned
+  // list, or relay_count in automatic mode). Fewer attached than wanted is
+  // degraded; none is offline.
+  uint32 relays_attached = 5;
+  uint32 relays_wanted = 6;
+  // The server only uses relays it was given (pinned or dedicated), so it
+  // never moves to other relays when those are down.
+  bool pinned = 7;
+}
+
+// signature = Sign(server_key, "openarcanum/community-heartbeat/v1" || heartbeat)
+message SignedCommunityHeartbeat {
+  bytes heartbeat = 1;
+  bytes signature = 2;
+}
+
+enum CommunityState {
+  COMMUNITY_STATE_UNSPECIFIED = 0;  // no report from this server yet
+  COMMUNITY_STATE_ONLINE = 1;
+  // Reporting, but attached to fewer relays than it wants.
+  COMMUNITY_STATE_DEGRADED = 2;
+  // No report within the node's community_offline_after, a clean shutdown,
+  // or reporting with no relay attached.
+  COMMUNITY_STATE_OFFLINE = 3;
+  // Reaped: no report for longer than community_reap_after. The node keeps
+  // only this tombstone (route, listing and status are gone).
+  COMMUNITY_STATE_TERMINATED = 4;
+}
+
+// GET /v1/communities/{route_id}/status
+message CommunityStatus {
+  bytes route_id = 1;
+  CommunityState state = 2;
+  // The newest time the server signed (a heartbeat or its route), unix
+  // milliseconds; for TERMINATED, the last time before reaping.
+  int64 last_seen = 3;
+  // TERMINATED: when this node reaped it.
+  int64 reaped_at = 4;
+  // The newest heartbeat, for clients to check last_seen and the relay
+  // counts against the server key they know (absent for TERMINATED).
+  SignedCommunityHeartbeat heartbeat = 5;
+  // This node's community_reap_after, in seconds, so clients can say how
+  // long a server may be offline before it is shut down.
+  uint64 reap_after_seconds = 6;
+}
+
+// ---------------------------------------------------------------- mailboxes (docs/protocol.md §9.3)
+
+// Drop-off needs nothing but the inbox address: SHA-256 of the inbox token.
+message MailboxDrop {
+  bytes inbox = 1;
+  bytes blob = 2;
+}
+
+message MailboxFetch {
+  bytes token = 1;
+  int64 after_id = 2;
+}
+
+message MailboxItem {
+  int64 id = 1;
+  bytes blob = 2;
+  int64 received_at = 3;
+  // The item's global id: SHA-256("openarcanum/mailbox-item/v1" || 0x00 ||
+  // inbox || blob), the same on every node of a maintainer cluster, so a
+  // client reading several nodes handles each item once (docs/protocol.md
+  // §7.5).
+  bytes gid = 4;
+}
+
+message MailboxItems {
+  repeated MailboxItem items = 1;
+  uint64 used_bytes = 2;
+  uint64 quota_bytes = 3;
+  // Changes when the node's mailboxes are restored from a backup; a reader
+  // that saw another epoch starts its after_id position from 0 again
+  // (docs/protocol.md §7.1).
+  uint64 epoch = 4;
+}
+
+message MailboxDelete {
+  bytes token = 1;
+  // This node's ids (MailboxItem.id).
+  repeated int64 ids = 2;
+  // Global ids (MailboxItem.gid), for items read from another node of the
+  // cluster: deleted here if held, and remembered so a late copy doesn't
+  // come back.
+  repeated bytes gids = 3;
+}
+
+// ---------------------------------------------------------------- nameplates (docs/protocol.md §10.1)
+
+message NameplateRequest {
+  // The relay both devices will meet on.
+  string relay = 1;
+}
+
+message Nameplate {
+  uint32 number = 1;
+  bytes topic = 2;
+  string relay = 3;
+  int64 expires_at = 4;  // unix milliseconds
+}
+
+message NameplateClaim {
+  uint32 number = 1;
+}
+
+// ---------------------------------------------------------------- DM blob store (docs/protocol.md §11)
+
+// Starts (or resumes) an upload. The blob id is the SHA-256 of the whole
+// ciphertext; the node verifies it once every chunk has arrived. Each fetch
+// token hash is SHA-256("openarcanum/blob-token/v1" || 0x00 || token) for a
+// random 32-byte token that travels to one recipient device inside the
+// encrypted DM message (docs/protocol.md §11).
+message BlobCreate {
+  bytes hash = 1;
+  uint64 size = 2;
+  repeated bytes token_hashes = 3;
+}
+
+// One chunk of an upload: every chunk is chunk_size bytes except the last.
+// `upload` is the id from BlobUploadStatus; without it a chunk is refused
+// like one for an unknown upload.
+message BlobChunk {
+  bytes hash = 1;
+  uint32 index = 2;
+  bytes data = 3;
+  bytes upload = 4;
+}
+
+// Reply to BlobCreate and BlobChunk.
+message BlobUploadStatus {
+  bytes hash = 1;
+  uint64 size = 2;
+  uint32 chunk_size = 3;
+  repeated uint32 missing = 4;  // chunk indexes not yet received
+  bool complete = 5;
+  int64 expires_at = 6;  // unix milliseconds
+  // The upload's id: SHA-256("openarcanum/blob-upload/v1" || 0x00 || hash ||
+  // size (8 bytes, big-endian) || the sorted token hashes). Only someone who
+  // knows every token hash (the sender) can name it (docs/protocol.md §11).
+  bytes upload = 7;
+}
+
+// Download one chunk with a fetch token.
+message BlobFetch {
+  bytes hash = 1;
+  bytes token = 2;
+  uint32 index = 3;
+}
+
+message BlobChunkData {
+  uint64 size = 1;
+  uint32 chunk_size = 2;
+  uint32 index = 3;
+  bytes data = 4;
+  int64 expires_at = 5;  // unix milliseconds
+}
+
+// Releases one fetch token. The blob is deleted once every token is released.
+message BlobAck {
+  bytes hash = 1;
+  bytes token = 2;
+}
+
+// ---------------------------------------------------------------- replication
+
+message ReplicationBatch {
+  repeated SignedListing listings = 1;
+  repeated SignedRoute routes = 2;
+  repeated SignedHeartbeat heartbeats = 3;
+  uint64 cursor = 4;
+  repeated SignedCommunityHeartbeat community_heartbeats = 5;
+  // The serving node's replication log epoch: a random value that changes
+  // when the node is restored from a backup, whose revision counter then
+  // goes back. A puller that saw another epoch starts its cursor from 0
+  // again (docs/protocol.md §7.3). 0 = no epoch.
+  uint64 epoch = 6;
+  // Maintainer sets (docs/protocol.md §7.5); a node keeps only those of
+  // its own cluster_operator_key.
+  repeated SignedMaintainerSet maintainer_sets = 7;
+}
+
+// ---------------------------------------------------------------- maintainer clusters (docs/protocol.md §7.5)
+
+// One member of a maintainer cluster.
+message MaintainerNode {
+  // Base URL (http or https) of the node's API.
+  string url = 1;
+  // The node's Ed25519 node key (`meta id`).
+  bytes node_key = 2;
+  // "root" or "member": only the order clients try nodes in.
+  string role = 3;
+  string region = 4;
+  // The node doesn't serve the community directory (directory_enabled off
+  // when the set was signed; GET /v1/node says what it does now).
+  bool no_directory = 5;
+}
+
+// A maintainer cluster: the nodes, in preference order (at most 8), that
+// trust each other with private data, signed by the cluster's operator key.
+// Nodes and clients pin the operator key and keep the valid set with the
+// highest seq.
+message MaintainerSet {
+  bytes operator_key = 1;
+  uint64 seq = 2;
+  int64 issued_at = 3;   // unix milliseconds
+  int64 expires_at = 4;  // unix milliseconds
+  repeated MaintainerNode nodes = 5;
+}
+
+// signature = Sign(operator_key, "openarcanum/maintainer-set/v1" || set).
+// GET /v1/maintainers serves the newest one; replicated like routes.
+message SignedMaintainerSet {
+  bytes set = 1;
+  bytes signature = 2;
+}
+
+// GET /v1/node: this node's identity, for operators setting up trust
+// (`meta init --replica-of`) and for clients.
+message NodeInfo {
+  // Ed25519 node key: proves the Noise static key on /v1/peer sessions.
+  bytes node_key = 1;
+  // X25519 Noise static public key.
+  bytes noise_key = 2;
+  // Whether this node serves the public directory (listings, search,
+  // snapshots). Off: those answer 501 "directory disabled" (§7.2).
+  bool directory = 3;
+}
+
+// One message on a peer session: GET /v1/peer upgrades to a WebSocket that
+// carries a Noise XX session (internal/session, prologue
+// "openarcanum/meta-peer/v1") between two nodes that trust each other's node
+// keys. A request carries an id (> 0) that its reply repeats; id 0 is a
+// one-way notice.
+message PeerMessage {
+  uint64 id = 1;
+  oneof body {
+    PeerPull pull = 2;
+    PeerBatch batch = 3;
+    PeerPoke poke = 4;
+    PeerError error = 5;
+    PeerBlobChunkRequest blob_chunk_request = 6;
+    PeerBlobChunk blob_chunk = 7;
+  }
+}
+
+// Asks a member for one chunk of a blob it holds (a node that has the
+// blob's record but not its content, serving a client).
+message PeerBlobChunkRequest {
+  bytes upload_id = 1;
+  uint32 index = 2;
+}
+
+message PeerBlobChunk {
+  bytes upload_id = 1;
+  uint32 index = 2;
+  bytes data = 3;
+}
+
+// Asks for the peer log after cursor. epoch is the epoch the cursor came
+// from (0 = none yet).
+message PeerPull {
+  uint64 cursor = 1;
+  uint64 epoch = 2;
+}
+
+// The peer log after a cursor, in order. A batch whose epoch isn't the one
+// asked for starts from 0 (the peer was restored from a backup).
+message PeerBatch {
+  uint64 epoch = 1;
+  // Pass as the next PeerPull's cursor.
+  uint64 cursor = 2;
+  // More entries follow: pull again at once.
+  bool more = 3;
+  // The peer's newest log position (for lag).
+  uint64 head = 4;
+  repeated PeerEntry entries = 5;
+}
+
+// One peer log entry: what changed, as it is now on the sending node.
+message PeerEntry {
+  // The entry's position in the sender's log.
+  uint64 mrev = 1;
+  oneof entry {
+    PeerMailboxItem item = 2;
+    PeerMailboxTombstone tombstone = 3;
+    PeerBlobMeta blob_meta = 4;
+    PeerBlobRelease blob_release = 5;
+    PeerDecision decision = 6;
+    PeerCommunityTombstone community_tombstone = 7;
+  }
+}
+
+// A community a member reaped (docs/protocol.md §7.4): the receiver drops
+// the community too unless it saw the server sign something after
+// last_seen (or the route re-registered it), so a member that was down
+// while it was reaped can't bring it back.
+message PeerCommunityTombstone {
+  bytes route_id = 1;
+  bytes community = 2;
+  int64 last_seen = 3;
+  int64 reaped_at = 4;
+}
+
+// A moderation decision made on one member (`meta directory delist|relist`,
+// `meta relays remove|restore`). Every member passes it on; only members
+// that follow the origin's decisions (follow_decisions) apply it. The
+// operator's reason never leaves the node.
+message PeerDecision {
+  // The node key of the member where it was made.
+  bytes origin = 1;
+  // "community" (key: the community id, base64url) or "relay" (key: the
+  // relay URL in canonical form).
+  string kind = 2;
+  string key = 3;
+  // "delist" (also for a relay removal) or "relist" (or restore).
+  string action = 4;
+  // When it was made (unix milliseconds); the newest per origin and key
+  // wins. Members refuse one more than 10 minutes ahead of their clock.
+  int64 at = 5;
+  // Sign(origin, "openarcanum/peer-decision/v1" || origin || kind || 0x00 ||
+  // key || 0x00 || action || 0x00 || at as 8 bytes big-endian), by the node
+  // key of the member where it was made: members pass on only decisions
+  // that verify, so one member can't speak for another (docs/protocol.md
+  // §7.5).
+  bytes signature = 6;
+}
+
+// A completed DM blob upload's record (not its content): any member can
+// then serve the blob, fetching its chunks from a member that has them.
+// The receiver checks upload_id against the other fields.
+message PeerBlobMeta {
+  bytes upload_id = 1;
+  bytes hash = 2;
+  uint64 size = 3;
+  repeated bytes token_hashes = 4;
+  int64 expires_at = 5;
+}
+
+// A released fetch token (BlobAck): once every token of an upload is
+// released on any member, the blob is gone everywhere.
+message PeerBlobRelease {
+  bytes upload_id = 1;
+  bytes token_hash = 2;
+  int64 expires_at = 3;
+}
+
+// A mailbox item. The receiver computes its global id itself.
+message PeerMailboxItem {
+  bytes inbox = 1;
+  bytes blob = 2;
+  // When the first node received it (unix milliseconds).
+  int64 received_at = 3;
+  // Its first-drop expiry; the receiver never extends it.
+  int64 expires_at = 4;
+}
+
+// A deleted mailbox item: deletes the item with this gid in this inbox,
+// and keeps a copy from coming back until expires_at.
+message PeerMailboxTombstone {
+  bytes gid = 1;
+  bytes inbox = 2;
+  int64 expires_at = 3;
+}
+
+// Something changed on the sender: pull now.
+message PeerPoke {}
+
+// A request the peer couldn't serve.
+message PeerError {
+  string message = 1;
+}

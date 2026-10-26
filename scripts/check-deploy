@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""Check the server deployment files: systemd units and the OCI image recipe.
+
+    scripts/check-deploy [--bin DIR] [--security-threshold N] [--root DIR]
+
+systemd (deploy/systemd/): every unit carries the hardening the admin guide
+promises (its own unprivileged user, read-only system, no new privileges,
+no capabilities, ...); `systemd-analyze verify` accepts every unit, timer
+and drop-in (with ExecStart pointed at the binaries in --bin, since verify
+checks that they exist); and `systemd-analyze security --offline` rates
+every service at or below the threshold. Without systemd-analyze (macOS,
+Windows) only the static checks run, and the script says so.
+
+Container (deploy/container/Containerfile): base images pinned by digest,
+static (CGO_ENABLED=0) builds, one final stage per server, each running as a
+non-root numeric user, with a HEALTHCHECK that uses the binary's own
+`healthcheck` command and an exec-form ENTRYPOINT, the release version
+linked in (ARG VERSION) and the AGPL licence label; meta and community
+declare the /data volume, owned by that user, and community keeps its
+storage key in a separate /keys volume (so a copy of /data, which holds the
+backups, doesn't carry the key). Building the images needs a
+container engine: CI does that (.github/workflows/ci.yml, job "servers").
+
+Python standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+UNITS = REPO / "deploy" / "systemd"
+CONTAINERFILE = REPO / "deploy" / "container" / "Containerfile"
+
+SERVERS = ("relay", "community", "meta", "site")
+
+# Every service must have these settings, exactly.
+HARDENING = {
+    "DynamicUser": "yes",
+    "NoNewPrivileges": "yes",
+    "ProtectSystem": "strict",
+    "ProtectHome": "yes",
+    "PrivateTmp": "yes",
+    "PrivateDevices": "yes",
+    "ProtectKernelTunables": "yes",
+    "ProtectKernelModules": "yes",
+    "ProtectControlGroups": "yes",
+    "RestrictSUIDSGID": "yes",
+    "MemoryDenyWriteExecute": "yes",
+    "LockPersonality": "yes",
+    "CapabilityBoundingSet": "",
+    "UMask": "0077",
+    "SystemCallArchitectures": "native",
+}
+
+# Long-running services and the state directory each must own.
+SERVICES = {
+    "openarcanum-relay.service": "openarcanum-relay",
+    "openarcanum-community.service": "openarcanum-community",
+    "openarcanum-meta.service": "openarcanum-meta",
+    "openarcanum-meta-backup.service": "openarcanum-meta",
+}
+
+
+def directives(path: Path) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ";", "[")):
+            continue
+        key, _, value = line.partition("=")
+        out.setdefault(key.strip(), []).append(value.strip())
+    return out
+
+
+def check_units_static(errors: list[str]) -> None:
+    found = {p.name for p in UNITS.glob("*.service")}
+    if found != set(SERVICES):
+        errors.append(f"deploy/systemd services are {sorted(found)}, expected {sorted(SERVICES)}")
+    for name, state in SERVICES.items():
+        path = UNITS / name
+        if not path.exists():
+            continue
+        d = directives(path)
+        for key, want in HARDENING.items():
+            if d.get(key, [None])[-1] != want:
+                errors.append(f"{name}: {key}={want!r} required, found {d.get(key)}")
+        if d.get("StateDirectory", [None])[-1] != state:
+            errors.append(f"{name}: StateDirectory={state} required")
+        if d.get("StateDirectoryMode", [None])[-1] != "0700":
+            errors.append(f"{name}: StateDirectoryMode=0700 required")
+        if not any(v.startswith("@system-service") for v in d.get("SystemCallFilter", [])):
+            errors.append(f"{name}: SystemCallFilter=@system-service required")
+        exec_start = d.get("ExecStart", [""])[-1]
+        if not exec_start.startswith("/usr/local/bin/"):
+            errors.append(f"{name}: ExecStart must run a binary from /usr/local/bin")
+    timer = UNITS / "openarcanum-meta-backup.timer"
+    if not timer.exists() or "OnCalendar" not in directives(timer):
+        errors.append("openarcanum-meta-backup.timer with OnCalendar= is required")
+
+
+def check_units_systemd(bin_dir: Path, threshold: float, errors: list[str]) -> None:
+    analyze = shutil.which("systemd-analyze")
+    if not analyze:
+        print("check-deploy: systemd-analyze not found; skipped verify and security (static checks ran)")
+        return
+    missing = [s for s in SERVERS if not (bin_dir / s).exists()]
+    if missing:
+        errors.append(f"binaries {missing} not in {bin_dir} (run `make build`)")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp)
+        files = []
+        for unit in sorted(list(UNITS.glob("*.service")) + list(UNITS.glob("*.timer"))):
+            text = unit.read_text().replace("/usr/local/bin/", f"{bin_dir.resolve()}/")
+            (t / unit.name).write_text(text)
+            files.append(str(t / unit.name))
+        dropin = t / "openarcanum-community.service.d"
+        dropin.mkdir()
+        shutil.copy(UNITS / "openarcanum-community-storage-key.conf", dropin / "storage-key.conf")
+        env = dict(os.environ, SYSTEMD_UNIT_PATH=f"{t}:")
+        res = subprocess.run([analyze, "verify", "--man=no", *files], capture_output=True, text=True, env=env, cwd=t)
+        out = (res.stdout + res.stderr).strip()
+        if res.returncode != 0 or out:
+            errors.append(f"systemd-analyze verify failed:\n{out}")
+        else:
+            print(f"check-deploy: systemd-analyze verify: {len(files)} units OK (with the storage-key drop-in)")
+        for name in SERVICES:
+            res = subprocess.run(
+                [analyze, "security", "--offline=yes", f"--threshold={round(threshold * 10)}", str(t / name)],
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=t,
+            )
+            summary = next((ln for ln in res.stdout.splitlines() if "Overall exposure level" in ln), "")
+            m = re.search(r"exposure level for \S+: ([0-9.]+)", summary)
+            if res.returncode != 0 or not m:
+                errors.append(f"{name}: systemd-analyze security over {threshold}: {summary or res.stderr.strip()}")
+            else:
+                print(f"check-deploy: {name}: exposure {m.group(1)} (threshold {threshold})")
+
+
+def stages(text: str) -> list[tuple[str, list[str]]]:
+    """(FROM line, instruction lines) per stage, continuation lines joined."""
+    lines: list[str] = []
+    buf = ""
+    for raw in text.splitlines():
+        s = raw.rstrip()
+        if not buf and (not s.strip() or s.lstrip().startswith("#")):
+            continue
+        if s.endswith("\\"):
+            buf += s[:-1] + " "
+            continue
+        lines.append((buf + s).strip())
+        buf = ""
+    out: list[tuple[str, list[str]]] = []
+    for ln in lines:
+        if ln.upper().startswith("FROM "):
+            out.append((ln, []))
+        elif out:
+            out[-1][1].append(ln)
+    return out
+
+
+def check_containerfile(errors: list[str]) -> None:
+    if not CONTAINERFILE.exists():
+        errors.append("deploy/container/Containerfile is missing")
+        return
+    text = CONTAINERFILE.read_text()
+    args = dict(re.findall(r"^ARG (\w+)=(\S+)$", text, re.M))
+    for name in ("GO_IMAGE", "RUNTIME_IMAGE"):
+        if not re.search(r"@sha256:[0-9a-f]{64}$", args.get(name, "")):
+            errors.append(f"Containerfile: ARG {name} must be pinned by digest (…@sha256:…)")
+    ignore = CONTAINERFILE.with_name("Containerfile.dockerignore")
+    if not ignore.exists():
+        errors.append(
+            "deploy/container/Containerfile.dockerignore is missing (without it the build context is the whole repo)"
+        )
+    st = stages(text)
+    build = [s for s in st if s[0].split()[-1] == "build"]
+    if len(build) != 1 or not any("CGO_ENABLED=0" in i for i in build[0][1]):
+        errors.append("Containerfile: one stage `build` with CGO_ENABLED=0 is required")
+    if len(build) == 1 and not any("/internal/version.Release=$VERSION" in i for i in build[0][1]):
+        errors.append("Containerfile: the build stage must link ARG VERSION into internal/version.Release")
+    if 'org.opencontainers.image.licenses="AGPL-3.0-only"' not in text:
+        errors.append('Containerfile: the images need the label org.opencontainers.image.licenses="AGPL-3.0-only"')
+    finals = {s[0].split()[-1]: s[1] for s in st if " AS " in s[0].upper() and s[0].split()[-1] in SERVERS}
+    if set(finals) != set(SERVERS):
+        errors.append(f"Containerfile: final stages {sorted(finals)}, expected {sorted(SERVERS)}")
+    for name, ins in finals.items():
+        joined = "\n".join(ins)
+        user = re.search(r"^USER (\d+)(?::(\d+))?$", joined, re.M)
+        if not user or user.group(1) == "0":
+            errors.append(f"Containerfile {name}: USER must be a non-root numeric uid")
+        if f"COPY --from=build /out/{name} /usr/local/bin/{name}" not in joined:
+            errors.append(f"Containerfile {name}: must copy the static binary to /usr/local/bin/{name}")
+        hc = re.search(
+            r'^HEALTHCHECK .*CMD \["/usr/local/bin/(\w+)", "healthcheck", "http://127\.0\.0\.1:(\d+)/healthz"\]$',
+            joined,
+            re.M,
+        )
+        if not hc or hc.group(1) != name:
+            errors.append(
+                f"Containerfile {name}: HEALTHCHECK must run `{name} healthcheck http://127.0.0.1:PORT/healthz`"
+            )
+        if not re.search(rf'^ENTRYPOINT \["/usr/local/bin/{name}"\]$', joined, re.M):
+            errors.append(f'Containerfile {name}: ENTRYPOINT ["/usr/local/bin/{name}"] required')
+        if name == "meta" and 'VOLUME ["/data"]' not in joined:
+            errors.append(f'Containerfile {name}: VOLUME ["/data"] required')
+        if name == "community":
+            if 'VOLUME ["/data", "/keys"]' not in joined:
+                errors.append(
+                    f'Containerfile {name}: VOLUME ["/data", "/keys"] required (storage key off the data volume)'
+                )
+            if not re.search(r"OPENARCANUM_COMMUNITY_STORAGE_KEY_FILE=/keys/\S+", joined):
+                errors.append(f"Containerfile {name}: OPENARCANUM_COMMUNITY_STORAGE_KEY_FILE must point into /keys")
+            if user and not re.search(
+                rf"^COPY --from=build --chown={user.group(1)}:\d+ /out/keys /keys$", joined, re.M
+            ):
+                errors.append(f"Containerfile {name}: /keys must be created owned by the image user")
+        if (
+            name in ("community", "meta", "site")
+            and user
+            and not re.search(rf"^COPY --from=build --chown={user.group(1)}:\d+ /out/data /data$", joined, re.M)
+        ):
+            errors.append(f"Containerfile {name}: /data must be created owned by the image user")
+    print(f"check-deploy: Containerfile: {len(finals)} images checked")
+
+
+def main() -> int:
+    global UNITS, CONTAINERFILE
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--bin", default=str(REPO / "bin"), help="directory with the built relay, community, meta")
+    ap.add_argument("--security-threshold", type=float, default=2.0)
+    ap.add_argument("--root", default=str(REPO), help="repository root holding deploy/ (tests check altered copies)")
+    a = ap.parse_args()
+    UNITS = Path(a.root) / "deploy" / "systemd"
+    CONTAINERFILE = Path(a.root) / "deploy" / "container" / "Containerfile"
+    errors: list[str] = []
+    check_units_static(errors)
+    if sys.platform.startswith("linux"):
+        check_units_systemd(Path(a.bin), a.security_threshold, errors)
+    check_containerfile(errors)
+    for e in errors:
+        print("check-deploy:", e, file=sys.stderr)
+    return 1 if errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

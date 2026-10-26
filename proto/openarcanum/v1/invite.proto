@@ -1,0 +1,35 @@
+// Strings people paste: invites, claim codes and move codes. Each is encoded as
+// a prefix plus unpadded base64url of the message (docs/protocol.md §5).
+syntax = "proto3";
+
+package openarcanum.v1;
+
+option go_package = "github.com/hyperkubeorg/openarcanum/internal/wire;wire";
+
+// "openarcanum-invite:" + base64url(Invite)
+message Invite {
+  bytes route_id = 1;
+  bytes owner_key = 2;
+  bytes server_key = 3;
+  // Last known relays, used when no maintainer node answers.
+  repeated string relays = 4;
+  string join_key = 5;
+  string name = 6;
+}
+
+// "openarcanum-claim:" + base64url(ClaimCode). Printed by `community init`.
+message ClaimCode {
+  bytes server_key = 1;
+  bytes route_id = 2;
+  repeated string relays = 3;
+  bytes secret = 4;
+}
+
+// "openarcanum-move:" + base64url(MoveCode). Printed by `community restore`.
+message MoveCode {
+  bytes server_key = 1;
+  bytes route_id = 2;
+  repeated string relays = 3;
+  bytes secret = 4;
+  bytes owner_key = 5;
+}
