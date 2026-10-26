@@ -211,8 +211,16 @@ func StartDedicatedRelay(t testing.TB, ln net.Listener, serverKey []byte, blockF
 }
 
 // From is an HTTP client whose connections leave from the local address
-// source (any 127.0.0.0/8 address reaches a loopback listener on Linux).
-func From(source string) *http.Client {
+// source (any 127.0.0.0/8 address reaches a loopback listener on Linux and
+// Windows). macOS has only 127.0.0.1 on lo0 unless more are aliased (CI does:
+// .github/workflows/ci.yml), so the test is skipped when source can't be bound.
+func From(t testing.TB, source string) *http.Client {
+	t.Helper()
+	l, err := net.Listen("tcp", net.JoinHostPort(source, "0"))
+	if err != nil {
+		t.Skipf("can't use %s as a source address (on macOS: sudo ifconfig lo0 alias %s up): %v", source, source, err)
+	}
+	_ = l.Close()
 	d := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(source)}, Timeout: 10 * time.Second}
 	return &http.Client{Transport: &http.Transport{DialContext: d.DialContext}}
 }

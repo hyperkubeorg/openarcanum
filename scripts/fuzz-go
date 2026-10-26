@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Run every Go native fuzz target for a bounded time.
 
-    scripts/fuzz-go [--fuzztime 5s] [--minimizetime 2s] [--list] [PATTERN]
+    scripts/fuzz-go [--fuzztime 5s] [--minimizetime 2s] [--packages "./a ./b"] [--list] [PATTERN]
 
 Finds each `func FuzzXxx(f *testing.F)` in the module's `*_test.go` files and
 runs `go test -run '^$' -fuzz '^FuzzXxx$' -fuzztime T` in its package, one
 target at a time (Go fuzzes one target per invocation). PATTERN (a regular
-expression) limits the run to matching target names. A failure leaves the
-crashing input in the package's testdata/fuzz/ directory, where plain
-`go test` replays it from then on: commit it with the fix.
+expression) limits the run to matching target names, and --packages (package
+directories, as the Makefile's GO_TEST_PKGS lists them) to those packages. A
+failure leaves the crashing input in the package's testdata/fuzz/ directory,
+where plain `go test` replays it from then on: commit it with the fix.
 
 `make fuzz-short` runs this with FUZZTIME (default 5s); the nightly CI job
 runs it longer. Python standard library only.
@@ -45,11 +46,15 @@ def main() -> int:
     ap.add_argument("--fuzztime", default=os.environ.get("FUZZTIME", "5s"))
     ap.add_argument("--minimizetime", default=os.environ.get("FUZZMINIMIZETIME", "2s"))
     ap.add_argument("--go", default=os.environ.get("GO", "go"))
+    ap.add_argument("--packages", help="only these package directories (space-separated, ./internal/x)")
     ap.add_argument("--list", action="store_true", help="print the targets and exit")
     ap.add_argument("pattern", nargs="?", default="")
     args = ap.parse_args()
 
     found = [(pkg, name) for pkg, name in targets(ROOT) if re.search(args.pattern, name)]
+    if args.packages is not None:
+        only = set(args.packages.split())
+        found = [(pkg, name) for pkg, name in found if pkg in only]
     if not found:
         print("fuzz-go: no fuzz targets found", file=sys.stderr)
         return 1

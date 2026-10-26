@@ -5,8 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+// posixModes: Windows has no POSIX mode bits (files there report 0666, or
+// 0444 when read-only; privacy comes from the profile's ACLs), so mode
+// assertions only hold elsewhere.
+const posixModes = runtime.GOOS != "windows"
 
 func TestSealOpenBindsPlace(t *testing.T) {
 	key := bytes.Repeat([]byte{7}, KeySize)
@@ -43,7 +49,7 @@ func TestLoadOrCreateKeyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, _ := os.Stat(path)
-	if st.Mode().Perm() != 0o600 {
+	if posixModes && st.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %o", st.Mode().Perm())
 	}
 	k2, err := LoadOrCreateKeyFile(path)

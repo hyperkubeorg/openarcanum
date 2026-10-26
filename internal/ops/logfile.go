@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -91,6 +92,9 @@ func (r *RotatingFile) Write(p []byte) (int, error) {
 			r.report(err)
 		}
 	}
+	if r.f == nil {
+		return 0, errors.New("log file is closed: rotating it failed")
+	}
 	n, err := r.f.Write(p)
 	r.size += int64(n)
 	return n, err
@@ -106,18 +110,36 @@ func (r *RotatingFile) rotate() error {
 		}
 		name = fmt.Sprintf("%s.%s-%d", r.path, r.now().UTC().Format("20060102T150405.000Z"), i)
 	}
-	if err := os.Rename(r.path, name); err != nil {
-		return err
+	// Windows can't rename a file that is open, so close it first and, if
+	// anything fails, carry on in whichever file is left.
+	err := r.f.Close()
+	r.f = nil
+	if err != nil {
+		return r.reopen(r.path, err)
 	}
-	old := r.f
+	if err := os.Rename(r.path, name); err != nil {
+		return r.reopen(r.path, err)
+	}
 	if err := r.open(); err != nil {
 		// Keep logging into the renamed file rather than losing records.
-		r.f = old
-		return err
+		return r.reopen(name, err)
 	}
-	old.Close()
 	r.prune()
 	return nil
+}
+
+// reopen goes back to appending to path after a failed rotation and
+// returns cause (joined with any error reopening).
+func (r *RotatingFile) reopen(path string, cause error) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	if st, err := f.Stat(); err == nil {
+		r.size = st.Size()
+	}
+	r.f, r.opened = f, r.now()
+	return cause
 }
 
 func (r *RotatingFile) prune() {

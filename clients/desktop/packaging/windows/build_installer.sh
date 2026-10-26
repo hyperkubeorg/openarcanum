@@ -19,6 +19,12 @@ TSA="${WINDOWS_TIMESTAMP_URL:-http://timestamp.digicert.com}"
 
 win() { cygpath -w "$1"; }
 
+# Git Bash rewrites arguments that start with / into Windows paths when it
+# starts a Windows program, so ISCC's /D... switches turned into extra script
+# filenames (and signtool's /f into F:/). Every path below goes through win(),
+# so turn the rewriting off for the whole script.
+export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
+
 iscc="$(command -v iscc || command -v ISCC || true)"
 for candidate in "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "/c/Program Files/Inno Setup 6/ISCC.exe"; do
   [ -z "$iscc" ] && [ -x "$candidate" ] && iscc="$candidate"

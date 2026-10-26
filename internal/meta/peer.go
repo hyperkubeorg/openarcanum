@@ -711,11 +711,28 @@ func (s *Server) request(ctx context.Context, l *peerLink, m *wire.PeerMessage) 
 	l.pending[m.Id] = ch
 	l.mu.Unlock()
 	b, err := proto.Marshal(m)
-	if err == nil {
-		err = sess.Send(b)
-	}
 	if err != nil {
 		l.drop("send failed")
+		return nil, err
+	}
+	if err := sess.Send(b); err != nil {
+		// A peer that refuses the session closes it right after the
+		// handshake, and the send can lose that race to the close frame:
+		// wait for readLink to close ch and report the peer's reason.
+		why := ""
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				l.mu.Lock()
+				why = l.lastErr
+				l.mu.Unlock()
+			}
+		case <-time.After(time.Second):
+		}
+		l.drop("send failed")
+		if why != "" {
+			return nil, errors.New(why)
+		}
 		return nil, err
 	}
 	t := time.NewTimer(peerRequestTimeout)

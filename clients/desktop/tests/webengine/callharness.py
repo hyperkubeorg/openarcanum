@@ -370,10 +370,10 @@ class Harness:
     async def debug(self, p: Page) -> dict:
         return json.loads(await p.js("JSON.stringify(call.debug())"))
 
-    async def speaking_over(self, p: Page, seconds: float) -> dict:
+    async def speaking_over(self, p: Page, seconds: float, until_spoken: bool = False) -> dict:
         """Loudest level and whether each remote participant spoke, as heard
         on p over a few seconds (the fake microphone beeps about once a
-        second)."""
+        second). With until_spoken, stop as soon as someone is heard."""
         seen: dict = {}
         end = time.monotonic() + seconds
         while time.monotonic() < end:
@@ -381,6 +381,8 @@ class Harness:
                 s = seen.setdefault(r["id"], {"max": -120.0, "spoke": False})
                 s["max"] = max(s["max"], r["level"])
                 s["spoke"] = s["spoke"] or r["speaking"]
+            if until_spoken and any(s["spoke"] for s in seen.values()):
+                break
             await asyncio.sleep(0.1)
         return seen
 
@@ -523,7 +525,9 @@ class Harness:
         await b.js("call.setLocalMute('a', false); 0")
         await asyncio.sleep(2)
         out["unmuted"] = await self.sent(a, 3)
-        out["unmuted_heard"] = await self.speaking_over(b, 3)
+        # Forwarding resumes once the relay has b's new listening state, which
+        # takes longer on a loaded machine.
+        out["unmuted_heard"] = await self.speaking_over(b, 15, until_spoken=True)
         # b deafens: a stops sending its voice.
         await b.js_async("call.setSelfDeaf(true)")
         await asyncio.sleep(2)

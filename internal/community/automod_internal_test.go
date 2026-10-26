@@ -104,8 +104,16 @@ func TestPatternCost(t *testing.T) {
 	}
 	d := time.Since(start)
 	t.Logf("%d patterns, %d instructions: worst-case pass %v", len(set.rules), total, d)
-	if d > 2*time.Second {
-		t.Fatalf("worst-case AutoMod pass took %v", d)
+	if total > maxPatternInsts || len(set.rules) < 2 {
+		t.Fatalf("budget not filled: %d patterns, %d instructions", len(set.rules), total)
+	}
+	// About 75 ms on a laptop; the bound leaves room for slow CI runners.
+	limit := 2 * time.Second
+	if raceEnabled {
+		limit *= 10
+	}
+	if d > limit {
+		t.Fatalf("worst-case AutoMod pass took %v (limit %v)", d, limit)
 	}
 }
 

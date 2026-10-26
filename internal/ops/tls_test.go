@@ -183,7 +183,7 @@ func TestACMECertificatesForNamesAndIPs(t *testing.T) {
 
 	// The cache: private directory, private files, keys never anywhere else.
 	st, err := os.Stat(cache)
-	if err != nil || st.Mode().Perm() != 0o700 {
+	if err != nil || (posixModes && st.Mode().Perm() != 0o700) {
 		t.Fatalf("cache dir: %v %v", st.Mode(), err)
 	}
 	entries, _ := os.ReadDir(cache)
@@ -192,7 +192,7 @@ func TestACMECertificatesForNamesAndIPs(t *testing.T) {
 	}
 	for _, e := range entries {
 		info, _ := e.Info()
-		if info.Mode().Perm() != 0o600 {
+		if posixModes && info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s has mode %v", e.Name(), info.Mode())
 		}
 	}
@@ -254,7 +254,7 @@ func TestACMECacheDirIsMadePrivate(t *testing.T) {
 	if _, err := ServerTLS(ctx, s, TLSOptions{CacheDir: dir}); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := os.Stat(dir); st.Mode().Perm() != 0o700 {
+	if st, _ := os.Stat(dir); posixModes && st.Mode().Perm() != 0o700 {
 		t.Fatalf("mode %v", st.Mode())
 	}
 	if _, err := ServerTLS(ctx, s, TLSOptions{}); err == nil || !strings.Contains(err.Error(), "acme_cache_dir") {

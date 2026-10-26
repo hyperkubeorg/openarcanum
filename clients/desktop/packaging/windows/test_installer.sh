@@ -14,7 +14,9 @@ setup="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 dir="$(mktemp -d)/OpenArcanum"
 key='HKCU\Software\Classes\openarcanum\shell\open\command'
-export MSYS2_ARG_CONV_EXCL='*'  # pass /FLAGS and registry paths through untouched
+# Pass /FLAGS and registry paths through untouched (Git Bash would rewrite them
+# as paths); paths handed to Windows programs go through cygpath -w instead.
+export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
 
 install() {
   "$setup" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER "/DIR=$(cygpath -w "$dir")" \
@@ -27,16 +29,16 @@ install
 reg query "$key" /ve | tee /dev/stderr | grep -qi 'OpenArcanum.exe" -- "%1"'
 
 echo "== smoke run of the installed app"
-OPENARCANUM_BUNDLE_EXE="$dir/OpenArcanum.exe" make -C "$ROOT" bundle-smoke
+OPENARCANUM_BUNDLE_EXE="$(cygpath -w "$dir/OpenArcanum.exe")" make -C "$(cygpath -w "$ROOT")" bundle-smoke
 
 echo "== silent reinstall (the auto-updater's upgrade) restarts the app"
 install
 for _ in $(seq 60); do
-  tasklist //FI "IMAGENAME eq OpenArcanum.exe" | grep -qi openarcanum.exe && break
+  tasklist /FI "IMAGENAME eq OpenArcanum.exe" | grep -qi openarcanum.exe && break
   sleep 1
 done
-tasklist //FI "IMAGENAME eq OpenArcanum.exe" | grep -qi openarcanum.exe || { echo "the app was not restarted"; exit 1; }
-taskkill //F //IM OpenArcanum.exe || true
+tasklist /FI "IMAGENAME eq OpenArcanum.exe" | grep -qi openarcanum.exe || { echo "the app was not restarted"; exit 1; }
+taskkill /F /IM OpenArcanum.exe || true
 sleep 2
 
 echo "== uninstall"

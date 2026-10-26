@@ -27,7 +27,7 @@ func dedicatedEnv(t *testing.T, blockFile string) *env {
 func (e *env) memberFrom(name, source string) *testutil.Member {
 	e.t.Helper()
 	m := testutil.NewMember(e.t, name)
-	m.HTTP = testutil.From(source)
+	m.HTTP = testutil.From(e.t, source)
 	ctx := testutil.Ctx(e.t)
 	if err := m.Connect(ctx, e.relay.URL, e.serverKey()); err != nil {
 		e.t.Fatal(err)
@@ -124,7 +124,7 @@ func TestBanBlocksNetworkOnDedicatedRelay(t *testing.T) {
 	// Coming back from the same address is refused by the relay itself.
 	again := testutil.NewMember(t, "Mallory again")
 	again.Identity = mallory.Identity
-	again.HTTP = testutil.From("127.0.0.2")
+	again.HTTP = testutil.From(t, "127.0.0.2")
 	if err := again.Connect(ctx, e.relay.URL, e.serverKey()); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("reconnect from the blocked address: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestNetworkBlockPendingUntilReconnect(t *testing.T) {
 	// address is blocked.
 	back := testutil.NewMember(t, "Mallory")
 	back.Identity = mallory.Identity
-	back.HTTP = testutil.From("127.0.0.4")
+	back.HTTP = testutil.From(t, "127.0.0.4")
 	if err := back.Connect(ctx, e.relay.URL, e.serverKey()); err == nil && back.Status.Status != wire.MemberStatus_MEMBER_STATUS_BANNED {
 		t.Fatalf("banned member admitted: %v", back.Status)
 	}
@@ -323,7 +323,7 @@ func TestNetworkBlockOnEveryDedicatedRelay(t *testing.T) {
 	mallory := e.memberFrom("Mallory", "127.0.0.2")
 	second := testutil.NewMember(t, "Mallory")
 	second.Identity = mallory.Identity // another device of hers, through b
-	second.HTTP = testutil.From("127.0.0.3")
+	second.HTTP = testutil.From(t, "127.0.0.3")
 	if err := second.Connect(testutil.Ctx(t), b.URL, e.serverKey()); err != nil {
 		t.Fatal(err)
 	}

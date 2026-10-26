@@ -148,9 +148,18 @@ lock-check:
 storage-guard:
 	cd clients/desktop && $(UV) run python -m openarcanum.guard
 
+# The relay, maintainer node (meta) and site are Linux server software; on
+# Windows and macOS only the Go packages the desktop app ships (the community
+# server it bundles and everything that imports) are tested and fuzzed.
+ifeq ($(shell uname -s),Linux)
+GO_TEST_PKGS ?= ./...
+else
+GO_TEST_PKGS ?= $(shell $(GO) list -deps -f '{{.ImportPath}}' ./cmd/community | sed -n 's|^$(GO_MODULE)/|./|p')
+endif
+
 test: test-go test-py test-js ## Go, Python and JS tests
 test-go:
-	$(GO) test -race -count=1 ./...
+	$(GO) test -race -count=1 $(GO_TEST_PKGS)
 
 # Python tests include Go<->Python interop, end-to-end flows against the real
 # server binaries and the UI test, so they need `build` first.
@@ -167,7 +176,8 @@ test-js:
 fuzz-short: fuzz-go fuzz-py
 
 fuzz-go:
-	$(PY) scripts/fuzz-go --go "$(GO)" --fuzztime $(FUZZTIME) --minimizetime $(FUZZMINIMIZETIME)
+	$(PY) scripts/fuzz-go --go "$(GO)" --fuzztime $(FUZZTIME) --minimizetime $(FUZZMINIMIZETIME) \
+		$(if $(filter-out ./...,$(GO_TEST_PKGS)),--packages "$(GO_TEST_PKGS)")
 
 fuzz-py:
 	cd clients/desktop && HYPOTHESIS_PROFILE=$(HYPOTHESIS_PROFILE) $(UV) run pytest -q $(PY_FUZZ_TIMEOUT) $(PY_FUZZ_TESTS)

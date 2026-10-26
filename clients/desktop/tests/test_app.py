@@ -183,8 +183,11 @@ def test_engine_runs_without_sandbox_only_when_it_cant(monkeypatch):
     assert os.environ[app.ENGINE_FLAGS].split() == ["--no-sandbox"]
     qt_platform.environ_append(app.ENGINE_FLAGS, "--use-fake-ui-for-media-stream")
     assert "--use-fake-ui-for-media-stream" not in os.environ[app.ENGINE_FLAGS]
-    # This machine can run it (user namespaces work here).
-    if sys.platform.startswith("linux"):
+    # The probe agrees with the system: on Linux without the AppArmor
+    # restriction (Ubuntu 24.04 turns it on, CI runners included) the
+    # sandbox can start.
+    restricted = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+    if sys.platform.startswith("linux") and not (restricted.exists() and restricted.read_text().strip() == "1"):
         assert app.linux_sandbox_available()
 
 

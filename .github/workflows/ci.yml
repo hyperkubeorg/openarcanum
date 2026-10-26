@@ -18,6 +18,13 @@
 #     update flow) skip on Windows/macOS; their counterparts are automated
 #     where the OS allows (test_hotkey.py on Windows, test_updates.py's
 #     installer runs) and otherwise in docs/manual-tests/.
+#   - The relay, maintainer node and site are Linux server software, so on
+#     Windows and macOS `make test-go` and `make fuzz-go` cover only the Go
+#     packages the desktop app ships (Makefile GO_TEST_PKGS: the community
+#     server and what it imports); Linux runs ./... .
+#   - macOS has only 127.0.0.1 on lo0; the community server's network block
+#     tests and the Python moderation and call tests use 127.0.0.2-9, so the
+#     job aliases those first.
 #   - Windows gets GNU make from Chocolatey and runs every step in Git Bash;
 #     core.autocrlf is turned off before checkout so gofmt and ruff see the
 #     committed LF line endings.
@@ -117,10 +124,17 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install make --no-progress -y
 
+      - name: Loopback aliases (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          for i in 2 3 4 5 6 7 8 9; do sudo ifconfig lo0 alias "127.0.0.$i" up; done
+
+      # The 25- and 50-person call tests need more cores than hosted runners
+      # have; they run in a local `make check`.
       - name: make check
         if: runner.os != 'Linux'
         env:
-          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest
+          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest -k "not fifty and not twenty_five"
         run: make check
 
       # On Linux the keychain tests need a Secret Service: an unlocked GNOME
@@ -128,7 +142,7 @@ jobs:
       - name: make check (Linux, with a keyring)
         if: runner.os == 'Linux'
         env:
-          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest
+          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest -k "not fifty and not twenty_five"
         run: |
           dbus-run-session -- bash -ec '
             echo -n ci-keyring | gnome-keyring-daemon --unlock --components=secrets >/dev/null

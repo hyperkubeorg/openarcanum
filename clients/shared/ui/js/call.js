@@ -434,7 +434,12 @@ class Call {
       await this.signal('answer', this.pc.localDescription.sdp);
       // A renegotiation can put the encoders back on.
       await this.applySending();
-    }).catch((e) => console.error('call: renegotiation', e));
+    }).catch((e) => {
+      // Hanging up can overtake a renegotiation (the app ends the call just
+      // before the page hears of it): only an error in a call that's still
+      // open is worth reporting.
+      setTimeout(() => { if (!this.closed) console.error('call: renegotiation', e); }, 2000);
+    });
     return this.negotiation;
   }
 

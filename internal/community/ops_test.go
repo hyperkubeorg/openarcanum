@@ -113,19 +113,28 @@ func TestCommunityMetricsAndHealth(t *testing.T) {
 		t.Fatalf("readyz: %d", code)
 	}
 
-	// A failed backup is counted as such.
-	if err := os.Chmod(srv.BackupDir(), 0o500); err != nil {
+	// A failed backup is counted as such. A file where the backup directory
+	// should be fails it for root and on Windows too, where a read-only
+	// directory still takes new files.
+	dir := srv.BackupDir()
+	if err := os.Rename(dir, dir+".aside"); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.Chmod(srv.BackupDir(), 0o700) }()
-	if os.Getuid() != 0 {
-		if _, err := srv.Backup(context.Background()); err == nil {
-			t.Fatal("backup into a read-only directory succeeded")
-		}
-		_, out = get(t, hs.URL+"/metrics")
-		if v := sample(t, out, `openarcanum_community_backups_total{outcome="failed"}`); v != "1" {
-			t.Errorf("backups failed = %s", v)
-		}
+	if err := os.WriteFile(dir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.Backup(context.Background()); err == nil {
+		t.Fatal("backup into a file instead of a directory succeeded")
+	}
+	_, out = get(t, hs.URL+"/metrics")
+	if v := sample(t, out, `openarcanum_community_backups_total{outcome="failed"}`); v != "1" {
+		t.Errorf("backups failed = %s", v)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(dir+".aside", dir); err != nil {
+		t.Fatal(err)
 	}
 
 	// Without its relay the server is alive but not ready.

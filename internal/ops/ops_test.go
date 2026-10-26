@@ -10,12 +10,18 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hyperkubeorg/openarcanum/internal/config"
 )
+
+// posixModes: Windows has no POSIX mode bits (files there report 0666, or
+// 0444 when read-only; privacy comes from the profile's ACLs), so mode
+// assertions only hold elsewhere.
+const posixModes = runtime.GOOS != "windows"
 
 func CheckExpositionT(t testing.TB, text string) map[string]string {
 	t.Helper()
@@ -286,7 +292,7 @@ func TestRotationBySize(t *testing.T) {
 		if len(b) == 0 || len(b) > 100 || len(b)%40 != 0 {
 			t.Fatalf("%s holds %d bytes: records split or over the limit", p, len(b))
 		}
-		if st, _ := os.Stat(p); st.Mode().Perm() != 0o600 {
+		if st, _ := os.Stat(p); posixModes && st.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode %v", p, st.Mode())
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,6 +80,9 @@ type client struct {
 	midID, ridID uint8
 	// The address it joins from ("127.0.0.1" when empty).
 	ip string
+	// Set when the test is over: a renegotiation still in flight then fails
+	// on the closed connection, which is no failure of the test.
+	closing atomic.Bool
 
 	mu       sync.Mutex
 	offers   []string // the relay's renegotiation offers
@@ -129,21 +133,26 @@ func (c *client) CallSignal(s *wire.CallSignal) {
 	c.mu.Lock()
 	c.offers = append(c.offers, s.Sdp)
 	c.mu.Unlock()
+	fail := func(format string, args ...any) {
+		if !c.closing.Load() {
+			c.t.Errorf(format, args...)
+		}
+	}
 	go func() {
 		if err := c.pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: s.Sdp}); err != nil {
-			c.t.Errorf("renegotiation offer: %v", err)
+			fail("renegotiation offer: %v", err)
 			return
 		}
 		ans, err := c.pc.CreateAnswer(nil)
 		if err != nil {
-			c.t.Errorf("answer: %v", err)
+			fail("answer: %v", err)
 			return
 		}
 		gather := webrtc.GatheringCompletePromise(c.pc)
 		_ = c.pc.SetLocalDescription(ans)
 		<-gather
 		if err := c.peer.Signal(&wire.CallSignal{Type: "answer", Sdp: c.pc.LocalDescription().SDP}); err != nil {
-			c.t.Errorf("signal answer: %v", err)
+			fail("signal answer: %v", err)
 		}
 	}()
 }
@@ -195,8 +204,11 @@ func newClient(t *testing.T, sendVideo bool) *client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = pc.Close() })
 	c := &client{t: t, pc: pc, got: map[string]chan *rtp.Packet{}, video: map[string]*webrtc.TrackLocalStaticRTP{}}
+	t.Cleanup(func() {
+		c.closing.Store(true)
+		_ = pc.Close()
+	})
 	c.audio, _ = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "audio", "me")
 	if _, err := pc.AddTransceiverFromTrack(c.audio, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly}); err != nil {
 		t.Fatal(err)

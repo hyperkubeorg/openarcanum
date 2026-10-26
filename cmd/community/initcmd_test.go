@@ -7,11 +7,17 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/hyperkubeorg/openarcanum/internal/community"
 )
+
+// posixModes: Windows has no POSIX mode bits (files there report 0666, or
+// 0444 when read-only; privacy comes from the profile's ACLs), so mode
+// assertions only hold elsewhere.
+const posixModes = runtime.GOOS != "windows"
 
 func readConfig(t *testing.T, dir string) map[string]any {
 	t.Helper()
@@ -83,7 +89,7 @@ func TestInitIfNeededAndClaimFile(t *testing.T) {
 	if !strings.HasPrefix(code, "openarcanum-claim:") || !strings.Contains(first.String(), code) {
 		t.Fatalf("claim file %q, output:\n%s", code, first.String())
 	}
-	if st, err := os.Stat(claim); err != nil || st.Mode().Perm() != 0o600 {
+	if st, err := os.Stat(claim); err != nil || (posixModes && st.Mode().Perm() != 0o600) {
 		t.Fatalf("claim file mode: %v %v", st.Mode(), err)
 	}
 	key, _ := os.ReadFile(filepath.Join(dir, "server.key"))
@@ -182,7 +188,7 @@ func TestInitGuidedHome(t *testing.T) {
 	if m := c["maintainers"].([]any); len(m) != 2 {
 		t.Fatalf("maintainers: %v", m)
 	}
-	if st, err := os.Stat(keyFile); err != nil || st.Mode().Perm() != 0o600 {
+	if st, err := os.Stat(keyFile); err != nil || (posixModes && st.Mode().Perm() != 0o600) {
 		t.Fatalf("storage key: %v %v", st, err)
 	}
 	opens(t, dir)

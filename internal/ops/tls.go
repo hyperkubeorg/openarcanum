@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 
@@ -154,7 +155,9 @@ func privateDir(dir string) error {
 	if !st.IsDir() {
 		return fmt.Errorf("%s is not a directory", dir)
 	}
-	if st.Mode().Perm()&0o077 != 0 {
+	// Windows has no mode bits to check (Chmod only toggles read-only); a
+	// directory there inherits its parent's ACL (private under the user's profile).
+	if runtime.GOOS != "windows" && st.Mode().Perm()&0o077 != 0 {
 		if err := os.Chmod(dir, 0o700); err != nil {
 			return fmt.Errorf("%s is open to other users (mode %o) and can't be made 0700: %w", dir, st.Mode().Perm(), err)
 		}
