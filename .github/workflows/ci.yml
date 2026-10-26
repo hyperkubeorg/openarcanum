@@ -124,6 +124,10 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install make --version 4.4.1 --require-checksums --no-progress -y
 
+      - name: helm (macOS; the Linux and Windows images have it)
+        if: runner.os == 'macOS'
+        run: brew install helm
+
       - name: Loopback aliases (macOS)
         if: runner.os == 'macOS'
         run: |

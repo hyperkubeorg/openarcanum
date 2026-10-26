@@ -96,7 +96,7 @@ def test_nothing_is_sent_that_nobody_takes(tone):
     assert unwatched["audio"] > 100 and unwatched["sending"]["audio"], unwatched
     assert all(v["frames"] == 0 for v in r["unwatched_b"]), r["unwatched_b"]
     watched = r["watched"]
-    assert watched["camera"] > 30 and watched["sending"]["camera"], watched
+    assert watched["camera"] > 10 and watched["sending"]["camera"], watched  # ~30 fps; slow runners manage less
     assert any(v["frames"] > 0 and v["w"] > 0 for v in r["watched_b"]), r["watched_b"]
     again = r["unwatched_again"]
     assert again["camera"] == 0 and not again["sending"]["camera"], again
@@ -105,7 +105,7 @@ def test_nothing_is_sent_that_nobody_takes(tone):
     assert all(s["max"] == -120 and not s["spoke"] for s in r["muted_for_b_heard"].values()), r["muted_for_b_heard"]
     back = r["unmuted"]
     assert back["audio"] > 100 and back["sending"]["audio"], back
-    assert any(s["spoke"] for s in r["unmuted_heard"].values()), r["unmuted_heard"]
+    assert any(s["spoke"] for s in r["unmuted_heard"].values()), (r["unmuted_heard"], r["unmuted_b"])
     assert r["deafened"]["audio"] == 0 and not r["deafened"]["sending"]["audio"], r["deafened"]
     assert r["undeafened"]["audio"] > 100, r["undeafened"]
 

@@ -352,7 +352,9 @@ class MetaClient:
 
         async def to_group(group: list[str]) -> tuple[int, BaseException | None]:
             order = self.health.order(group)
-            first, rest = order[:2], order[2:]
+            usable = [b for b in order if self.health.usable(b)]
+            first = usable[:2]
+            rest = [b for b in order if b not in first]
             results = await asyncio.gather(
                 *(asyncio.to_thread(self._request, b, "POST", path, body) for b in first), return_exceptions=True
             )

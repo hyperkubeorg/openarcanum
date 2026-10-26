@@ -38,40 +38,23 @@ def test_smoke_writes_nothing_outside_home(tmp_path):
     assert "smoke: UI loaded" in log
     assert (run_home / "config" / "preferences.toml").exists()
     assert not (home / ".pywebview").exists() or (home / ".pywebview").stat().st_mtime < marker.stat().st_mtime
-    # Tool caches other processes sharing $HOME write to while this runs
-    # (uv, editor tooling, and Go builds and fuzzing from concurrent `make check`s).
-    skip = (
-        str(tmp_path),
-        str(home / ".venvs"),
-        str(home / ".cache" / "uv"),
-        str(home / ".cache" / "go-build"),
-        str(home / "go" / "pkg"),
-        str(home / ".config" / "go"),
-        # The same tool caches where Windows and macOS keep them.
-        str(home / "AppData" / "Local" / "uv"),
-        str(home / "AppData" / "Local" / "go-build"),
-        str(home / "AppData" / "Roaming" / "go"),
-        str(home / "Library" / "Caches" / "uv"),
-        str(home / "Library" / "Caches" / "go-build"),
-        str(home / "Library" / "Application Support" / "go"),
-    )
-    # Where a desktop app writes on each system: the config, data and cache
-    # folders, pywebview's folder, the user's documents and downloads, and
-    # files directly in the home folder.
-    roots = [
-        home / d
-        for d in (".config", ".local", ".cache", ".pywebview", "AppData", "Library", "Documents", "Downloads")
-        if (home / d).is_dir()
-    ]
+    # Where the app would write if it ignored --home: its own folders on this
+    # system, pywebview's folder, the user's documents and downloads, and
+    # files directly in the home folder. (All of ~/Library or ~/.config is
+    # too much: other programs write there while this runs.)
+    import platformdirs
+
+    from openarcanum.paths import Paths
+
+    own = Paths.default()
+    roots = [own.config, own.data, own.cache, own.log, home / ".pywebview"]
+    roots += [Path(platformdirs.user_documents_dir()), Path(platformdirs.user_downloads_dir())]
     newer = [str(f) for f in home.iterdir() if f.is_file() and f.stat().st_mtime > marker.stat().st_mtime]
-    for root, dirs, files in (w for r in roots for w in os.walk(r)):
-        if root.startswith(skip):
-            dirs[:] = []
-            continue
+    for root, _dirs, files in (w for r in roots if r.is_dir() for w in os.walk(r)):
         for f in files:
             fp = os.path.join(root, f)
             try:
-                if os.stat(fp).st_mtime > marker.stat().st_mtime and not fp.startswith(skip):
+                if os.stat(fp).st_mtime > marker.stat().st_mtime:
                     newer.append(fp)
             except OSError:
                 pass

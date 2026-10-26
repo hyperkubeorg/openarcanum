@@ -421,6 +421,9 @@ func TestRotationFailureKeepsLogging(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no directory mode to refuse the rename with")
+	}
 	dir := filepath.Join(t.TempDir(), "logs")
 	path := filepath.Join(dir, "node.log")
 	var notices bytes.Buffer

@@ -50,7 +50,9 @@ FIND = """
   // report it as not clickable yet, as a user would wait for it to go.
   const top = document.elementFromPoint(x, y);
   const covered = !!top && top !== e && !e.contains(top);
-  return { x, y, disabled: !!e.disabled || covered };
+  const desc = (t) => !t ? '' : t.tagName.toLowerCase() + (t.id ? '#' + t.id : '')
+    + (t.className ? '.' + String(t.className).trim().split(' ').join('.') : '');
+  return { x, y, disabled: !!e.disabled || covered, coveredBy: covered ? desc(top) : '' };
 }
 """
 
@@ -232,7 +234,8 @@ class App:
                 return r
             if time.monotonic() > deadline:
                 await self._fail_shot(sel)
-                raise UIError(f"{self.name}: no clickable {sel!r}" + (f" with text {text!r}" if text else ""))
+                why = f" (covered by {r['coveredBy']})" if r and r.get("coveredBy") else (" (disabled)" if r else "")
+                raise UIError(f"{self.name}: no clickable {sel!r}" + (f" with text {text!r}" if text else "") + why)
             await asyncio.sleep(0.1)
 
     async def exists(self, sel: str, text: str | None = None) -> bool:

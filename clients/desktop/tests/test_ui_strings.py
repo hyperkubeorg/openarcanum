@@ -69,7 +69,7 @@ AUDIT = (
       if (v && latin(v)) out.add(a + ': ' + v.slice(0, 120));
     }
   }
-  for (const o of document.querySelectorAll('select option')) {
+  for (const o of document.querySelectorAll('select:not([data-devices]) option')) {
     if (vis(o.parentElement) && latin(o.textContent)) out.add('option: ' + o.textContent.trim());
   }
   return [...out];

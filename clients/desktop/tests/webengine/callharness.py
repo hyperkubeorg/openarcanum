@@ -531,6 +531,7 @@ class Harness:
         # Forwarding resumes once the relay has b's new listening state, which
         # takes longer on a loaded machine.
         out["unmuted_heard"] = await self.speaking_over(b, 15, until_spoken=True)
+        out["unmuted_b"] = await self.debug(b)
         # b deafens: a stops sending its voice.
         await b.js_async("call.setSelfDeaf(true)")
         await asyncio.sleep(2)

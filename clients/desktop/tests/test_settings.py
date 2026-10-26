@@ -286,8 +286,8 @@ def test_auto_lock_after_idle(tmp_path):
         core, ev = await new_core(tmp_path / "a")
         await core.set_setting("auto_lock_minutes", 1)
         core.last_activity = time.monotonic() - 61
-        await wait_until(lambda: not core.unlocked, 10)
-        assert any(p["state"] == "locked" for p in ev.of("profile"))
+        await wait_until(lambda: any(p["state"] == "locked" for p in ev.of("profile")), 10)
+        assert not core.unlocked
         # Identity keys are gone from memory, but the vault on disk keeps them.
         assert all("seed" not in i for i in core.vault.data["identities"].values())
         await core.unlock(PASS)

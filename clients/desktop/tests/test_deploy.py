@@ -118,6 +118,7 @@ def test_exposure_over_threshold_fails(deploy_copy):
     assert r.returncode == 1 and "openarcanum-relay.service: systemd-analyze security over" in r.stderr, r.stderr
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="ELF binaries are the Linux release")
 def test_elf_checks(tmp_path):
     exe = binary("relay")
     machine, _ = bins.elf_info(exe)

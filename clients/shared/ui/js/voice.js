@@ -804,7 +804,9 @@ async function renderVoiceSettings(sec) {
   const options = (kind, cur) => {
     const list = [['default', t('System default')], ...devs.filter((d) => d.kind === kind && d.label && d.deviceId !== 'default').map((d) => [d.label, d.label])];
     if (cur && cur !== 'default' && !list.some((o) => o[0] === cur)) list.push([cur, t('{device} (not connected)', { device: cur })]);
-    return selectEl(list, cur);
+    const sel = selectEl(list, cur);
+    sel.dataset.devices = kind; // the options are the system's device names
+    return sel;
   };
   const outVol = h('input', { type: 'range', min: '0', max: '200', step: '5', value: String(v.voice_output_volume), 'aria-label': t('Output volume'),
     'aria-valuetext': `${v.voice_output_volume}%` });
