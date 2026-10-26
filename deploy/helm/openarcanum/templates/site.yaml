@@ -75,6 +75,8 @@ spec:
       labels:
         {{- include "openarcanum.selector" (dict "root" . "component" "site") | nindent 8 }}
     spec:
+      # The servers never talk to the Kubernetes API.
+      automountServiceAccountToken: false
       securityContext:
         {{- include "openarcanum.podSecurity" . | nindent 8 }}
       containers:

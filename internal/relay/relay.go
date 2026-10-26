@@ -10,8 +10,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -375,7 +378,7 @@ type conn struct {
 	endpointKey string
 
 	// Only touched by the read loop.
-	partial      map[uint64]uint64
+	partial      map[uint64]inflight
 	pendingCache map[uint64]*cachePending
 
 	smu        sync.Mutex
@@ -421,7 +424,7 @@ func (s *Server) newConn(parent context.Context, ws *websocket.Conn, ip, netKey 
 		frames:         newBucket(s.cfg.FramesPerSecond, s.cfg.FrameBurst),
 		bytes:          newBucket(s.cfg.BytesPerSecond, s.cfg.ByteBurst),
 		subs:           make(map[string]struct{}),
-		partial:        make(map[uint64]uint64),
+		partial:        make(map[uint64]inflight),
 		outStreams:     make(map[uint32]*link),
 		inStreams:      make(map[uint32]*link),
 		inByNet:        make(map[string]int),
@@ -660,7 +663,7 @@ func (c *conn) close(code websocket.StatusCode, reason string, err error) {
 		c.leaveCalls()
 
 		if reason != "" {
-			s.log.Debug("relay connection closed", "conn", c.id, "reason", reason, "err", err)
+			s.log.Debug("relay connection closed", "conn", c.id, "reason", reason, "err", errKind(err))
 		}
 		c.ws.Close(code, reason)
 		c.cancel()
@@ -668,6 +671,32 @@ func (c *conn) close(code websocket.StatusCode, reason string, err error) {
 			startTimer.Stop()
 		}
 	})
+}
+
+// errKind describes a connection error without the peer's address (a
+// net.OpError prints both ends): the close status, a known sentinel, the
+// operation that failed, or the error's type.
+func errKind(err error) string {
+	if err == nil {
+		return ""
+	}
+	if st := websocket.CloseStatus(err); st != -1 {
+		return st.String()
+	}
+	for _, e := range []error{context.Canceled, context.DeadlineExceeded, io.EOF, io.ErrUnexpectedEOF, net.ErrClosed} {
+		if errors.Is(err, e) {
+			return e.Error()
+		}
+	}
+	var op *net.OpError
+	if errors.As(err, &op) {
+		var se *os.SyscallError
+		if errors.As(op.Err, &se) {
+			return op.Op + ": " + se.Err.Error()
+		}
+		return op.Op + ": " + fmt.Sprintf("%T", op.Err)
+	}
+	return fmt.Sprintf("%T", err)
 }
 
 // ---------------------------------------------------------------- frames
@@ -788,11 +817,18 @@ func (c *conn) publish(m *wire.Publish) {
 		return
 	}
 	s := c.srv
-	sofar, inFlight := c.partial[m.MessageId]
-	if sofar == rejected {
+	p, inFlight := c.partial[m.MessageId]
+	if inFlight && p.size == rejected {
 		if m.Final {
 			delete(c.partial, m.MessageId)
 		}
+		return
+	}
+	if inFlight && p.topic != string(m.Topic) {
+		// Every chunk of a message goes where its first chunk went: the
+		// topic's checks ran on that one.
+		c.sendError(0, wire.ErrorCode_ERROR_CODE_BAD_FRAME, "chunk for another topic")
+		c.reject(m)
 		return
 	}
 	if !inFlight && len(c.partial) >= s.cfg.MaxPartial {
@@ -801,33 +837,25 @@ func (c *conn) publish(m *wire.Publish) {
 	}
 	if !inFlight && !s.topicAllowed(m.Topic) {
 		c.sendError(0, wire.ErrorCode_ERROR_CODE_NOT_DEDICATED, notDedicatedMsg)
-		if !m.Final {
-			c.partial[m.MessageId] = rejected
-		}
+		c.reject(m)
 		return
 	}
 	if !inFlight && s.cfg.FanoutThreshold > 0 && s.subscribersBesides(m.Topic, c) > s.cfg.FanoutThreshold && !c.mayFanOut(m.Topic) {
 		s.stats.FanoutRefused.Add(1)
 		c.sendError(0, wire.ErrorCode_ERROR_CODE_FANOUT_TOKEN_REQUIRED, "this topic is large; publishing needs a fan-out token")
-		if !m.Final {
-			c.partial[m.MessageId] = rejected
-		}
+		c.reject(m)
 		return
 	}
-	total := sofar + uint64(len(m.Data))
+	total := p.size + uint64(len(m.Data))
 	if uint64(len(m.Data)) > uint64(s.cfg.MaxChunk) || total > s.cfg.MaxMessage {
 		c.sendError(0, wire.ErrorCode_ERROR_CODE_TOO_LARGE, "message too large")
-		if !m.Final {
-			c.partial[m.MessageId] = rejected
-		} else {
-			delete(c.partial, m.MessageId)
-		}
+		c.reject(m)
 		return
 	}
 	if m.Final {
 		delete(c.partial, m.MessageId)
 	} else {
-		c.partial[m.MessageId] = total
+		c.partial[m.MessageId] = inflight{topic: string(m.Topic), size: total}
 	}
 
 	d := &wire.Deliver{Topic: m.Topic, Sender: c.id, MessageId: m.MessageId, Seq: m.Seq, Final: m.Final, Data: m.Data}
@@ -851,6 +879,18 @@ func (c *conn) publish(m *wire.Publish) {
 	}
 }
 
+// reject drops the rest of a message one of whose chunks was refused: its
+// remaining chunks are ignored, whatever topic they name, and nothing of it
+// is cached.
+func (c *conn) reject(m *wire.Publish) {
+	delete(c.pendingCache, m.MessageId)
+	if m.Final {
+		delete(c.partial, m.MessageId)
+	} else {
+		c.partial[m.MessageId] = inflight{size: rejected}
+	}
+}
+
 // subscribersBesides counts a topic's subscribers other than c.
 func (s *Server) subscribersBesides(topic []byte, c *conn) int {
 	s.mu.RLock()
@@ -863,7 +903,14 @@ func (s *Server) subscribersBesides(topic []byte, c *conn) int {
 	return n
 }
 
-// rejected marks a message whose remaining chunks are dropped.
+// inflight is a message whose chunks are still arriving: the topic its
+// first chunk named, and its bytes so far.
+type inflight struct {
+	topic string
+	size  uint64
+}
+
+// rejected as a size marks a message whose remaining chunks are dropped.
 const rejected = ^uint64(0)
 
 func (c *conn) register(m *wire.RegisterEndpoint) {
@@ -888,6 +935,11 @@ func (c *conn) register(m *wire.RegisterEndpoint) {
 	key := string(m.EndpointKey)
 	s.mu.Lock()
 	old := s.endpoints[key]
+	if c.endpointKey != "" && c.endpointKey != key && s.endpoints[c.endpointKey] == c {
+		// A connection hosts one endpoint: the key it registered before
+		// (rotated away) is no longer reachable.
+		delete(s.endpoints, c.endpointKey)
+	}
 	s.endpoints[key] = c
 	c.endpointKey = key
 	s.mu.Unlock()

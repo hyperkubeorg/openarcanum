@@ -120,7 +120,9 @@ func (s *Server) rebuildSearch(ctx context.Context) error {
 	if !enabled {
 		return nil
 	}
-	db, err := store.Open(":memory:")
+	// temp_store(2): FTS5's sorts and merges stay in memory too, never in
+	// temporary files.
+	db, err := store.Open(":memory:", "temp_store(2)")
 	if err != nil {
 		return err
 	}

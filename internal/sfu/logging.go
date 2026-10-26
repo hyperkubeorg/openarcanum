@@ -6,11 +6,13 @@ import (
 	"log/slog"
 
 	"github.com/pion/logging"
+
+	"github.com/hyperkubeorg/openarcanum/internal/httpx"
 )
 
 // pionLogs sends the WebRTC stack's logs to the relay's logger: errors and
 // warnings at debug level (they're routine: closed sockets, peers that went
-// away), the rest dropped.
+// away), without the peer addresses ICE puts in them, the rest dropped.
 type pionLogs struct{ log *slog.Logger }
 
 func (f pionLogs) NewLogger(scope string) logging.LeveledLogger {
@@ -19,7 +21,9 @@ func (f pionLogs) NewLogger(scope string) logging.LeveledLogger {
 
 type pionLogger struct{ log *slog.Logger }
 
-func (l pionLogger) debug(msg string) { l.log.Log(context.Background(), slog.LevelDebug, msg) }
+func (l pionLogger) debug(msg string) {
+	l.log.Log(context.Background(), slog.LevelDebug, httpx.RedactAddrs(msg))
+}
 
 func (pionLogger) Trace(string)                {}
 func (pionLogger) Tracef(string, ...any)       {}

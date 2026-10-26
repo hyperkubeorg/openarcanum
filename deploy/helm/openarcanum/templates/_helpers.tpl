@@ -105,13 +105,16 @@ browsers"): dict "prefix" (OPENARCANUM_RELAY), "tls" (the values), "domains",
 {{- end }}
 {{- end -}}
 
-{{/* acme needs domains, files a Secret. */}}
+{{/* acme needs domains, files a Secret; the site needs domains with files too (it answers only those names). */}}
 {{- define "openarcanum.checkTLS" -}}
 {{- if and (eq .tls.mode "acme") (not .domains) -}}
 {{- fail (printf "%s.tls.mode acme needs %s.tls.domains: the names (or public IP addresses) the CA checks on port 443" .what .what) -}}
 {{- end -}}
 {{- if and (eq .tls.mode "files") (not .tls.secretName) -}}
 {{- fail (printf "%s.tls.mode files needs %s.tls.secretName: a kubernetes.io/tls Secret with tls.crt and tls.key" .what .what) -}}
+{{- end -}}
+{{- if and (eq .what "site") (eq .tls.mode "files") (not .domains) -}}
+{{- fail "site.tls.mode files needs site.tls.domains: the names the site answers for (and redirects to)" -}}
 {{- end -}}
 {{- end -}}
 

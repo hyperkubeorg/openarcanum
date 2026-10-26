@@ -20,6 +20,7 @@ import time
 import pytest
 from conftest import PASS
 
+from openarcanum import core as core_mod
 from openarcanum.api import JsApi, LoopThread, PickedPaths
 from openarcanum.core import Core
 from openarcanum.paths import Paths
@@ -151,6 +152,25 @@ def test_backup_export_takes_the_passphrase(bridge):
     time.sleep(1.1)
     assert api.export_backup(str(out), backup_pass, PASS)["ok"]
     assert out.exists()
+
+
+def test_saved_ui_state_is_bounded(bridge):
+    """state.bin keeps drafts and the like: the page can't grow it without
+    bound, in the number of keys or the size of one value."""
+    api, core, _gui, _tmp = bridge
+    assert api.ui_state_set("draft:1", "x" * 1000)["ok"]
+    assert api.ui_state_get("draft:1")["value"] == "x" * 1000
+    assert refused(api.ui_state_set("draft:1", "x" * (64 * 1024 + 1)), "saved state")
+    assert refused(api.ui_state_set("k" * 201, "x"), "saved state")
+    assert api.ui_state_get("draft:1")["value"] == "x" * 1000
+    for i in range(core_mod.MAX_UI_STATE_KEYS - 1):
+        assert api.ui_state_set(f"k{i}", i)["ok"]
+    assert refused(api.ui_state_set("one too many", 1), "saved state")
+    # An existing key can still change, and removing one makes room.
+    assert api.ui_state_set("draft:1", "y")["ok"]
+    assert api.ui_state_set("draft:1", None)["ok"]
+    assert api.ui_state_set("one too many", 1)["ok"]
+    assert len(core.state.data) == core_mod.MAX_UI_STATE_KEYS
 
 
 def test_devices_take_the_passphrase(bridge, monkeypatch):

@@ -31,7 +31,7 @@ func fuzzNode(f *testing.F, peers ...string) *meta.Server {
 	cfg.DirectoryEnabled = true // the tests exercise the directory; it's off by default
 	cfg.DataDir = f.TempDir()
 	cfg.Peers = peers
-	cfg.ListingsPerHour, cfg.WritesPerMinute = 1<<30, 1<<30
+	cfg.ListingsPerHour, cfg.WritesPerMinute, cfg.ReadsPerMinute = 1<<30, 1<<30, 1<<30
 	cfg.MailboxDropsPerMin, cfg.NameplatesPerMinute = 1<<30, 1<<30
 	cfg.MailboxQuota, cfg.MailboxMaxItem = 1<<20, 64<<10
 	srv, err := meta.Open(context.Background(), cfg, testutil.Quiet())

@@ -51,15 +51,17 @@ const (
 	fuzzMaxMessage = 256
 )
 
-// fakeRelay accepts one WebSocket at a time, greets it, waits for the test
-// to hand it frames, sends them, and hangs up.
+// fakeRelay accepts one WebSocket at a time, greets it (with maxMessage as
+// its max_message), waits for the test to hand it frames, sends them, and
+// hangs up.
 type fakeRelay struct {
-	url    string
-	frames chan [][]byte
+	url        string
+	maxMessage uint64
+	frames     chan [][]byte
 }
 
 func startFakeRelay(tb testing.TB) *fakeRelay {
-	r := &fakeRelay{frames: make(chan [][]byte)}
+	r := &fakeRelay{maxMessage: fuzzMaxMessage, frames: make(chan [][]byte)}
 	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ws, err := websocket.Accept(w, req, nil)
 		if err != nil {
@@ -70,7 +72,7 @@ func startFakeRelay(tb testing.TB) *fakeRelay {
 		defer cancel()
 		nonce := make([]byte, 32)
 		hello, _ := proto.Marshal(&wire.RelayFrame{Kind: &wire.RelayFrame_Hello{Hello: &wire.Hello{
-			Nonce: nonce, MaxChunk: fuzzMaxChunk, MaxMessage: fuzzMaxMessage, Versions: []uint32{1},
+			Nonce: nonce, MaxChunk: fuzzMaxChunk, MaxMessage: r.maxMessage, Versions: []uint32{1},
 			RelayKey: fuzzRelayKey.Public, RelaySignature: relayid.SignHello(fuzzRelayKey, "", nonce),
 		}}})
 		if ws.Write(ctx, websocket.MessageBinary, hello) != nil {

@@ -42,6 +42,7 @@ import (
 
 	"github.com/hyperkubeorg/openarcanum/internal/identity"
 	"github.com/hyperkubeorg/openarcanum/internal/meta/clusterset"
+	"github.com/hyperkubeorg/openarcanum/internal/ops"
 	"github.com/hyperkubeorg/openarcanum/internal/session"
 	"github.com/hyperkubeorg/openarcanum/internal/version"
 	"github.com/hyperkubeorg/openarcanum/internal/wire"
@@ -61,6 +62,13 @@ const (
 	peerPullsPerRound = 64
 	// peerRequestTimeout bounds one request on a peer session.
 	peerRequestTimeout = 30 * time.Second
+	// peerHandshakeTimeout bounds an inbound handshake, which runs before
+	// the caller's node key is known; peerHandshakesPerNet and
+	// peerHandshakesAtOnce bound how many run at once per client network
+	// and in all (trusted peers are few; anyone can start one).
+	peerHandshakeTimeout = 10 * time.Second
+	peerHandshakesPerNet = 4
+	peerHandshakesAtOnce = 64
 	// peerBackoffMax caps the wait after repeated failures.
 	peerBackoffMax = 5 * time.Minute
 )
@@ -287,6 +295,12 @@ const wsReadLimit = 1 << 17
 // until the session ends. The session runs on after the handler returns,
 // until either side closes it or the server does.
 func (s *Server) peerAccept(w http.ResponseWriter, r *http.Request) {
+	from := ops.NetworkKey(ops.RemoteIP(r))
+	if !s.peers.beginHandshake(from) {
+		http.Error(w, "too many peer handshakes under way", http.StatusTooManyRequests)
+		return
+	}
+	defer s.peers.endHandshake(from)
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return
@@ -294,7 +308,7 @@ func (s *Server) peerAccept(w http.ResponseWriter, r *http.Request) {
 	ws.SetReadLimit(wsReadLimit)
 	ctx := s.peers.ctx
 	t := &wsTransport{ws: ws, ctx: ctx}
-	hctx, cancel := context.WithTimeout(ctx, peerRequestTimeout)
+	hctx, cancel := context.WithTimeout(ctx, peerHandshakeTimeout)
 	defer cancel()
 	var peerKey []byte
 	sess, err := session.Accept(hctx, t, session.ServerConfig{
@@ -512,12 +526,38 @@ type peerState struct {
 	inbound map[*inbound]bool
 	wake    chan struct{}
 	limits  map[string]*peerLimits
+	// handshakes counts inbound handshakes under way per client network.
+	handshakes map[string]int
 }
 
 func newPeerState() *peerState {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &peerState{ctx: ctx, cancel: cancel, links: map[string]*peerLink{}, inbound: map[*inbound]bool{},
-		wake: make(chan struct{}, 1), limits: map[string]*peerLimits{}}
+		wake: make(chan struct{}, 1), limits: map[string]*peerLimits{}, handshakes: map[string]int{}}
+}
+
+// beginHandshake takes a handshake slot for client network from, if one is
+// free for it (peerHandshakesPerNet, peerHandshakesAtOnce).
+func (p *peerState) beginHandshake(from string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	all := 0
+	for _, n := range p.handshakes {
+		all += n
+	}
+	if all >= peerHandshakesAtOnce || p.handshakes[from] >= peerHandshakesPerNet {
+		return false
+	}
+	p.handshakes[from]++
+	return true
+}
+
+func (p *peerState) endHandshake(from string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.handshakes[from]--; p.handshakes[from] <= 0 {
+		delete(p.handshakes, from)
+	}
 }
 
 func (p *peerState) wakeUp() {

@@ -77,6 +77,11 @@ type Config struct {
 	// community stores. Both must be at least MaxFileSizeLimit.
 	UploadQuotaPerMember int64 `json:"upload_quota_per_member" env:"UPLOAD_QUOTA_PER_MEMBER"`
 	FileStoreMax         int64 `json:"file_store_max" env:"FILE_STORE_MAX"`
+
+	// Sessions open at once per device key and per member (server.go
+	// capSessions); a newer session past the cap closes the oldest.
+	MaxSessionsPerDevice int `json:"max_sessions_per_device" env:"MAX_SESSIONS_PER_DEVICE"`
+	MaxSessionsPerMember int `json:"max_sessions_per_member" env:"MAX_SESSIONS_PER_MEMBER"`
 }
 
 // DefaultConfig returns the documented defaults for a data directory.
@@ -100,6 +105,8 @@ func DefaultConfig(dataDir string) Config {
 		Settings:             ops.DefaultSettings(),
 		UploadQuotaPerMember: 1 << 30,
 		FileStoreMax:         20 << 30,
+		MaxSessionsPerDevice: 4,
+		MaxSessionsPerMember: 20,
 	}
 }
 
@@ -187,6 +194,9 @@ func (c *Config) Validate() error {
 	}
 	if c.UploadQuotaPerMember < MaxFileSizeLimit || c.FileStoreMax < MaxFileSizeLimit {
 		return fmt.Errorf("upload_quota_per_member and file_store_max must each be at least %d bytes (the largest file size)", MaxFileSizeLimit)
+	}
+	if c.MaxSessionsPerDevice < 1 || c.MaxSessionsPerMember < 1 {
+		return errors.New("max_sessions_per_device and max_sessions_per_member must be at least 1")
 	}
 	return c.Settings.Validate()
 }

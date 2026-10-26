@@ -13,7 +13,7 @@ from conftest import new_core, run, run_community, run_relay, wait_until
 from test_e2e_community import WIZARD, general
 
 from openarcanum import keys
-from openarcanum.core import UserError
+from openarcanum.core import UserError, image_mime
 from openarcanum.wire import community_pb2 as cp
 
 
@@ -196,3 +196,43 @@ def test_messaging_end_to_end(tmp_path):
             run(main(), 150)
         finally:
             site.shutdown()
+
+
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452")
+
+
+def test_previews_only_for_real_images(tmp_path):
+    """An inline preview's type comes from the file's bytes, never from the
+    sender's MIME: an SVG (a document, with script) sent as image/svg+xml,
+    or anything else claiming to be an image, gets no preview."""
+    assert image_mime(PNG) == "image/png"
+    assert image_mime(b"\xff\xd8\xff\xe0") == "image/jpeg"
+    assert image_mime(b"GIF89a") == "image/gif"
+    assert image_mime(b"RIFF\0\0\0\0WEBPVP8 ") == "image/webp"
+    assert image_mime(b"<svg xmlns='http://www.w3.org/2000/svg'/>") == ""
+    assert image_mime(b"") == ""
+
+    async def main():
+        core, _ = await new_core(tmp_path / "olive")
+        content = {"f1": PNG, "f2": b"<svg onload='alert(1)'/>", "f3": b"RIFF\0\0\0\0WEBPVP8 "}
+
+        async def fetch_file(cid, file):
+            return content[file["file_id"]]
+
+        core.fetch_file = fetch_file
+        uri = await core.file_preview("c", {"file_id": "f1", "mime": "image/svg+xml", "size": 16})
+        assert uri.startswith("data:image/png;base64,")
+        assert (await core.file_preview("c", {"file_id": "f3", "mime": "image/png", "size": 16})).startswith(
+            "data:image/webp;"
+        )
+        for file in (
+            {"file_id": "f2", "mime": "image/svg+xml", "size": 24},
+            {"file_id": "f2", "mime": "image/png", "size": 24},
+            {"file_id": "f1", "mime": "text/plain", "size": 16},
+            {"file_id": "f1", "mime": "image/png", "size": 9 << 20},
+        ):
+            with pytest.raises(UserError, match="No preview"):
+                await core.file_preview("c", file)
+        await core.shutdown()
+
+    run(main(), 30)

@@ -1,0 +1,66 @@
+# Copies the maintainer node's backups to another machine after each backup
+# (openarcanum-meta-backup.service wants it, so the backup timer runs both).
+# Off until /etc/openarcanum/backup-remote.env exists:
+#
+#   ssh-keygen -t ed25519 -N '' -C openarcanum-meta-backups -f backup-ssh.key
+#   install -d -m 0700 /etc/openarcanum/credentials
+#   install -m 0600 backup-ssh.key /etc/openarcanum/credentials/backup-ssh.key
+#   ssh-keyscan backup.example.org > /etc/openarcanum/backup-known_hosts
+#   echo 'BACKUP_REMOTE=backup@backup.example.org:/srv/openarcanum/meta' > /etc/openarcanum/backup-remote.env
+#   cp openarcanum-meta-backup-sync.service /etc/systemd/system/ && systemctl daemon-reload
+#   systemctl start openarcanum-meta-backup-sync    # try it once
+#
+# On the other machine, give backup-ssh.key.pub a line in authorized_keys
+# that allows nothing but writing into that directory:
+#   restrict,command="rrsync -wo /srv/openarcanum/meta" ssh-ed25519 AAAA...
+# The key reaches the service as a credential. Nothing is deleted on the
+# other side: prune there yourself (here `meta backup` keeps the newest 7).
+
+[Unit]
+Description=OpenArcanum maintainer node backup copy
+After=openarcanum-meta-backup.service
+ConditionPathExists=/etc/openarcanum/backup-remote.env
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/openarcanum/backup-remote.env
+LoadCredential=backup-ssh.key:/etc/openarcanum/credentials/backup-ssh.key
+ExecStart=/usr/bin/rsync -rt --chmod=F600,D700 -e "ssh -i %d/backup-ssh.key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/openarcanum/backup-known_hosts" /var/lib/openarcanum-meta/backups/ ${BACKUP_REMOTE}/
+Nice=10
+IOSchedulingClass=idle
+
+# The node's user, so it can read the backups; it writes nothing here.
+DynamicUser=yes
+User=openarcanum-meta
+StateDirectory=openarcanum-meta
+StateDirectoryMode=0700
+ReadOnlyPaths=/var/lib/openarcanum-meta
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+DevicePolicy=closed

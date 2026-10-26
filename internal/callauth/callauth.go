@@ -77,6 +77,11 @@ func VerifyControl(sc *wire.SignedCallControl, serverKey []byte) (*wire.CallCont
 		if len(list) > MaxControlList {
 			return nil, errors.New("control lists too many participants")
 		}
+		for _, p := range list {
+			if len(p) != 16 {
+				return nil, errors.New("control names a malformed participant")
+			}
+		}
 	}
 	return c, nil
 }

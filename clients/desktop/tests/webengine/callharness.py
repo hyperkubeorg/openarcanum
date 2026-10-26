@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QUrl, Signal
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEnginePermission, QWebEngineProfile
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEnginePermission, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWidgets import QApplication
 
 from openarcanum.keys import SigningKey
@@ -317,6 +317,9 @@ class Harness:
     # Pages are created on the main thread.
     def make_page(self, p: Page) -> None:
         page = QWebEnginePage(self.profile)
+        # As the app's page (app.harden_webview): ICE offers the default
+        # route's address only, which must still reach a relay on loopback.
+        page.settings().setAttribute(QWebEngineSettings.WebAttribute.WebRTCPublicInterfacesOnly, True)
         page.permissionRequested.connect(lambda perm: perm.grant())
         page.desktopMediaRequested.connect(lambda req: req.selectScreen(req.screensModel().index(0, 0)))
         page.load(QUrl.fromLocalFile(str(PAGE)))

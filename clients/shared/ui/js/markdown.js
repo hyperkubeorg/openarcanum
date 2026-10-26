@@ -252,9 +252,10 @@
           let cls = 'mention';
           if ((n.kind === 'member' && ctx.me && n.v === ctx.me) || n.kind === 'everyone' || n.kind === 'here') cls += ' me';
           const e = el(doc, 'span', cls, mentionLabel(n, ctx));
-          if (n.kind === 'role' && ctx.roleColor) {
-            const color = ctx.roleColor(n.v);
-            if (color) e.style.setProperty('--role-color', color);
+          if (n.kind === 'role' && ctx.roleColor && typeof root.roleColorStyle === 'function') {
+            // Only a #rrggbb color, checked where every role color is (dom.js).
+            const style = root.roleColorStyle(ctx.roleColor(n.v));
+            if (style) e.style.setProperty('--role-color', style['--role-color']);
           }
           // A mentioned member has a menu (ctx.memberMenu): a right-click,
           // or the Menu key once the mention has the focus.

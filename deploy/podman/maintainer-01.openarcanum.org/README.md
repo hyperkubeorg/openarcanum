@@ -33,6 +33,8 @@ oa-podman ps                                  # podman as openarcanum
 |---|---|
 | `/home/openarcanum/.config/containers/systemd/openarcanum-maintainer.container` | Quadlet file: image tag, mounts, ports, health check |
 | `/home/openarcanum/.config/systemd/user/openarcanum-maintainer-backup.{service,timer}` | daily backup job |
+| `/home/openarcanum/.config/systemd/user/openarcanum-maintainer-backup-sync.service` | copies the backups to another machine after each backup, once `backup-remote/` exists |
+| `/home/openarcanum/maintainer/backup-remote/` | optional: `env` (where to copy), `ssh.key`, `known_hosts` for that copy |
 | `/home/openarcanum/maintainer/config/meta.json` | node config, mounted read-only at `/etc/openarcanum/meta.json` |
 | `/home/openarcanum/maintainer/data/` | `meta.db`, DM blobs (`blobs/`), node keys (`node.key`, `node.noise`); mounted at `/data` |
 | `/home/openarcanum/maintainer/data/backups/` | backups from `meta backup` |
@@ -66,7 +68,8 @@ The script stops at the first error and can be run again at any time. It does
 this, in order:
 
 1. Installs `podman`, `container-selinux`, `firewalld`, `chrony`, `curl`,
-   `openssl` with dnf and checks podman is 4.9 or newer.
+   `openssl`, `rsync` with dnf, cosign from its GitHub release (the rpm's
+   checksum is in `lib/common.sh`), and checks podman is 4.9 or newer.
 2. Enables chronyd and checks the clock is synchronized.
 3. Creates the user `openarcanum`, checks it has 65536 subordinate uids and
    gids (`/etc/subuid`, `/etc/subgid`), and runs
@@ -80,7 +83,8 @@ this, in order:
 8. Copies `meta.json`, the Quadlet file, the backup units and this README into
    place, and runs `restorecon` on `~openarcanum/.config`.
 9. Runs the Quadlet generator in dry-run mode to catch mistakes.
-10. Checks DNS, then pulls the image as `openarcanum`.
+10. Checks DNS, checks the image's cosign signature and pulls the digest it
+    covers, as `openarcanum`.
 11. Runs `systemctl --user daemon-reload`, enables the backup timer and
     (re)starts `openarcanum-maintainer`.
 12. Checks: the unit is active, the container health check passes, a trusted
@@ -125,6 +129,10 @@ curl -s http://127.0.0.1:7100/metrics | grep '^openarcanum_meta_'
 
 The image tag is pinned in the Quadlet file (`Image=...:2026.10.0`). Releases
 are tagged `<version>` (for example `2026.10.1`), `YYYY.MM` and `latest`.
+setup.sh takes a tag only with a valid cosign signature made by the
+repository's Containers workflow for a release tag, and pulls the digest that
+signature covers (it prints it). To pin that digest as well, append it to
+the tag: `Image=...:2026.10.0@sha256:<digest>`.
 
 To upgrade:
 
@@ -159,7 +167,9 @@ tag points at a new image. With a version tag that only happens if a release is
 republished. To follow fixes for the month automatically, set the tag to
 `YYYY.MM` (for example `2026.10`).
 
-The timer that runs it daily is off. To check or turn it on:
+The timer that runs it daily is off, and `podman auto-update` pulls without
+the signature check setup.sh does, so changing the tag and running setup.sh
+is the better way. To check or turn it on anyway:
 
 ```sh
 oa-podman auto-update --dry-run
@@ -202,6 +212,36 @@ Copy them off the machine, for example from your own computer:
 ```sh
 rsync -a root@maintainer-01.openarcanum.org:/home/openarcanum/maintainer/data/backups/ ./maintainer-01-backups/
 ```
+
+### Copying backups to another machine
+
+`openarcanum-maintainer-backup-sync.service` runs after each backup and
+rsyncs `data/backups/` over SSH to a place you name. It does nothing until
+`/home/openarcanum/maintainer/backup-remote/env` exists:
+
+```sh
+D=/home/openarcanum/maintainer/backup-remote
+install -d -m 0700 -o openarcanum -g openarcanum $D
+ssh-keygen -t ed25519 -N '' -C maintainer-01-backups -f $D/ssh.key
+ssh-keyscan backup.example.org > $D/known_hosts
+echo 'BACKUP_REMOTE=backup@backup.example.org:/srv/openarcanum/maintainer-01' > $D/env
+chown openarcanum:openarcanum $D/*
+chmod 0600 $D/*
+oa-systemctl start openarcanum-maintainer-backup-sync     # try it once
+journalctl _SYSTEMD_USER_UNIT=openarcanum-maintainer-backup-sync.service -n 20
+```
+
+On the other machine, give `ssh.key.pub` a line in that user's
+`authorized_keys` that allows nothing but writing into the directory:
+
+```
+restrict,command="rrsync -wo /srv/openarcanum/maintainer-01" ssh-ed25519 AAAA... maintainer-01-backups
+```
+
+(`rrsync` comes with rsync.) Nothing is deleted there: the copies pile up
+until you prune them, while this machine keeps the newest 7. The key can only
+add files to that directory, so a break-in here can't read or wipe the
+copies. To stop copying, delete `env`.
 
 ### Restore
 
@@ -378,6 +418,9 @@ journalctl CONTAINER_NAME=openarcanum-maintainer -n 50
   kit and run setup.sh.
 - The image can't be pulled (`unauthorized`, `denied`): see "GHCR" in
   `/root/openarcanum-podman/README.md`.
+- `no valid signature`: the tag isn't a release (branch and `sha-<commit>`
+  images are signed for other refs), or the package is private and cosign
+  has no login (see "GHCR" there).
 - Nothing starts after a reboot: `loginctl show-user openarcanum -p Linger`
   must say `Linger=yes`.
 

@@ -45,3 +45,32 @@ func TestPreAdmissionMessageCap(t *testing.T) {
 		t.Fatalf("member's session after a large message: %v", err)
 	}
 }
+
+// GetInfo answers anyone, with the community's icon, so each session gets
+// a few at once and then one a second.
+func TestGetInfoRateLimited(t *testing.T) {
+	e := setup(t, nil)
+	ctx := testutil.Ctx(t)
+	stranger := testutil.NewMember(t, "stranger")
+	if err := stranger.Connect(ctx, e.relay.URL, e.serverKey()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(stranger.Close)
+	info := func() error {
+		_, err := stranger.Call(ctx, &wire.ClientMessage{Body: &wire.ClientMessage_GetInfo{GetInfo: &wire.GetInfo{}}})
+		return err
+	}
+	for i := 0; i < 3; i++ {
+		if err := info(); err != nil {
+			t.Fatalf("GetInfo %d: %v", i+1, err)
+		}
+	}
+	err := info()
+	if err == nil || !strings.Contains(err.Error(), wire.RpcErrorCode_RPC_ERROR_CODE_RATE_LIMITED.String()) {
+		t.Fatalf("fourth GetInfo at once: %v", err)
+	}
+	// The session is still up for the join.
+	if _, err := stranger.Join(ctx, e.invite.Secret); err != nil {
+		t.Fatal(err)
+	}
+}

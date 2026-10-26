@@ -11,6 +11,7 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import json
 import logging
 import shutil
 import time
@@ -58,7 +59,7 @@ from openarcanum.owners import (
     verify_chain,
     verify_owner_add,
 )
-from openarcanum.paths import ENGINE_SANDBOX, Paths, move_tree, platform_name
+from openarcanum.paths import ENGINE_SANDBOX, Paths, atomic_write, move_tree, platform_name
 from openarcanum.permissions import (
     FEATURES,
     PERMISSIONS,
@@ -84,6 +85,10 @@ log = logging.getLogger(__name__)
 DIRECTORY_CHECK_SECONDS = 600
 
 MAX_FILE = 25 * 1024 * 1024
+# state.bin (drafts, the last open channel and the like): at most this many
+# keys, each value at most this big as JSON.
+MAX_UI_STATE_KEYS = 256
+MAX_UI_STATE_BYTES = 64 * 1024
 # Time limit for each step of Core.shutdown (app.py allows 5 s for all of it).
 SHUTDOWN_STEP_SECONDS = 1.0
 # How long hosted servers get to stop cleanly at quit (they tell the
@@ -898,7 +903,8 @@ class Core:
         if target.is_dir():
             target = target / "openarcanum-backup.fbak"
         try:
-            await asyncio.to_thread(target.write_bytes, blob)
+            # Readable by the user only: it holds every key (encrypted).
+            await asyncio.to_thread(atomic_write, target, blob)
         except OSError as e:
             raise UserError(_("Can't save the backup there: {reason}").format(reason=e.strerror)) from None
         v.data["backup_revision"] = v.data.get("keys_revision", 0)
@@ -1876,14 +1882,26 @@ class Core:
             # Do not disturb: unread marks and mention counts still count.
             return
         if not self.unlocked:
-            title, body = PRODUCT_NAME, _("New activity")
+            # While locked, only that something happened: no sender, text,
+            # channel or community. The community id stays so the page
+            # shows a badge rather than a toast (app.js).
+            self.emit(
+                "notify",
+                {
+                    "title": PRODUCT_NAME,
+                    "community_name": "",
+                    "body": _("New activity"),
+                    "community": cid,
+                    "channel": 0,
+                },
+            )
+            return
         chan = me.channel(m["channel_id"]) if me else None
         self.emit(
             "notify",
             {
-                "title": f"{title} · #{chan.name if chan else ''}".rstrip(" ·#") + "",
-                # While locked, not even which community.
-                "community_name": rec.get("name", "") if self.unlocked else "",
+                "title": f"{title} · #{chan.name}" if chan else title,
+                "community_name": rec.get("name", ""),
                 "body": body,
                 "community": cid,
                 "channel": m["channel_id"],
@@ -2113,15 +2131,31 @@ class Core:
     async def save_file(self, cid: str, file: dict, path: str) -> dict:
         data = await self.fetch_file(cid, file)
         target = Path(path).expanduser()
-        await asyncio.to_thread(target.write_bytes, data)
+
+        def write() -> None:
+            # Whole or absent (the user chose the folder: their umask applies).
+            tmp = target.with_name(f".{target.name}.part")
+            try:
+                tmp.write_bytes(data)
+                tmp.replace(target)
+            except OSError:
+                tmp.unlink(missing_ok=True)
+                raise
+
+        await asyncio.to_thread(write)
         return {"ok": True, "path": str(target)}
 
     async def file_preview(self, cid: str, file: dict) -> str:
-        """A data: URI for inline image previews (images up to 8 MB)."""
+        """A data: URI for inline image previews (images up to 8 MB). The
+        type comes from the bytes, not the sender: only PNG, JPEG, GIF and
+        WebP are shown (an SVG would be a document in an <img>)."""
         if not str(file.get("mime", "")).startswith("image/") or file.get("size", 0) > 8 << 20:
             raise UserError(_("No preview for this file."))
         data = await self.fetch_file(cid, file)
-        return f"data:{file['mime']};base64," + base64.b64encode(data).decode()
+        mime = image_mime(data)
+        if not mime:
+            raise UserError(_("No preview for this file."))
+        return f"data:{mime};base64," + base64.b64encode(data).decode()
 
     # ---------------------------------------------------------------- profile in a community
 
@@ -2162,13 +2196,7 @@ class Core:
             res = (await self.conn(cid).call(get_avatar=cp.GetAvatar(member=keys.decode(member)))).avatar
         except RpcError, Offline:
             return ""
-        mime = "image/png"
-        if res.avatar[:3] == b"\xff\xd8\xff":
-            mime = "image/jpeg"
-        elif res.avatar[:4] == b"GIF8":
-            mime = "image/gif"
-        elif res.avatar[8:12] == b"WEBP":
-            mime = "image/webp"
+        mime = image_mime(res.avatar) or "image/png"
         uri = f"data:{mime};base64," + base64.b64encode(res.avatar).decode()
         self._avatar_cache[key] = uri
         return uri
@@ -3070,8 +3098,18 @@ class Core:
         self.require_unlocked()
         if not isinstance(key, str) or len(key) > 200:
             raise UserError(_("unknown saved state"))
-        if self.state is not None:
-            self.state.set(key, value)
+        if self.state is None:
+            return
+        if value is not None:
+            # state.bin is small (drafts, the last open channel): the page
+            # can't grow it without bound, in keys or in one value.
+            try:
+                size = len(json.dumps(value))
+            except TypeError, ValueError:
+                raise UserError(_("unknown saved state")) from None
+            if size > MAX_UI_STATE_BYTES or (key not in self.state.data and len(self.state.data) >= MAX_UI_STATE_KEYS):
+                raise UserError(_("unknown saved state"))
+        self.state.set(key, value)
 
     # ---------------------------------------------------------------- voice passthrough
 
@@ -3222,6 +3260,20 @@ def community_notify_level(settings: dict, cid: str) -> str:
     """A community's notification level: its own (the rail menu), else the
     default (notify_mode)."""
     return settings.get("community_notify", {}).get(cid) or settings.get("notify_mode", "all")
+
+
+def image_mime(data: bytes) -> str:
+    """The type of a PNG, JPEG, GIF or WebP image from its first bytes, or
+    "" for anything else."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"GIF8":
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
 
 
 def community_notifies(settings: dict, cid: str) -> bool:

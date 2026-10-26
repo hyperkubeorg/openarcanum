@@ -354,7 +354,7 @@ func (s *Server) pin(ctx context.Context, ss *sess, p *wire.Pin) (*wire.ServerMe
 		if p.Unpin {
 			op, verb = "unpin", "unpinned"
 		}
-		s.recordAudit(ctx, ss.member, op, body.Author, fmt.Sprintf("%s a message by %s in #%s", verb, s.nameOf(body.Author), c.Name))
+		s.recordAudit(ctx, ss.member, op, body.Author, c.ID, fmt.Sprintf("%s a message by %s in #%s", verb, s.nameOf(body.Author), c.Name))
 		s.publishUpdate(c, u)
 	}
 	return &wire.ServerMessage{Body: &wire.ServerMessage_MessageUpdate{MessageUpdate: u}}, nil

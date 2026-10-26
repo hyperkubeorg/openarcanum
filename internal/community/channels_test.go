@@ -495,3 +495,35 @@ func TestInviteGating(t *testing.T) {
 		t.Fatalf("joining with a revoked invite: %v %v", r, err)
 	}
 }
+
+// Slowmode counts a post when it lands, so uploads that began before a
+// member's last post can't all land inside one window: the finish is
+// checked again.
+func TestUploadsInFlightUnderSlowmode(t *testing.T) {
+	e := setup(t, nil)
+	ctx := testutil.Ctx(t)
+	alice := e.member("Alice", e.invite.Secret)
+	gen := e.owner.Channel("general").Id
+	e.must(editChannel(&wire.EditChannel{Id: gen, Name: "general", SlowmodeSeconds: ptr(uint32(60))}))
+	begin := func(name string) int64 {
+		t.Helper()
+		r, err := alice.Call(ctx, &wire.ClientMessage{Body: &wire.ClientMessage_UploadBegin{UploadBegin: &wire.UploadBegin{ChannelId: gen, Name: name, Size: 1}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.GetUploadStarted().UploadId
+	}
+	finish := func(id int64) error {
+		t.Helper()
+		if _, err := alice.Call(ctx, &wire.ClientMessage{Body: &wire.ClientMessage_UploadChunk{UploadChunk: &wire.UploadChunk{UploadId: id, Data: []byte("x")}}}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := alice.Call(ctx, &wire.ClientMessage{Body: &wire.ClientMessage_UploadFinish{UploadFinish: &wire.UploadFinish{UploadId: id}}})
+		return err
+	}
+	first, second := begin("a.txt"), begin("b.txt")
+	if err := finish(first); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, "second upload finishing within the window", finish(second), wire.RpcErrorCode_RPC_ERROR_CODE_RATE_LIMITED)
+}

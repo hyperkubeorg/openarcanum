@@ -7,6 +7,8 @@
 Description=OpenArcanum maintainer node backup
 Requisite=openarcanum-maintainer.service
 After=openarcanum-maintainer.service
+# The copy to another machine, when it is set up (README.md).
+Wants=openarcanum-maintainer-backup-sync.service
 
 [Service]
 Type=oneshot

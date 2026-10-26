@@ -74,6 +74,12 @@ class Decrypted:
     label: str
 
 
+# A fallback key is replaced after this long. vodozemac keeps the previous
+# one until the next replacement, so a card that old still starts sessions
+# (the grace period after a change, as in Matrix).
+FALLBACK_KEY_DAYS = 7
+
+
 def otk_message(curve: bytes, key_id: str, key: bytes, fallback: bool) -> bytes:
     return CTX_OTK + curve + key_id.encode() + b"\x00" + key + (b"\x01" if fallback else b"\x00")
 
@@ -96,6 +102,8 @@ class OlmStore:
         self.inbound: dict[str, dict] = {}
         # label -> peer curve (b64) -> session ids ever created with that peer
         self.known: dict[str, dict[str, list[str]]] = {}
+        # label -> {id, key (b64), made}: the published fallback key
+        self.fallback: dict[str, dict] = {}
         # Inside batch(): saves wait until the batch ends.
         self._batch = 0
         self._dirty = False
@@ -141,6 +149,7 @@ class OlmStore:
         self.outbound = data.get("outbound", {})
         self.inbound = data.get("inbound", {})
         self.known = data.get("known", {})
+        self.fallback = data.get("fallback", {})
 
     def save(self) -> None:
         if self._batch:
@@ -153,6 +162,7 @@ class OlmStore:
             "outbound": self.outbound,
             "inbound": self.inbound,
             "known": self.known,
+            "fallback": self.fallback,
         }
         atomic_write(self.path, MAGIC + crypto.seal(self.seal_key, json.dumps(data).encode(), MAGIC))
 
@@ -172,6 +182,7 @@ class OlmStore:
         self.accounts.pop(label, None)
         self.sessions.pop(label, None)
         self.outbound.pop(label, None)
+        self.fallback.pop(label, None)
         self.inbound = {sid: s for sid, s in self.inbound.items() if s["label"] != label}
         self.save()
 
@@ -204,16 +215,22 @@ class OlmStore:
         self.save()
         return out
 
-    def fallback_key(self, label: str, rotate: bool = False) -> tuple[str, bytes]:
-        a = self.account(label)
-        fk = a.fallback_key
-        if rotate or not fk:
+    def fallback_key(self, label: str, rotate: bool = False, now: float | None = None) -> tuple[str, bytes]:
+        """The account's published fallback key: a new one when there is
+        none, when asked (`rotate`) or when the current one is
+        FALLBACK_KEY_DAYS old. The previous key keeps opening sessions until
+        the one after it is made (vodozemac keeps one previous key)."""
+        now = time.time() if now is None else now
+        cur = self.fallback.get(label)
+        if rotate or cur is None or now - cur["made"] >= FALLBACK_KEY_DAYS * 86400:
+            a = self.account(label)
             a.generate_fallback_key()
-            fk = a.fallback_key
+            kid, k = next(iter(a.fallback_key.items()))
             a.mark_keys_as_published()
+            cur = {"id": kid, "key": _b64(k.to_bytes()), "made": now}
+            self.fallback[label] = cur
             self.save()
-        kid, k = next(iter(fk.items()))
-        return kid, k.to_bytes()
+        return cur["id"], keys.decode(cur["key"])
 
     def signed_otk(self, label: str, key_id: str, key: bytes, fallback: bool) -> bytes:
         return self.sign(label, otk_message(self.curve(label), key_id, key, fallback))

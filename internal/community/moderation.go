@@ -283,6 +283,29 @@ func (r *recentAuthors) since(author []byte, since int64) []int64 {
 	return out
 }
 
+// drop forgets messages (deleted with their channel).
+func (r *recentAuthors) drop(ids []int64) {
+	gone := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		gone[id] = true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k, list := range r.byAu {
+		keep := list[:0]
+		for _, m := range list {
+			if !gone[m.id] {
+				keep = append(keep, m)
+			}
+		}
+		if len(keep) == 0 {
+			delete(r.byAu, k)
+		} else {
+			r.byAu[k] = keep
+		}
+	}
+}
+
 // prune drops entries older than the window.
 func (r *recentAuthors) prune(cutoff int64) {
 	r.mu.Lock()
@@ -466,15 +489,15 @@ func targetOf(a *wire.AdminAction) []byte {
 // systemAudit writes an audit entry the server makes on its own (AutoMod).
 // Callers hold s.mu.
 func (s *Server) systemAudit(ctx context.Context, op string, target []byte, summary string) {
-	s.recordAudit(ctx, nil, op, target, summary)
+	s.recordAudit(ctx, nil, op, target, 0, summary)
 }
 
 // recordAudit writes an audit entry for something that isn't a signed admin
 // action: AutoMod (no actor), or a moderator's message action (deleting
-// someone else's message, pinning). The summary never quotes message text.
-// Callers hold s.mu.
-func (s *Server) recordAudit(ctx context.Context, actor []byte, op string, target []byte, summary string) {
-	if err := s.writeAudit(ctx, &auditRec{At: s.now().UnixMilli(), Actor: actor, Summary: summary, Op: op, Target: target}); err != nil {
+// someone else's message, pinning) in channel (0 = none). The summary never
+// quotes message text. Callers hold s.mu.
+func (s *Server) recordAudit(ctx context.Context, actor []byte, op string, target []byte, channel int64, summary string) {
+	if err := s.writeAudit(ctx, &auditRec{At: s.now().UnixMilli(), Actor: actor, Summary: summary, Op: op, Target: target, Channel: channel}); err != nil {
 		s.log.Error("audit write failed", "err", err)
 	}
 }

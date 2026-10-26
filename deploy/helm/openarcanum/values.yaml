@@ -20,6 +20,21 @@ image:
 # Settings for every server's logs (internal/ops).
 logLevel: info
 
+# One NetworkPolicy per server, admitting only the port it serves (the
+# relay's WebSocket port and its call media port, the maintainer node's and
+# the site's HTTP port; nothing reaches the community server, which only
+# connects out). Outbound traffic is left open: the servers reach relays,
+# maintainer nodes, the CA and link previews on the internet. The cluster's
+# network plugin has to enforce NetworkPolicy, and it doesn't apply to pods
+# on the node's network (hostNetwork).
+networkPolicy:
+  enabled: true
+
+# Resource requests and limits per server (<server>.resources): memory is
+# limited, CPU only requested, since a CPU limit throttles the relay's call
+# media and the nodes' bursts. Raise them with the load (docs/operations.md
+# "Capacity").
+
 meta:
   enabled: true
   port: 7100
@@ -29,7 +44,9 @@ meta:
   # More OPENARCANUM_META_* settings (docs/operations.md), e.g.
   #   OPENARCANUM_META_WRITES_PER_MINUTE: "600"
   env: {}
-  resources: {}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
   # TLS on the node's API, for browser clients (docs/kubernetes.md "TLS for
   # browsers"): "off", "acme" (certificates from Let's Encrypt, obtained and
   # renewed by the node and kept on its volume; the CA checks port 443 of
@@ -54,7 +71,8 @@ meta:
   #     resources: {}           # instead of meta.resources
   nodes: []
   cluster:
-    # The cluster's operator key (base64url; `meta operator keygen`).
+    # The cluster's operator key: the public key `meta operator keygen`
+    # prints (base64url); the private key stays offline.
     operatorKey: ""
     # A Secret with set.bin, the signed member list (`meta operator
     # sign-set`), published by each node at start.
@@ -102,7 +120,9 @@ relay:
     size: 64Mi
     storageClassName: ""
   env: {}
-  resources: {}
+  resources:
+    requests: {cpu: 250m, memory: 256Mi}
+    limits: {memory: 1Gi}
 
 community:
   enabled: true
@@ -119,7 +139,9 @@ community:
     keysSize: 16Mi
     storageClassName: ""
   env: {}
-  resources: {}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
 
 # The project website (docs/operations.md "Website"), off by default. Admins
 # are created in the pod: kubectl exec -it deploy/<release>-site -- site admin add NAME
@@ -134,10 +156,13 @@ site:
   #   OPENARCANUM_SITE_CONTACT_COMMUNITY: "OpenArcanum"
   #   OPENARCANUM_SITE_TRUSTED_PROXY_HEADER: "X-Real-IP"   (behind an ingress)
   env: {}
-  resources: {}
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
   # "off" (behind a TLS-terminating ingress), "acme" (the CA checks port
   # 443 of the domains, so the Service must be reachable there) or "files"
-  # (secretName: a kubernetes.io/tls Secret).
+  # (secretName: a kubernetes.io/tls Secret). Both need domains: the site
+  # answers only those names.
   tls:
     mode: "off"
     domains: []

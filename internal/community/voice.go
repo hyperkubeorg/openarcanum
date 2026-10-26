@@ -45,6 +45,12 @@ const (
 	voiceJoinEvery = 3 * time.Second
 )
 
+// GrantClockMargin is taken off the longest grant lifetime when a grant is
+// issued: a relay refuses a grant that expires more than MaxGrantLifetime
+// from its own clock, so a grant issued at exactly that would fail on any
+// relay whose clock is behind the server's.
+const GrantClockMargin = 30 * time.Second
+
 type participant struct {
 	sess   *sess
 	member []byte
@@ -572,7 +578,7 @@ func (s *Server) snapshotsLocked(cl *call) map[*sess]*wire.VoiceSession {
 	}
 	sort.Slice(parts, func(i, j int) bool { return parts[i].Slot < parts[j].Slot })
 	out := map[*sess]*wire.VoiceSession{}
-	expires := s.now().Add(callauth.MaxGrantLifetime).UnixMilli()
+	expires := s.now().Add(callauth.MaxGrantLifetime - GrantClockMargin).UnixMilli()
 	for ss, p := range cl.parts {
 		m := s.members[string(p.member)]
 		grant, err := callauth.SignGrant(s.key, &wire.CallGrant{

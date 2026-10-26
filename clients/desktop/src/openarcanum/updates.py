@@ -248,6 +248,8 @@ def sign_envelope(payload: dict, signers: Sequence[keys.SigningKey]) -> bytes:
 # replaying an old manifest hides newer releases for at most this long
 # (docs/release.md). The signing tool refuses longer, and so does the client.
 MAX_MANIFEST_DAYS = 30
+# How far ahead of this computer's clock the remembered release time may be.
+RELEASE_SKEW_SECONDS = 86400
 
 
 def build_payload(
@@ -522,7 +524,7 @@ def download(
                 have=have, size=asset.size
             )
         )
-    if sha256_file(part) != asset.sha256:
+    if not hmac.compare_digest(sha256_file(part), asset.sha256):
         part.unlink()
         raise UpdateError(_("The download doesn't match the official release, so it wasn't used."))
     os.replace(part, dest)
@@ -893,7 +895,10 @@ class Updater:
             raise UpdateError(
                 _("The update server sent older update information than it did before, so it wasn't used.")
             )
-        self._save(released_at=m.released_at)
+        # The floor can't run ahead of this clock by more than a day: a
+        # manifest dated far in the future would otherwise refuse every
+        # later one.
+        self._save(released_at=min(m.released_at, self.clock() + RELEASE_SKEW_SECONDS))
         if not is_newer(m.version, self.version):
             if m.version == self.version:
                 self._set("up_to_date", f"{PRODUCT_NAME} {self.version} is the latest version.")
@@ -928,7 +933,7 @@ class Updater:
                 with contextlib.suppress(OSError):
                     old.unlink()
         if dest.exists():
-            if dest.stat().st_size == asset.size and sha256_file(dest) == asset.sha256:
+            if dest.stat().st_size == asset.size and hmac.compare_digest(sha256_file(dest), asset.sha256):
                 return dest
             dest.unlink()
         last = [0.0]

@@ -26,7 +26,9 @@ install() {
 echo "== install"
 install
 [ -f "$dir/OpenArcanum.exe" ] && [ -f "$dir/unins000.exe" ] || { cat "$dir.log"; exit 1; }
-reg query "$key" /ve | tee /dev/stderr | grep -qi 'OpenArcanum.exe" -- "%1"'
+cmd_line=$(reg query "$key" /ve)
+echo "$cmd_line" >&2
+grep -qi 'OpenArcanum.exe" -- "%1"' <<<"$cmd_line"
 
 echo "== smoke run of the installed app"
 OPENARCANUM_BUNDLE_EXE="$(cygpath -w "$dir/OpenArcanum.exe")" make -C "$(cygpath -w "$ROOT")" bundle-smoke

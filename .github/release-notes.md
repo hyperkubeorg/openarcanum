@@ -19,7 +19,7 @@ Automatic updates for installed copies: @MANIFEST@.
 ## Servers
 
 - Container images (linux/amd64 and linux/arm64), signed with cosign:
-  `ghcr.io/hyperkubeorg/openarcanum-relay:@VERSION@`, `ghcr.io/hyperkubeorg/openarcanum-maintainer:@VERSION@`, `ghcr.io/hyperkubeorg/openarcanum-community:@VERSION@`.
+  `ghcr.io/hyperkubeorg/openarcanum-relay:@VERSION@`, `ghcr.io/hyperkubeorg/openarcanum-maintainer:@VERSION@`, `ghcr.io/hyperkubeorg/openarcanum-community:@VERSION@`, `ghcr.io/hyperkubeorg/openarcanum-site:@VERSION@`.
 - Static binaries: `openarcanum-servers-@VERSION@-linux-amd64.tar.gz`, `openarcanum-servers-@VERSION@-linux-arm64.tar.gz`.
 
 ## Verify the downloads

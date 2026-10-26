@@ -524,6 +524,10 @@ func TestAdminFormsNeedCSRF(t *testing.T) {
 	if anns, _ := ts.st.Announcements(context.Background(), true, 10); len(anns) != 0 {
 		t.Fatal("a refused form saved something")
 	}
+	// Browsers send one of the two headers with every POST.
+	if c := post(ann(csrf), map[string]string{"Sec-Fetch-Site": ""}); c != http.StatusForbidden {
+		t.Errorf("neither header: %d", c)
+	}
 	// no-referrer pages send Origin: null; the token still decides.
 	if c := post(ann(csrf), map[string]string{"Sec-Fetch-Site": "", "Origin": "null"}); c != http.StatusSeeOther {
 		t.Errorf("right token: %d", c)
@@ -955,16 +959,17 @@ func TestAccessLogPrivacy(t *testing.T) {
 	ts.log.Reset()
 	ts.do(req{path: "/report/bug?token=s3cret", form: v, ip: "203.0.113.99"})
 	ts.do(req{path: "/?q=private", ip: "2001:db8::99"})
+	ts.do(req{path: "/admin/reports/1234567"})
 	line := ts.log.String()
-	if strings.Count(line, "\n") != 2 {
+	if strings.Count(line, "\n") != 3 {
 		t.Fatalf("log: %q", line)
 	}
-	for _, leak := range []string{"203.0.113.99", "2001:db8", "s3cret", "private", "Crash when", goodUserID, "tester@"} {
+	for _, leak := range []string{"203.0.113.99", "2001:db8", "s3cret", "private", "Crash when", goodUserID, "tester@", "1234567"} {
 		if strings.Contains(line, leak) {
 			t.Errorf("log has %q: %q", leak, line)
 		}
 	}
-	if !strings.HasPrefix(line, `- - - [`) || !strings.Contains(line, `"POST /report/bug?- HTTP/1.1" 200`) {
+	if !strings.HasPrefix(line, `- - - [`) || !strings.Contains(line, `"POST /report/bug?- HTTP/1.1" 200`) || !strings.Contains(line, `"GET /admin/reports/- HTTP/1.1"`) {
 		t.Fatalf("log format: %q", line)
 	}
 
@@ -1067,6 +1072,7 @@ func TestConfigValidate(t *testing.T) {
 		"source_url":           func(c *Config) { c.SourceURL = "http://example.invalid" },
 		"session_ttl":          func(c *Config) { c.SessionTTL.Duration = time.Second },
 		"session_idle":         func(c *Config) { c.SessionIdle.Duration = 24 * time.Hour },
+		"tls_domains":          func(c *Config) { c.TLSMode, c.TLSCertFile, c.TLSKeyFile = "files", "/c", "/k" },
 	}
 	for key, f := range bad {
 		c := base()

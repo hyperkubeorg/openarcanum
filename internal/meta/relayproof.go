@@ -24,15 +24,22 @@ import (
 //
 // The fetch goes to an address someone else chose, so it is bounded: no
 // redirects, no proxy, public addresses only (unless allow_private_relays),
-// a short timeout, a tiny body, a few at a time, and at most one per URL
-// per relayProofRetry. A result is kept for relayProofTTL.
+// a short timeout, a tiny body, a few at a time, one fetch per URL at a
+// time (heartbeats arriving meanwhile wait for it), at most one per URL
+// per relayProofRetry, and relayProofsPerNet fetches for URLs a client
+// network hasn't proven yet per minute. A result is kept for
+// relayProofTTL. While every slot is busy (hosts that stall hold a slot
+// for relayProofTimeout each), a heartbeat for a URL whose last proof
+// matched its key is accepted on that proof, so stalling URLs can't push
+// proven relays out of the registry.
 
 const (
 	relayProofTTL     = 10 * time.Minute
 	relayProofRetry   = 30 * time.Second
 	relayProofTimeout = 5 * time.Second
 	relayProofMax     = 10_000
-	relayProofsAtOnce = 8
+	relayProofsAtOnce = 16
+	relayProofsPerNet = 10
 )
 
 type relayProof struct {
@@ -41,10 +48,14 @@ type relayProof struct {
 }
 
 type relayProofs struct {
-	mu    sync.Mutex
-	m     map[string]relayProof
-	slots chan struct{}
-	fetch func(ctx context.Context, url string) ([]byte, error)
+	mu sync.Mutex
+	m  map[string]relayProof
+	// inflight has a channel per URL being fetched now, closed when its
+	// result is recorded.
+	inflight map[string]chan struct{}
+	slots    chan struct{}
+	unproven *netRateLimit
+	fetch    func(ctx context.Context, url string) ([]byte, error)
 }
 
 func newRelayProofs(allowPrivate bool) *relayProofs {
@@ -60,7 +71,8 @@ func newRelayProofs(allowPrivate bool) *relayProofs {
 		Timeout:       relayProofTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	p := &relayProofs{m: map[string]relayProof{}, slots: make(chan struct{}, relayProofsAtOnce)}
+	p := &relayProofs{m: map[string]relayProof{}, inflight: map[string]chan struct{}{}, slots: make(chan struct{}, relayProofsAtOnce),
+		unproven: newNetRateLimit(relayProofsPerNet, time.Minute)}
 	p.fetch = func(ctx context.Context, url string) ([]byte, error) { return fetchRelayKey(ctx, hc, url) }
 	return p
 }
@@ -95,41 +107,72 @@ func errNotProven() error {
 }
 
 // prove checks that url serves key. With wait false (replication) it never
-// fetches inline: an unknown URL is refused routinely and checked in the
-// background, so a later heartbeat for it is accepted.
-func (p *relayProofs) prove(ctx context.Context, url string, key []byte, now time.Time, wait bool) error {
+// waits for a fetch: an unknown URL is refused routinely and checked in the
+// background, so a later heartbeat for it is accepted. from is the client
+// network the heartbeat came from ("" by replication).
+func (p *relayProofs) prove(ctx context.Context, url string, key []byte, now time.Time, wait bool, from string) error {
 	p.mu.Lock()
 	e, ok := p.m[url]
-	p.mu.Unlock()
+	proven := ok && e.key != nil && bytes.Equal(e.key, key)
 	if ok && now.Sub(e.at) < relayProofTTL {
-		if e.key != nil && bytes.Equal(e.key, key) {
+		if proven {
+			p.mu.Unlock()
 			return nil
 		}
 		if now.Sub(e.at) < relayProofRetry {
+			p.mu.Unlock()
 			return errNotProven()
 		}
 	}
-	select {
-	case p.slots <- struct{}{}:
-	default:
-		return limited("too many relay checks under way; try again shortly")
+	done := p.inflight[url]
+	if done == nil {
+		if !proven && from != "" && !p.unproven.allow(from, now) {
+			p.mu.Unlock()
+			return limited("too many relay checks for your network; try again shortly")
+		}
+		select {
+		case p.slots <- struct{}{}:
+		default:
+			p.mu.Unlock()
+			if proven {
+				return nil // on the last proof, until a slot is free
+			}
+			return limited("too many relay checks under way; try again shortly")
+		}
+		done = make(chan struct{})
+		p.inflight[url] = done
+		go p.run(url, now, done)
 	}
+	p.mu.Unlock()
 	if !wait {
-		go func() {
-			defer func() { <-p.slots }()
-			ctx, cancel := context.WithTimeout(context.Background(), relayProofTimeout)
-			defer cancel()
-			p.record(url, now, p.fetchKey(ctx, url))
-		}()
 		return errNotProven()
 	}
-	served := p.fetchKey(ctx, url)
-	<-p.slots
-	p.record(url, now, served)
-	if served == nil || !bytes.Equal(served, key) {
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return limited("relay check still under way; try again shortly")
+	}
+	p.mu.Lock()
+	e = p.m[url]
+	p.mu.Unlock()
+	if e.key == nil || !bytes.Equal(e.key, key) {
 		return errNotProven()
 	}
 	return nil
+}
+
+// run fetches url's key in its slot and records the result; done is closed
+// once it is recorded.
+func (p *relayProofs) run(url string, now time.Time, done chan struct{}) {
+	ctx, cancel := context.WithTimeout(context.Background(), relayProofTimeout)
+	defer cancel()
+	key := p.fetchKey(ctx, url)
+	p.mu.Lock()
+	p.record(url, now, key)
+	delete(p.inflight, url)
+	p.mu.Unlock()
+	close(done)
+	<-p.slots
 }
 
 func (p *relayProofs) fetchKey(ctx context.Context, url string) []byte {
@@ -141,10 +184,8 @@ func (p *relayProofs) fetchKey(ctx context.Context, url string) []byte {
 }
 
 // record keeps what url served at now, within relayProofMax entries
-// (expired ones go first, then any).
+// (expired ones go first, then any). Callers hold mu.
 func (p *relayProofs) record(url string, now time.Time, key []byte) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if _, ok := p.m[url]; !ok && len(p.m) >= relayProofMax {
 		for u, e := range p.m {
 			if now.Sub(e.at) >= relayProofTTL {
@@ -169,8 +210,9 @@ func (s *Server) SetRelayProof(f func(ctx context.Context, url string, key []byt
 }
 
 // proveRelay is the registry's proof-of-control check for a heartbeat (nil
-// error: url may be listed for key).
-func (s *Server) proveRelay(ctx context.Context, url string, key []byte, wait bool) error {
+// error: url may be listed for key); from is the client address it came
+// from ("" by replication).
+func (s *Server) proveRelay(ctx context.Context, url string, key []byte, wait bool, from string) error {
 	if !s.cfg.AllowPrivateRelays {
 		if err := relayurl.CheckPublic(url); err != nil {
 			return bad(err.Error())
@@ -182,5 +224,5 @@ func (s *Server) proveRelay(ctx context.Context, url string, key []byte, wait bo
 	if f := s.relayProofHook; f != nil {
 		return f(ctx, url, key)
 	}
-	return s.relayProofs.prove(ctx, url, key, s.now(), wait)
+	return s.relayProofs.prove(ctx, url, key, s.now(), wait, from)
 }

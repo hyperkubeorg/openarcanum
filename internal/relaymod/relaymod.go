@@ -4,7 +4,7 @@
 // or lift such a block.
 //
 // A command is a serialized ModerationCommand signed with the server key
-// under the context "openarcanum/relay-moderation/v1", the same Ed25519
+// under the context "openarcanum/relay-moderation/v2", the same Ed25519
 // signature with domain separation that fan-out tokens (internal/fanout) and
 // call controls (internal/callauth) use. It names the server key, the relay
 // connection it is sent on (the relay's key, the URL the server dialled and

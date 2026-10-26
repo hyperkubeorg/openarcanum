@@ -3,15 +3,17 @@
 
     scripts/check-deploy [--bin DIR] [--security-threshold N] [--root DIR]
 
-systemd (deploy/systemd/): every unit carries the hardening the admin guide
-promises (its own unprivileged user, read-only system, no new privileges,
-no capabilities, ...); `systemd-analyze verify` accepts every unit, timer
+systemd (deploy/systemd/): every service carries the hardening the admin
+guide promises (its own unprivileged user, read-only system, no new
+privileges, no capabilities, ...) and runs a server binary from
+/usr/local/bin (the backup copy runs rsync); `systemd-analyze verify` accepts every unit, timer
 and drop-in (with ExecStart pointed at the binaries in --bin, since verify
 checks that they exist); and `systemd-analyze security --offline` rates
 every service at or below the threshold. Without systemd-analyze (macOS,
 Windows) only the static checks run, and the script says so.
 
-Container (deploy/container/Containerfile): base images pinned by digest,
+Container (deploy/container/Containerfile; the app image in
+Containerfile.client only has its base checked): base images pinned by digest,
 static (CGO_ENABLED=0) builds, one final stage per server, each running as a
 non-root numeric user, with a HEALTHCHECK that uses the binary's own
 `healthcheck` command and an exec-form ENTRYPOINT, the release version
@@ -38,6 +40,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 UNITS = REPO / "deploy" / "systemd"
 CONTAINERFILE = REPO / "deploy" / "container" / "Containerfile"
+CLIENT_CONTAINERFILE = REPO / "deploy" / "container" / "Containerfile.client"
 
 SERVERS = ("relay", "community", "meta", "site")
 
@@ -66,7 +69,10 @@ SERVICES = {
     "openarcanum-community.service": "openarcanum-community",
     "openarcanum-meta.service": "openarcanum-meta",
     "openarcanum-meta-backup.service": "openarcanum-meta",
+    "openarcanum-meta-backup-sync.service": "openarcanum-meta",
 }
+# Services that run a tool of the OS instead of one of the server binaries.
+SYSTEM_TOOLS = {"openarcanum-meta-backup-sync.service": "/usr/bin/rsync"}
 
 
 def directives(path: Path) -> dict[str, list[str]]:
@@ -99,7 +105,11 @@ def check_units_static(errors: list[str]) -> None:
         if not any(v.startswith("@system-service") for v in d.get("SystemCallFilter", [])):
             errors.append(f"{name}: SystemCallFilter=@system-service required")
         exec_start = d.get("ExecStart", [""])[-1]
-        if not exec_start.startswith("/usr/local/bin/"):
+        tool = SYSTEM_TOOLS.get(name)
+        if tool:
+            if not exec_start.startswith(tool + " "):
+                errors.append(f"{name}: ExecStart must run {tool}")
+        elif not exec_start.startswith("/usr/local/bin/"):
             errors.append(f"{name}: ExecStart must run a binary from /usr/local/bin")
     timer = UNITS / "openarcanum-meta-backup.timer"
     if not timer.exists() or "OnCalendar" not in directives(timer):
@@ -120,6 +130,12 @@ def check_units_systemd(bin_dir: Path, threshold: float, errors: list[str]) -> N
         files = []
         for unit in sorted(list(UNITS.glob("*.service")) + list(UNITS.glob("*.timer"))):
             text = unit.read_text().replace("/usr/local/bin/", f"{bin_dir.resolve()}/")
+            # verify checks that the command exists; a tool this machine
+            # lacks (rsync on a developer machine) is stood in for.
+            tool = SYSTEM_TOOLS.get(unit.name)
+            if tool and not Path(tool).exists():
+                print(f"check-deploy: {tool} not installed here; verifying {unit.name} with /usr/bin/true in its place")
+                text = text.replace(tool + " ", "/usr/bin/true ")
             (t / unit.name).write_text(text)
             files.append(str(t / unit.name))
         dropin = t / "openarcanum-community.service.d"
@@ -235,8 +251,20 @@ def check_containerfile(errors: list[str]) -> None:
     print(f"check-deploy: Containerfile: {len(finals)} images checked")
 
 
+def check_client_containerfile(errors: list[str]) -> None:
+    """The development app image (docs/kubernetes.md) pins its base by digest too."""
+    if not CLIENT_CONTAINERFILE.exists():
+        errors.append("deploy/container/Containerfile.client is missing")
+        return
+    froms = re.findall(r"^FROM (\S+)", CLIENT_CONTAINERFILE.read_text(), re.M)
+    for image in froms:
+        if not re.search(r"@sha256:[0-9a-f]{64}$", image):
+            errors.append(f"Containerfile.client: FROM {image} must be pinned by digest (…@sha256:…)")
+    print(f"check-deploy: Containerfile.client: {len(froms)} base image checked")
+
+
 def main() -> int:
-    global UNITS, CONTAINERFILE
+    global UNITS, CONTAINERFILE, CLIENT_CONTAINERFILE
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--bin", default=str(REPO / "bin"), help="directory with the built relay, community, meta")
     ap.add_argument("--security-threshold", type=float, default=2.0)
@@ -244,11 +272,13 @@ def main() -> int:
     a = ap.parse_args()
     UNITS = Path(a.root) / "deploy" / "systemd"
     CONTAINERFILE = Path(a.root) / "deploy" / "container" / "Containerfile"
+    CLIENT_CONTAINERFILE = Path(a.root) / "deploy" / "container" / "Containerfile.client"
     errors: list[str] = []
     check_units_static(errors)
     if sys.platform.startswith("linux"):
         check_units_systemd(Path(a.bin), a.security_threshold, errors)
     check_containerfile(errors)
+    check_client_containerfile(errors)
     for e in errors:
         print("check-deploy:", e, file=sys.stderr)
     return 1 if errors else 0

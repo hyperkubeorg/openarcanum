@@ -238,9 +238,11 @@ const SFrame = (() => {
       if (!this.windows.has(k)) this.windows.set(k, new ReplayWindow());
     }
 
-    // The KID's replay window stays: the same key set again must not reopen
-    // old counters.
-    dropRecvKey(kid) { this.recv.delete(BigInt(kid)); }
+    // The KID's replay window goes with the key, so dropped keys (every
+    // past epoch, as participants come and go) cost nothing afterwards. A
+    // dropped KID is never set again: its epoch is over, and call.js
+    // refuses frames of epochs it no longer holds before they get here.
+    dropRecvKey(kid) { const k = BigInt(kid); this.recv.delete(k); this.windows.delete(k); }
 
     async protect(pt, metadata = new Uint8Array(0)) {
       if (!this.send) throw new Error('no send key'); // i18n: not shown (SFrame error: the frame is dropped and counted)

@@ -63,7 +63,7 @@ class Paths:
 
     def ensure(self) -> None:
         for d in (self.config, self.data, self.cache, self.log):
-            ensure_dir(d)
+            ensure_dir(d, private=True)
 
     @property
     def preferences(self) -> Path:
@@ -89,9 +89,13 @@ class Paths:
         return self.log / "client.log"
 
 
-def ensure_dir(path: Path) -> None:
+def ensure_dir(path: Path, private: bool = False) -> None:
+    """Create path for the app, readable by its user only. A directory that
+    already exists keeps its mode (it may be one the user named, such as
+    `--home .`), unless it's `private`: one of the app's own folders."""
+    new = not path.is_dir()
     path.mkdir(parents=True, exist_ok=True)
-    if POSIX:
+    if POSIX and (new or private):
         os.chmod(path, 0o700)
 
 

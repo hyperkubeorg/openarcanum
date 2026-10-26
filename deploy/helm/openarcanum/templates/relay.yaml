@@ -59,6 +59,8 @@ spec:
       labels:
         {{- include "openarcanum.selector" (dict "root" . "component" "relay") | nindent 8 }}
     spec:
+      # The servers never talk to the Kubernetes API.
+      automountServiceAccountToken: false
       {{- if .Values.relay.hostNetwork }}
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet

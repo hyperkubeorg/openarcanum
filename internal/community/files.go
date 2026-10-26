@@ -312,19 +312,15 @@ func (s *Server) uploadChunk(ctx context.Context, ss *sess, c *wire.UploadChunk)
 
 func (s *Server) uploadFinish(ctx context.Context, ss *sess, f *wire.UploadFinish) (*wire.ServerMessage, error) {
 	s.mu.Lock()
-	var after []func()
-	defer s.unlockThen(&after)
 	u := s.uploads[f.UploadId]
 	if u == nil || string(u.member) != string(ss.member) {
+		s.mu.Unlock()
 		return nil, errNotFound("no such upload")
 	}
 	delete(s.uploads, u.id)
-	// A timeout can start while the file is uploading.
-	me := s.members[string(ss.member)]
-	if err := s.participationError(me); err != nil {
-		return nil, err
-	}
-	hits := s.autoModCheck(u.text)
+	s.mu.Unlock()
+	// The checksum (over up to 25 MB) and AutoMod's matching run without
+	// the lock, as for a post; the checks that need the model run under it.
 	data := u.buf.Bytes()
 	if uint64(len(data)) != u.size {
 		return nil, errInvalid("upload is incomplete")
@@ -332,7 +328,20 @@ func (s *Server) uploadFinish(ctx context.Context, ss *sess, f *wire.UploadFinis
 	if sum := sha256.Sum256(data); len(f.Sha256) > 0 && !bytes.Equal(sum[:], f.Sha256) {
 		return nil, errInvalid("upload checksum mismatch")
 	}
-	c, err := s.readableChannel(ss, u.channelID, PermViewChannel|PermSendMessages|PermAttachFiles)
+	const need = PermViewChannel | PermSendMessages | PermAttachFiles
+	if err := s.preGate(ss, u.channelID, need); err != nil {
+		return nil, err
+	}
+	hits := s.autoModCheck(u.text)
+	s.mu.Lock()
+	var after []func()
+	defer s.unlockThen(&after)
+	// A timeout can start while the file is uploading.
+	me := s.members[string(ss.member)]
+	if err := s.participationError(me); err != nil {
+		return nil, err
+	}
+	c, err := s.readableChannel(ss, u.channelID, need)
 	if err != nil {
 		return nil, err
 	}
@@ -341,6 +350,13 @@ func (s *Server) uploadFinish(ctx context.Context, ss *sess, f *wire.UploadFinis
 	}
 	if err := s.attachmentKindAllowed(u.mime, data); err != nil {
 		return nil, err
+	}
+	// Slowmode again: the upload began before the member's last post
+	// there was counted (several can be in flight at once).
+	if !u.staged {
+		if err := s.checkSlowmode(c, me); err != nil {
+			return nil, err
+		}
 	}
 	o, blockedAfter, err := s.gateText(ctx, me, c, u.text, hits)
 	if err != nil {
@@ -517,7 +533,7 @@ func (s *Server) fileGet(ctx context.Context, ss *sess, g *wire.FileGet) (*wire.
 		return nil, err
 	}
 	chunks := meta.Chunks
-	if _, err := s.readableChannel(ss, channelID, PermViewChannel); err != nil {
+	if err := s.readableFile(ctx, ss, channelID, meta); err != nil {
 		s.mu.RUnlock()
 		return nil, err
 	}
@@ -536,6 +552,31 @@ func (s *Server) fileGet(ctx context.Context, ss *sess, g *wire.FileGet) (*wire.
 		return nil, err
 	}
 	return &wire.ServerMessage{Body: &wire.ServerMessage_FileChunk{FileChunk: &wire.FileChunk{FileId: g.FileId, Chunk: g.Chunk, Chunks: chunks, Data: data}}}, nil
+}
+
+// readableFile checks that the member may read a file: as the message that
+// carries it (readableMessage: View Channel, Read Message History and the
+// history gate), or, for an attachment not posted yet, as its uploader.
+// Callers hold s.mu.
+func (s *Server) readableFile(ctx context.Context, ss *sess, channelID int64, meta *fileMeta) error {
+	if meta.MessageID == 0 {
+		if _, err := s.readableChannel(ss, channelID, PermViewChannel); err != nil {
+			return err
+		}
+		if string(meta.Uploader) != string(ss.member) {
+			return errNotFound("that file has expired or was deleted")
+		}
+		return nil
+	}
+	r, err := scanStored(s.db.QueryRowContext(ctx, `SELECT `+msgCols+` FROM messages WHERE id = ?`, meta.MessageID))
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && r.deleted) {
+		return errNotFound("that file has expired or was deleted")
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.readableMessage(ss, r)
+	return err
 }
 
 func humanBytes(n uint64) string {
@@ -571,6 +612,23 @@ func (b *byteBucket) setRate(rate uint64) {
 	b.rate = float64(rate)
 	b.burst = max(float64(rate), FileChunkSize)
 	b.tokens = b.burst
+}
+
+// take spends n tokens if the bucket holds them, without waiting.
+func (b *byteBucket) take(n int) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.rate == 0 {
+		return true
+	}
+	now := time.Now()
+	b.tokens = min(b.burst, b.tokens+now.Sub(b.last).Seconds()*b.rate)
+	b.last = now
+	if b.tokens < float64(n) {
+		return false
+	}
+	b.tokens -= float64(n)
+	return true
 }
 
 func (b *byteBucket) wait(ctx context.Context, n int) error {

@@ -22,6 +22,13 @@
       }
     },
     "logLevel": {"enum": ["info", "debug"]},
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"}
+      }
+    },
     "meta": {
       "type": "object",
       "additionalProperties": false,

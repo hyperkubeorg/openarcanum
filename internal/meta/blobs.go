@@ -183,7 +183,12 @@ type blobRow struct {
 
 func chunkCount(size int64) int { return int((size + BlobChunkSize - 1) / BlobChunkSize) }
 
-func chunkLen(size int64, index int) int64 {
+// chunkPast reports whether chunk index is beyond a blob of size bytes.
+// Compared as int64: a large index converted to int is negative on a
+// 32-bit build and would pass a plain comparison.
+func chunkPast(size int64, index uint32) bool { return int64(index) >= int64(chunkCount(size)) }
+
+func chunkLen(size int64, index uint32) int64 {
 	if rest := size - int64(index)*BlobChunkSize; rest < BlobChunkSize {
 		return rest
 	}
@@ -430,22 +435,37 @@ var errHashMismatch = bad("the uploaded data doesn't match its hash; upload it a
 // marks it complete. On a hash mismatch the upload is discarded. Callers hold
 // mu.
 func (b *blobStore) finish(ctx context.Context, r *blobRow, path string) error {
-	f, err := os.Open(path)
+	ok, err := b.verify(r, path)
 	if err != nil {
 		return err
 	}
-	h := sha256.New()
-	n, err := io.Copy(h, f)
-	_ = f.Close()
-	if err != nil {
-		return err
-	}
-	if n != r.size || !bytes.Equal(h.Sum(nil), r.hash) {
+	if !ok {
 		if err := b.remove(ctx, r.id, "hash mismatch"); err != nil {
 			return err
 		}
 		return errHashMismatch
 	}
+	return b.place(ctx, r, path)
+}
+
+// verify reports whether the file at path has the blob's size and hash.
+func (b *blobStore) verify(r *blobRow, path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	h := sha256.New()
+	n, err := io.Copy(h, f)
+	_ = f.Close()
+	if err != nil {
+		return false, err
+	}
+	return n == r.size && bytes.Equal(h.Sum(nil), r.hash), nil
+}
+
+// place moves a verified blob at path into place and marks it complete.
+// Callers hold mu.
+func (b *blobStore) place(ctx context.Context, r *blobRow, path string) error {
 	if path != b.path(r.id) {
 		if err := os.Rename(path, b.path(r.id)); err != nil {
 			return err
@@ -700,10 +720,10 @@ func (s *Server) blobChunk(r *http.Request, body []byte) (proto.Message, error) 
 	if row.complete {
 		return row.status(), nil
 	}
-	if int(c.Index) >= chunkCount(row.size) {
+	if chunkPast(row.size, c.Index) {
 		return nil, bad("chunk index is past the end of the file")
 	}
-	if int64(len(c.Data)) != chunkLen(row.size, int(c.Index)) {
+	if int64(len(c.Data)) != chunkLen(row.size, c.Index) {
 		return nil, bad("chunk has the wrong length")
 	}
 	// A chunk the node already has is not written again and doesn't count
@@ -763,7 +783,7 @@ WHERE t.token_hash = ? AND b.hash = ? ORDER BY b.complete DESC, b.created_at LIM
 	if !complete {
 		return nil, conflict("the upload isn't finished yet")
 	}
-	if int(f.Index) >= chunkCount(size) {
+	if chunkPast(size, f.Index) {
 		return nil, bad("chunk index is past the end of the file")
 	}
 	if remote, err := s.isRemote(ctx, id); err != nil {
@@ -785,7 +805,7 @@ WHERE t.token_hash = ? AND b.hash = ? ORDER BY b.complete DESC, b.created_at LIM
 		return nil, err
 	}
 	defer func() { _ = file.Close() }()
-	data := make([]byte, chunkLen(size, int(f.Index)))
+	data := make([]byte, chunkLen(size, f.Index))
 	if _, err := file.ReadAt(data, int64(f.Index)*BlobChunkSize); err != nil {
 		return nil, err
 	}

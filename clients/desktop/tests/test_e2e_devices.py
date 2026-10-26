@@ -9,8 +9,9 @@ import pytest
 from conftest import PASS, Events, network, new_core, run, wait_relay_registered, wait_until
 from test_e2e_community import WIZARD, general, online
 
-from openarcanum import keychain
+from openarcanum import devices, keychain, keys
 from openarcanum.core import Core, UserError
+from openarcanum.devices import LinkSession
 from openarcanum.paths import Paths
 from openarcanum.wire import community_pb2 as cp
 
@@ -50,6 +51,92 @@ async def start_dm(owner, alice, cid):
     conv = (await alice.dms.open_with_member(cid, olive["key"]))["id"]
     await owner.dms.poll_once()
     return conv
+
+
+class Topic:
+    """One relay topic without the relay: every session on it hears what the
+    others publish (not its own, as on a relay)."""
+
+    def __init__(self):
+        self.subs: list[tuple[object, object]] = []
+
+    def relay(self):
+        topic = self
+
+        class R:
+            async def subscribe(self, _t, cb):
+                topic.subs.append((self, cb))
+
+            async def publish(self, t, data):
+                for owner, cb in list(topic.subs):
+                    if owner is not self:
+                        cb(t, data)
+
+            async def close(self):
+                pass
+
+        return R()
+
+
+def test_link_handshake_ignores_third_parties_on_the_topic():
+    """Anyone who learns a nameplate's topic can publish on it. A link in
+    progress skips what can't be the other device's: an abort before the
+    keys exist, or after them unless it's sealed under the session key, a
+    PAKE message that isn't even shaped like one, a confirm that doesn't
+    open. The code still gets one guess: the first well-formed PAKE message
+    is the one used, and a plain abort while waiting for the confirmation is
+    taken as the mismatch it reports."""
+    code = "42-purple-sausage-anchor"
+
+    async def pair(topic: Topic) -> tuple[LinkSession, LinkSession, object]:
+        existing, new = LinkSession(topic.relay(), b"t"), LinkSession(topic.relay(), b"t")
+        await existing.open()
+        await new.open()
+        return existing, new, topic.relay()
+
+    async def noise(third, *msgs: dict) -> None:
+        for m in msgs:
+            await third.publish(b"t", json.dumps(m).encode())
+
+    async def main():
+        existing, new, third = await pair(Topic())
+        await noise(
+            third,
+            {"t": "abort", "why": "go away"},
+            {"t": "pake"},
+            {"t": "pake", "m": 7},
+            {"t": "pake", "m": "not base64!"},
+            {"t": "pake", "m": keys.encode(b"S" + b"x" * 7)},
+            {"t": "confirm", "box": "zz"},
+            {"t": "confirm", "box": 1},
+            {"t": "hello", "box": "zz"},
+        )
+        new_side = asyncio.ensure_future(devices.link_handshake_new(new, code, "phone"))
+        peer = await devices.link_handshake_existing(existing, code)
+        await new_side
+        assert peer["name"] == "phone" and new.k_in and existing.k_in
+        # With the keys made, only a sealed abort counts.
+        await noise(third, {"t": "abort", "why": "cancelled"}, {"t": "abort", "box": "zz"}, {"t": "abort", "box": 3})
+        with pytest.raises(TimeoutError):
+            await new.recv("transfer", timeout=0.3)
+        await existing.abort("Cancelled on the existing device.")
+        with pytest.raises(UserError, match="Cancelled on the existing device"):
+            await new.recv("transfer", timeout=5)
+        # A well-formed PAKE message from someone else, first: that is the
+        # one guess, and the link fails on both sides (a plain abort while
+        # the new device waits for the confirmation).
+        existing, new, third = await pair(Topic())
+        await noise(
+            third,
+            {"t": "pake", "m": keys.encode(devices.SPAKE2_Symmetric(b"0-a-b-c", idSymmetric=devices.LINK_ID).start())},
+        )
+        new_side = asyncio.ensure_future(devices.link_handshake_new(new, code, "phone"))
+        with pytest.raises(UserError, match="didn't match"):
+            await devices.link_handshake_existing(existing, code)
+        with pytest.raises(UserError, match="didn't match"):
+            await new_side
+
+    run(main(), 60)
 
 
 async def link(existing: Core, new_home: Path, name: str, choices=None, events: Events | None = None):

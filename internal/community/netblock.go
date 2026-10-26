@@ -319,7 +319,7 @@ func (s *Server) blockOn(ctx context.Context, c *relayclient.Client, req *netBlo
 	name := s.nameOf(member)
 	if len(res.BlockId) == 0 {
 		// Every stream came from the server's own network.
-		s.recordAudit(ctx, req.rec.By, "network_block", member, fmt.Sprintf("couldn't block the network address of %s: it is the community server's own", name))
+		s.recordAudit(ctx, req.rec.By, "network_block", member, 0, fmt.Sprintf("couldn't block the network address of %s: it is the community server's own", name))
 		return wire.NetworkBlockStatus_NETWORK_BLOCK_STATUS_SKIPPED
 	}
 	held := req.rec
@@ -334,7 +334,7 @@ func (s *Server) blockOn(ctx context.Context, c *relayclient.Client, req *netBlo
 	if held.Seconds > 0 {
 		span = "for " + humanSeconds(held.Seconds)
 	}
-	s.recordAudit(ctx, req.rec.By, "network_block", member, fmt.Sprintf("blocked the network address of %s on the community's relay %s%s (block %s)",
+	s.recordAudit(ctx, req.rec.By, "network_block", member, 0, fmt.Sprintf("blocked the network address of %s on the community's relay %s%s (block %s)",
 		name, span, when, blockIDString(res.BlockId)))
 	return wire.NetworkBlockStatus_NETWORK_BLOCK_STATUS_BLOCKED
 }
@@ -420,7 +420,7 @@ func (s *Server) liftNetBlocks(ctx context.Context, member []byte, url string) {
 		if res.NotFound {
 			summary += "; the relay had already dropped it"
 		}
-		s.recordAudit(ctx, nil, "network_unblock", r.rec.Member, summary)
+		s.recordAudit(ctx, nil, "network_unblock", r.rec.Member, 0, summary)
 		s.mu.Unlock()
 	}
 }

@@ -138,9 +138,48 @@ class LinkSession:
                 raise UserError(_("The other device didn't answer in time. Start again with a new code."))
             msg = await asyncio.wait_for(self.inbox.get(), remaining)
             if msg.get("t") == "abort":
-                raise UserError(msg.get("why") or _("The other device cancelled the link."))
-            if msg.get("t") == kind:
+                why = self.abort_reason(msg, kind)
+                if why is not None:
+                    raise UserError(why)
+            elif msg.get("t") == kind:
                 return msg
+
+    async def recv_sealed(self, kind: str, timeout: float = 120.0) -> Any:
+        """The first `kind` message sealed under the session key, opened.
+        Others on the topic (anyone who learnt it can publish there) are
+        skipped: the other device's never fail to open."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            msg = await self.recv(kind, deadline - loop.time())
+            try:
+                return self.unseal(msg["box"])
+            except crypto.DecryptError, KeyError, TypeError, ValueError, AttributeError:
+                log.warning("link: ignored a %s message that isn't from the other device", kind)
+
+    def abort_reason(self, msg: dict, waiting_for: str) -> str | None:
+        """Why the other device cancelled, or None for an abort to ignore.
+        Anyone on the topic can send one: until the keys exist every abort
+        is ignored, and after that it has to be sealed under the session
+        key (`abort`), except while waiting for `confirm`: a code that
+        didn't match leaves the existing device no matching key to seal
+        with, so there a plain abort is taken as that."""
+        if not self.k_in:
+            return None
+        box = msg.get("box")
+        if isinstance(box, str):
+            try:
+                why = self.unseal(box)
+            except crypto.DecryptError, ValueError, TypeError:
+                return None
+            return why if isinstance(why, str) and why else _("The other device cancelled the link.")
+        if waiting_for == "confirm":
+            return _("The code didn't match. Nothing was sent; start again with a new code.")
+        return None
+
+    async def abort(self, why: str) -> None:
+        """Tell the other device the link is off (abort_reason)."""
+        await self.send({"t": "abort", "box": self.seal(why)} if self.k_out else {"t": "abort", "why": why})
 
     def seal(self, obj: Any) -> str:
         return keys.encode(crypto.seal(self.k_out, json.dumps(obj).encode(), LINK_ID))
@@ -169,6 +208,39 @@ def _pake_finish(pake: SPAKE2_Symmetric, msg: dict) -> bytes:
         raise UserError(_("The other device sent an unreadable link message. Start again with a new code.")) from None
 
 
+async def recv_pake(sess: LinkSession, mine: bytes, timeout: float) -> dict:
+    """The other device's SPAKE2 message: the first on the topic that is
+    shaped like one (the same form as ours). Anything else there is skipped
+    rather than ending the link, as it can't be the other device's; the
+    first well-formed one is the only one used, so the code still gets one
+    guess (pake.finish runs once)."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        msg = await sess.recv("pake", deadline - loop.time())
+        try:
+            m = keys.decode(msg["m"])
+        except KeyError, TypeError, ValueError, AttributeError:
+            m = b""
+        if len(m) == len(mine) and m[:1] == mine[:1]:
+            return msg
+        log.warning("link: ignored a malformed PAKE message on the topic")
+
+
+async def link_handshake_new(sess: LinkSession, code: str, name: str) -> None:
+    """The new device's half of the SPAKE2 exchange and the code check: its
+    name goes over sealed, and the existing device confirms. A wrong code
+    shows as the existing device's abort (or no confirmation)."""
+    pake = SPAKE2_Symmetric(code.encode(), idSymmetric=LINK_ID)
+    mine = pake.start()
+    their = await recv_pake(sess, mine, LINK_TIMEOUT)
+    await sess.send({"t": "pake", "m": keys.encode(mine)})
+    sess.set_keys(_pake_finish(pake, their), i_am_new=True)
+    await sess.send({"t": "hello", "box": sess.seal({"name": name, "platform": platform_name()})})
+    if await sess.recv_sealed("confirm", timeout=60) != "ok":
+        raise UserError(_("The code didn't match. Nothing was sent; start again with a new code."))
+
+
 def _transfer_part(sess: LinkSession, msg: dict) -> tuple[int, int, str] | None:
     """(index, count, text) of one sealed piece of the link transfer, or None
     for a message that isn't one from the other device (malformed, or sealed
@@ -189,8 +261,9 @@ async def link_handshake_existing(sess: LinkSession, code: str) -> dict:
     a wrong code or a malformed message raises UserError (after telling the
     other side, when the code was wrong)."""
     pake = SPAKE2_Symmetric(code.encode(), idSymmetric=LINK_ID)
-    await sess.send({"t": "pake", "m": keys.encode(pake.start())})
-    their = await sess.recv("pake", timeout=60)
+    mine = pake.start()
+    await sess.send({"t": "pake", "m": keys.encode(mine)})
+    their = await recv_pake(sess, mine, 60)
     sess.set_keys(_pake_finish(pake, their), i_am_new=False)
     hello = await sess.recv("hello", timeout=60)
     try:
@@ -198,6 +271,8 @@ async def link_handshake_existing(sess: LinkSession, code: str) -> dict:
         if not isinstance(peer, dict):
             raise ValueError("not an object")
     except crypto.DecryptError, KeyError, TypeError, ValueError:
+        # Plain: the keys don't match, so nothing sealed would open there
+        # (LinkSession.abort_reason takes it as the code mismatch it is).
         await sess.send({"t": "abort", "why": _("The code didn't match. Start again with a new code.")})
         raise UserError(_("The code didn't match, so the link was cancelled and nothing was sent.")) from None
     await sess.send({"t": "confirm", "box": sess.seal("ok")})
@@ -583,18 +658,7 @@ class DeviceManager:
 
     async def _new_device_run(self, sess: LinkSession, code: str, name: str) -> None:
         try:
-            their = await sess.recv("pake", timeout=LINK_TIMEOUT)
-            pake = SPAKE2_Symmetric(code.encode(), idSymmetric=LINK_ID)
-            mine = pake.start()
-            await sess.send({"t": "pake", "m": keys.encode(mine)})
-            sess.set_keys(_pake_finish(pake, their), i_am_new=True)
-            await sess.send({"t": "hello", "box": sess.seal({"name": name, "platform": platform_name()})})
-            confirm = await sess.recv("confirm", timeout=60)
-            try:
-                if sess.unseal(confirm["box"]) != "ok":
-                    raise crypto.DecryptError("bad confirm")
-            except crypto.DecryptError, KeyError, TypeError, ValueError:
-                raise UserError(_("The code didn't match. Nothing was sent; start again with a new code.")) from None
+            await link_handshake_new(sess, code, name)
             sess.state = "waiting_approval"
             self.core.emit("link", {"stage": "waiting_approval"})
             parts: dict[int, str] = {}
@@ -811,10 +875,9 @@ class DeviceManager:
         for i in range(n):
             await sess.send({"t": "transfer", "i": i, "n": n, "box": sess.seal(box[i * CHUNK : (i + 1) * CHUNK])})
         try:
-            done = await sess.recv("done", timeout=LINK_TIMEOUT)
-            reply = sess.unseal(done["box"])
+            reply = await sess.recv_sealed("done", timeout=LINK_TIMEOUT)
             entry = dict(reply["entry"])
-        except (UserError, crypto.DecryptError, KeyError, TypeError) as e:
+        except (UserError, KeyError, TypeError) as e:
             await self.cancel()
             raise UserError(_("The new device didn't finish: {error}").format(error=e)) from None
         # The new device's sync card: from now on its sync events and keys verify.
@@ -842,7 +905,7 @@ class DeviceManager:
         sess, self.link = self.link, None
         if sess is not None:
             with contextlib.suppress(Exception):
-                await sess.send({"t": "abort", "why": _("The other device cancelled the link.")})
+                await sess.abort(_("The other device cancelled the link."))
             await sess.close()
         return {"ok": True}
 

@@ -119,6 +119,15 @@ func (r *rateLimit) allow(key string, now time.Time) bool {
 	return ok
 }
 
+// full reports whether key is at its limit at now, without taking an event.
+func (r *rateLimit) full(key string, now time.Time) bool {
+	full := false
+	r.t.with(key, now, func(w *fixedWindow) {
+		full = !w.start.IsZero() && now.Sub(w.start) < r.t.window && w.n >= r.limit
+	})
+	return full
+}
+
 // byteBudget allows max bytes per key over a rolling window, counted in
 // slots of window/budgetSlots (so state per key is fixed, however many
 // requests it makes).

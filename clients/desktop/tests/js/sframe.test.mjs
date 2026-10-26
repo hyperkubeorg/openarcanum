@@ -103,8 +103,8 @@ test('call context: replayed frames are refused, reordered ones open once', asyn
   assert.equal(td.decode(await rx.unprotect(f1)), 'yes'); // late but inside the window
   await assert.rejects(rx.unprotect(f1), /replayed frame/);
   await assert.rejects(rx.unprotect(f2), /replayed frame/);
-  // Dropping the key and setting it again doesn't reopen old counters.
-  rx.dropRecvKey(kid);
+  // Setting the key again (as installRecvKeys does on every change) keeps
+  // the window: old counters stay refused.
   await rx.setRecvKey(kid, key);
   await assert.rejects(rx.unprotect(f1), /replayed frame/);
   // A forged frame under a seen counter is refused, and one under a new
@@ -134,6 +134,23 @@ test('replay window: too old refused, gaps and jumps handled', () => {
   // Bits cleared when the window slides over them: 1000 + 64 reuses 1000's slot.
   assert.ok(w.mark(1064n) && w.fresh(1063n));
   assert.equal(SFrame.REPLAY_WINDOW >= 4096, true);
+});
+
+// A participant joining and leaving every few seconds gives every other
+// page a key id per epoch; dropping a key frees its replay window (1 KiB
+// each), so the context doesn't grow for the length of the call.
+test('dropping a receive key frees its replay window', async () => {
+  const key = crypto.getRandomValues(new Uint8Array(16));
+  const rx = new SFrame.Context();
+  for (let epoch = 1n; epoch <= 200n; epoch++) {
+    const kid = (epoch << 8n) | 3n;
+    await rx.setRecvKey(kid, key);
+    assert.ok(rx.windows.has(kid));
+    if (epoch > 2n) rx.dropRecvKey((epoch - 2n) << 8n | 3n);
+  }
+  assert.equal(rx.recv.size, 2);
+  assert.equal(rx.windows.size, 2);
+  assert.ok(!rx.windows.has((1n << 8n) | 3n));
 });
 
 test('setting the same key id and key again never repeats a nonce', async () => {

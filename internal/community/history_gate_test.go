@@ -127,3 +127,44 @@ func TestReactionsAndPinsFollowHistoryGate(t *testing.T) {
 	permDenied(t, "pins without Read Message History", err)
 	noSecret(t, "pin list", r, secret)
 }
+
+// Downloading a file follows the gate of the message that carries it: a
+// member who may not read the message (no Read Message History, or a new
+// member with "new members see history" off) can't fetch its chunks
+// either, and an attachment not posted yet is its uploader's alone.
+func TestFileDownloadFollowsHistoryGate(t *testing.T) {
+	e := setup(t, nil)
+	gen := e.owner.Channel("general").Id
+	now := time.Now()
+	e.comm.Server.SetClock(func() time.Time { return now })
+	posted, err := upload(t, e.owner, gen, "plans.txt", []byte("the vault code is 4711"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := firstFile(posted)
+	early := e.member("Early", e.invite.Secret)
+	if _, err := download(t, early, ref); err != nil {
+		t.Fatalf("a member who can read the message: %v", err)
+	}
+	e.update(t, func(s *wire.CommunitySettings) { s.NewMembersSeeHistory = proto.Bool(false) })
+	now = now.Add(time.Second)
+	late := e.member("Late", e.invite.Secret)
+	if _, err := download(t, late, ref); err == nil {
+		t.Fatal("a new member fetched a file from before they joined")
+	}
+	e.everyonePerms(t, func(p uint64) uint64 { return p &^ community.PermReadMessageHistory })
+	_, err = download(t, early, ref)
+	permDenied(t, "download without Read Message History", err)
+
+	staged, err := stage(t, e.owner, gen, "draft.txt", "text/plain", []byte("not sent yet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.everyonePerms(t, func(p uint64) uint64 { return p | community.PermReadMessageHistory })
+	if _, err := download(t, early, staged); err == nil {
+		t.Fatal("another member fetched an unsent attachment")
+	}
+	if _, err := download(t, e.owner, staged); err != nil {
+		t.Fatalf("the uploader's own unsent attachment: %v", err)
+	}
+}

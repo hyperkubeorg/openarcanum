@@ -155,6 +155,12 @@ const absentTombstonesPerHour = 500
 // maxRelayCapacity bounds the capacity a relay heartbeat may claim.
 const maxRelayCapacity = 1_000_000
 
+// claimFailuresPerMinute bounds failed link code claims for the whole
+// node: the per-network limit alone lets a sweep from many networks guess
+// at live codes at scale. Claims that succeed don't count, so linking is
+// unaffected until a sweep is under way.
+const claimFailuresPerMinute = 200
+
 // Bounds on listing strings (besides name and description).
 const (
 	maxTagLen    = 64
@@ -203,10 +209,14 @@ type Server struct {
 	// Per-client limits (limits.go): by client address (per network,
 	// capped per IPv6 /48), by community or by inbox.
 	writes  *netRateLimit
+	reads   *netRateLimit
 	listing *rateLimit
 	drops   *rateLimit
 	plates  *netRateLimit
 	claims  *netRateLimit
+	// claimFailures bounds failed link code claims node-wide
+	// (nameplateClaim).
+	claimFailures *rateLimit
 	// absentTombstones bounds tombstones for mail not held here, per
 	// network (mailboxDelete).
 	absentTombstones *netRateLimit
@@ -265,10 +275,12 @@ func Open(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 		delisted: map[string]bool{}, delistedRelays: map[string]bool{},
 		relayProofs:      newRelayProofs(cfg.AllowPrivateRelays),
 		writes:           newNetRateLimit(cfg.WritesPerMinute, time.Minute),
+		reads:            newNetRateLimit(cfg.ReadsPerMinute, time.Minute),
 		listing:          newRateLimit(cfg.ListingsPerHour, time.Hour),
 		drops:            newRateLimit(cfg.MailboxDropsPerMin, time.Minute),
 		plates:           newNetRateLimit(cfg.NameplatesPerMinute, time.Minute),
 		claims:           newNetRateLimit(cfg.NameplatesPerMinute, time.Minute),
+		claimFailures:    newRateLimit(claimFailuresPerMinute, time.Minute),
 		absentTombstones: newNetRateLimit(absentTombstonesPerHour, time.Hour),
 		blobCreates:      newRateLimit(cfg.BlobUploadsPerMinute, time.Minute),
 		blobQuota:        newKeyed[[]quotaUse](BlobQuotaWindow, maxLimitKeys),
@@ -373,15 +385,15 @@ func (s *Server) routes() *http.ServeMux {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("POST /v1/listings", s.writeLimit(MaxListingBytes, s.postListing))
-	mux.HandleFunc("GET /v1/listings/{id}", s.getListing)
-	mux.HandleFunc("GET /v1/search", s.search)
-	mux.HandleFunc("GET /v1/directory/snapshot", s.snapshot)
+	mux.HandleFunc("GET /v1/listings/{id}", s.readLimit(s.getListing))
+	mux.HandleFunc("GET /v1/search", s.readLimit(s.search))
+	mux.HandleFunc("GET /v1/directory/snapshot", s.readLimit(s.snapshot))
 	mux.HandleFunc("POST /v1/routes", s.writeLimit(MaxRouteBytes, s.postRoute))
-	mux.HandleFunc("GET /v1/routes/{id}", s.getRoute)
+	mux.HandleFunc("GET /v1/routes/{id}", s.readLimit(s.getRoute))
 	mux.HandleFunc("POST /v1/relays/heartbeat", s.writeLimit(MaxHeartbeatBytes, s.postHeartbeat))
-	mux.HandleFunc("GET /v1/relays", s.getRelays)
+	mux.HandleFunc("GET /v1/relays", s.readLimit(s.getRelays))
 	mux.HandleFunc("POST /v1/communities/heartbeat", s.writeLimit(MaxHeartbeatBytes, s.postCommunityHeartbeat))
-	mux.HandleFunc("GET /v1/communities/{id}/status", s.getCommunityStatus)
+	mux.HandleFunc("GET /v1/communities/{id}/status", s.readLimit(s.getCommunityStatus))
 	mux.HandleFunc("POST /v1/mailbox/drop", s.writeLimit(int(min(s.cfg.MailboxMaxItem, maxBody))+smallBody, s.mailboxDrop))
 	mux.HandleFunc("POST /v1/mailbox/fetch", s.writeLimit(smallBody, s.mailboxFetch))
 	mux.HandleFunc("POST /v1/mailbox/delete", s.writeLimit(mailboxDeleteMaxBody, s.mailboxDelete))
@@ -391,9 +403,9 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /v1/blobs/ack", s.writeLimit(blobSmallMaxBody, s.blobAck))
 	mux.HandleFunc("POST /v1/nameplates", s.writeLimit(smallBody, s.nameplateCreate))
 	mux.HandleFunc("POST /v1/nameplates/claim", s.writeLimit(smallBody, s.nameplateClaim))
-	mux.HandleFunc("GET /v1/replicate", s.replicate)
-	mux.HandleFunc("GET /v1/node", s.getNode)
-	mux.HandleFunc("GET /v1/maintainers", s.getMaintainers)
+	mux.HandleFunc("GET /v1/replicate", s.readLimit(s.replicate))
+	mux.HandleFunc("GET /v1/node", s.readLimit(s.getNode))
+	mux.HandleFunc("GET /v1/maintainers", s.readLimit(s.getMaintainers))
 	mux.HandleFunc("GET /v1/peer", s.peerAccept)
 	return mux
 }
@@ -464,6 +476,18 @@ func (s *Server) writeLimit(maxBody int, h writeHandler) http.HandlerFunc {
 			return
 		}
 		writeProto(w, out)
+	}
+}
+
+// readLimit wraps a GET handler: per-IP rate limit (reads_per_minute).
+// Only /healthz and /v1/peer (its own caps, peer.go) are outside it.
+func (s *Server) readLimit(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.reads.allow(ops.RemoteIP(r), s.now()) {
+			http.Error(w, "rate limited", http.StatusTooManyRequests)
+			return
+		}
+		h(w, r)
 	}
 }
 
@@ -955,13 +979,13 @@ func (s *Server) postHeartbeat(r *http.Request, body []byte) (proto.Message, err
 	if err != nil {
 		return nil, err
 	}
-	return nil, s.storeHeartbeat(r.Context(), hb, url, raw, true)
+	return nil, s.storeHeartbeat(r.Context(), hb, url, raw, true, ops.RemoteIP(r))
 }
 
 // storeHeartbeat stores a verified relay heartbeat once its URL is proven
 // to serve its key (relayproof.go); wait false (replication) never waits
-// for that check.
-func (s *Server) storeHeartbeat(ctx context.Context, hb *wire.RelayHeartbeat, url string, raw []byte, wait bool) error {
+// for that check. from is the client address ("" by replication).
+func (s *Server) storeHeartbeat(ctx context.Context, hb *wire.RelayHeartbeat, url string, raw []byte, wait bool, from string) error {
 	now := s.now()
 	if d := now.Sub(time.UnixMilli(hb.At)); d > s.cfg.RelayTTL.Duration || d < -time.Minute {
 		return bad("heartbeat is stale")
@@ -971,7 +995,7 @@ func (s *Server) storeHeartbeat(ctx context.Context, hb *wire.RelayHeartbeat, ur
 	} else if gone {
 		return forbidden("this relay has been removed from the registry")
 	}
-	if err := s.proveRelay(ctx, url, hb.RelayKey, wait); err != nil {
+	if err := s.proveRelay(ctx, url, hb.RelayKey, wait, from); err != nil {
 		return err
 	}
 	// Capacity and connections are the relay's own claims; bounded so a
@@ -1382,13 +1406,15 @@ func (s *Server) freeNameplate(ctx context.Context, index int) (uint32, error) {
 // nameplateClaim hands the topic to the one device that claims the number.
 // A nameplate works once: the second claim is refused, so a code gets one
 // guess (docs/protocol.md §10.1). Claims are rate
-// limited per network (nameplates_per_minute), so numbers can't be swept.
+// limited per network (nameplates_per_minute) and failed ones node-wide
+// (claimFailuresPerMinute), so numbers can't be swept.
 func (s *Server) nameplateClaim(r *http.Request, body []byte) (proto.Message, error) {
 	var c wire.NameplateClaim
 	if err := proto.Unmarshal(body, &c); err != nil {
 		return nil, bad("malformed claim")
 	}
-	if !s.claims.allow(ops.RemoteIP(r), s.now()) {
+	now := s.now()
+	if !s.claims.allow(ops.RemoteIP(r), now) || s.claimFailures.full("", now) {
 		return nil, limited("too many link code attempts; wait a minute")
 	}
 	s.mu.Lock()
@@ -1398,13 +1424,16 @@ func (s *Server) nameplateClaim(r *http.Request, body []byte) (proto.Message, er
 	var claimed int
 	err := s.db.QueryRowContext(ctx, `SELECT number, topic, relay, expires_at, claimed FROM nameplates WHERE number = ?`, c.Number).
 		Scan(&np.Number, &np.Topic, &np.Relay, &np.ExpiresAt, &claimed)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if errors.Is(err, sql.ErrNoRows) || now.UnixMilli() >= np.ExpiresAt || claimed != 0 {
+		s.claimFailures.allow("", now)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, notFound("no such link code (it may have expired)")
 	}
-	if err != nil {
-		return nil, err
-	}
-	if s.now().UnixMilli() >= np.ExpiresAt {
+	if now.UnixMilli() >= np.ExpiresAt {
 		return nil, gone("this link code has expired")
 	}
 	if claimed != 0 {
@@ -1439,6 +1468,9 @@ func (s *Server) Expire(ctx context.Context) {
 		}
 	}
 	s.mu.Unlock()
+	if err := s.pruneDecisions(ctx); err != nil {
+		s.log.Error("expiry", "err", err)
+	}
 	if _, err := s.reap(ctx); err != nil {
 		s.log.Error("community reaping", "err", err)
 	}
@@ -1648,7 +1680,7 @@ func (s *Server) applyBatch(ctx context.Context, peer string, batch *wire.Replic
 			raw, err = encodeKnown(sh, MaxHeartbeatBytes, "heartbeat")
 		}
 		if err == nil {
-			failed += s.replicationErr(peer, "relay heartbeat", s.storeHeartbeat(ctx, hb, url, raw, false))
+			failed += s.replicationErr(peer, "relay heartbeat", s.storeHeartbeat(ctx, hb, url, raw, false, ""))
 		} else {
 			s.replicationErr(peer, "relay heartbeat", err)
 		}

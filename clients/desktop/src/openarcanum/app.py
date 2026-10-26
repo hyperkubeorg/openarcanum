@@ -663,13 +663,13 @@ def main(argv: list[str] | None = None) -> None:
     else:
         paths = Paths.default()
     paths.ensure()
+    setup_logging(paths, args.verbose)
     link = codes.link_from_os(args.link) if args.link else None
     # A second launch on an open profile hands its link to the running app
-    # and leaves before touching anything (a smoke run always opens its own
-    # window).
+    # and leaves before touching anything else (a smoke run always opens its
+    # own window). Logging is up first: what the hand-off refuses is logged.
     if not args.smoke and instance.hand_off(instance.server_name(paths.config), link):
         sys.exit(0)
-    setup_logging(paths, args.verbose)
     if args.link and not link:
         log.warning("ignored a launch argument that is not an invite link")
     try:
@@ -961,9 +961,16 @@ def harden_webview(index_url: str) -> None:
       through the page's own link dialog, which copies them);
     - the bridge is injected only into the app's own page;
     - drag-and-drop never reaches the engine;
-    - nothing is downloaded."""
+    - nothing is downloaded;
+    - no local file outside the page's own folder is read: the page loads
+      its sibling scripts, styles and images (QtWebEngine needs
+      LocalContentCanAccessFileUrls for those), and every other file://
+      request (an image, a fetch) is refused by the request interceptor;
+    - WebRTC (calls) offers only the default route's address, not every
+      interface's (WebRTCPublicInterfacesOnly)."""
     import webview
     import webview.platforms.qt as qt
+    from qtpy.QtCore import QUrl
 
     webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = False
     webview.settings["ALLOW_DOWNLOADS"] = False
@@ -977,6 +984,9 @@ def harden_webview(index_url: str) -> None:
     # super(BrowserView.WebPage, self) and super(BrowserView.WebView, self),
     # so subclasses can't take their names. Patched before the window exists.
     original_view_init = base_view.__init__
+    original_page_init = base_page.__init__
+    original_intercept = bv_cls.RequestInterceptor.interceptRequest
+    ui_dir = Path(QUrl(index_url).toLocalFile()).resolve().parent
 
     def accept_navigation(self, url, nav_type, is_main_frame) -> bool:
         if is_app_page(url, index_url):
@@ -997,6 +1007,19 @@ def harden_webview(index_url: str) -> None:
         self._openarcanum_drops = _DropBlocker()
         self._openarcanum_drops.install(self)
 
+    def page_init(self, parent=None, profile=None):
+        original_page_init(self, parent, profile)
+        s = self.settings()
+        s.setAttribute(type(s).WebAttribute.WebRTCPublicInterfacesOnly, True)
+
+    def intercept_request(self, info):
+        url = info.requestUrl()
+        if url.isLocalFile() and not Path(url.toLocalFile()).resolve().is_relative_to(ui_dir):
+            log.warning("refused a request for a local file outside the app's page")
+            info.block(True)
+            return
+        original_intercept(self, info)
+
     def refuse_drag(self, e) -> None:
         e.ignore()
 
@@ -1008,6 +1031,8 @@ def harden_webview(index_url: str) -> None:
             return None
         return original_load_finished(self)
 
+    base_page.__init__ = page_init
+    bv_cls.RequestInterceptor.interceptRequest = intercept_request
     base_page.acceptNavigationRequest = accept_navigation
     base_page.createWindow = create_window
     base_view.__init__ = view_init

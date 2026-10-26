@@ -34,7 +34,9 @@ coverage.out
 *.pem
 *.p12
 *.pfx
-/*.key
+*.key
+# The migration fixtures (internal/community/testdata/<version>/*.key)
+!/internal/community/testdata/*/*.key
 
 # Editors / OS
 .DS_Store

@@ -110,9 +110,10 @@ the failed jobs, or run the workflow by hand from the tag (Actions →
 Release → Run workflow → the tag): a re-run replaces the files of the
 existing draft and never touches a published release.
 
-Run by hand from a branch, either workflow builds everything without
-releasing anything: Release keeps the files as workflow artifacts (no
-manifest, no GitHub Release), Containers pushes only `sha-<commit>` tags.
+Run by hand from a branch, either workflow builds everything without releasing
+anything: Release builds unsigned (the signing secrets are only used for a
+tag) and keeps the files as workflow artifacts (no manifest, no GitHub
+Release), Containers pushes only `sha-<commit>` tags.
 Pull requests run Containers without pushing; `ci.yml` builds the desktop
 bundles and installers on every push and pull request.
 
@@ -325,8 +326,9 @@ untrusted key is ignored. At most 8 signatures; the file is at most 64 KiB.
   read the key, so pushing a tag alone can't get a manifest signed. Inside
   the job only the signing step has the key in its environment; the client
   environment is installed before that step (from the hash-pinned `uv.lock`)
-  and the step runs it without syncing; every action in `release.yml` is
-  pinned by commit SHA. The next step checks the manifest with the client's
+  and the step runs it without syncing; every third-party action in all four
+  workflows is pinned by commit SHA. The next step checks the manifest with
+  the client's
   own verification against the keys built into that version
   (`release_manifest.py verify --builtin`) and fails the release if
   installed copies would refuse it. Never commit a private key: the

@@ -205,6 +205,13 @@ func TestDedicatedRelayServesOnlyItsServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	box.wait(t, 1)
+	// A message can't start on the server's topic and continue on another.
+	raw := rawDial(t, url)
+	raw.send(&wire.RelayFrame{Kind: &wire.RelayFrame_Publish{Publish: &wire.Publish{Topic: topic, MessageId: 1, Data: []byte("a")}}})
+	raw.send(&wire.RelayFrame{Kind: &wire.RelayFrame_Publish{Publish: &wire.Publish{Topic: []byte("some dm topic"), MessageId: 1, Seq: 1, Final: true, Data: []byte("b")}}})
+	if e := raw.next(isErr).GetError(); e.Code != wire.ErrorCode_ERROR_CODE_BAD_FRAME {
+		t.Fatalf("chunk on a foreign topic: %v", e)
+	}
 }
 
 func TestDedicatedRelayCarriesOnlyItsServersCalls(t *testing.T) {

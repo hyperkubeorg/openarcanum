@@ -31,7 +31,9 @@ import (
 //  9. network blocks on a dedicated relay (netblock.go): a sealed record per
 //     block, found by the member's lookup hash;
 //  10. statuses (status.go): each member's status devices and ciphertext,
-//     and the key drops waiting for recipient devices, all sealed.
+//     and the key drops waiting for recipient devices, all sealed;
+//  11. ids of roles, channels, categories, emoji and join keys are never
+//     reused (schema_v11.go).
 func (s *Server) migrations() []store.Migration {
 	return []store.Migration{
 		{SQL: schemaV1},
@@ -44,6 +46,7 @@ func (s *Server) migrations() []store.Migration {
 		{Go: s.migrateV8},
 		{SQL: schemaV9Tables},
 		{SQL: schemaV10Tables},
+		{SQL: schemaV11Tables},
 	}
 }
 

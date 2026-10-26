@@ -127,3 +127,54 @@ func TestReplayFramesSharedBySubscribers(t *testing.T) {
 	}
 	runtime.KeepAlive(keep)
 }
+
+// What a connection's unfinished cacheable messages hold is bounded by its
+// share of the cache and the cache's TTL, and a message the relay refuses
+// leaves nothing behind.
+func TestChunkCachePendingBounded(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ChunkCacheBytes, cfg.ChunkCacheTopicBytes, cfg.ChunkCacheConnBytes = 64<<10, 16<<10, 4<<10
+	cfg.ChunkCacheMaxMessage, cfg.MaxChunk, cfg.MaxPartial = 2<<10, 1024, 8
+	cfg.ChunkCacheTTL.Duration = time.Second
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	s := New(cfg, nil)
+	c := &conn{srv: s, partial: map[uint64]inflight{}, pendingCache: map[uint64]*cachePending{}}
+	chunk := func(id uint64, seq uint32, final bool, n int) {
+		m := &wire.Publish{Topic: []byte("t"), MessageId: id, Seq: seq, Final: final, Cacheable: true, Data: make([]byte, n)}
+		c.cacheChunk(m, &wire.Deliver{Topic: m.Topic, MessageId: id, Seq: seq, Final: final, Data: m.Data})
+	}
+	// Eight messages of a kilobyte each started: past the connection's
+	// share the rest hold no chunks.
+	for id := uint64(1); id <= 8; id++ {
+		chunk(id, 0, false, 1024)
+	}
+	if n := c.pendingBytes(); n > 4<<10 {
+		t.Fatalf("pending messages hold %d bytes, share is %d", n, 4<<10)
+	}
+	// Finished, the ones within the share are cached, the others not.
+	for id := uint64(1); id <= 8; id++ {
+		chunk(id, 1, true, 1)
+	}
+	if n := s.cache.entries(); n == 0 || n > 4 {
+		t.Fatalf("%d messages cached", n)
+	}
+	if len(c.pendingCache) != 0 || c.pendingBytes() != 0 {
+		t.Fatal("finished messages still pending")
+	}
+	// A refused message (too large, another topic) is dropped.
+	chunk(9, 0, false, 1024)
+	c.reject(&wire.Publish{MessageId: 9})
+	if len(c.pendingCache) != 0 {
+		t.Fatal("refused message still pending")
+	}
+	// Left unfinished for the TTL, a message is dropped when another
+	// starts.
+	chunk(10, 0, false, 1024)
+	c.pendingCache[10].at = time.Now().Add(-2 * time.Second)
+	chunk(11, 0, false, 1024)
+	if _, ok := c.pendingCache[10]; ok || len(c.pendingCache) != 1 {
+		t.Fatalf("stale pending message kept: %d pending", len(c.pendingCache))
+	}
+}

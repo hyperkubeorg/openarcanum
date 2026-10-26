@@ -19,6 +19,19 @@ USER_UNIT_DIR=$OA_HOME/.config/systemd/user
 SYSCTL_FILE=/etc/sysctl.d/90-openarcanum.conf
 MIN_PODMAN=4.9
 
+# The images are signed by the Containers workflow (keyless cosign, from
+# the workflow's GitHub identity: .github/workflows/containers.yml,
+# docs/release.md "Container images"). pull_image accepts a tag only when
+# a signature made for one of the repository's release tags covers it,
+# then pulls that digest. cosign isn't packaged for Rocky Linux: it comes
+# from its GitHub release, checked against these checksums
+# (cosign_checksums.txt of the release).
+COSIGN_VERSION=3.1.4
+COSIGN_SHA256_x86_64=02fd4fe524932ccba09f7762fce76be35e5570d2023a1093cce776eefc6b62df
+COSIGN_SHA256_aarch64=51232128175fd080ae6fd3bb095901e5607d42737eefa9bbb3a4f76c20107cc8
+IMAGE_SIGNER='^https://github\.com/hyperkubeorg/openarcanum/\.github/workflows/containers\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$'
+IMAGE_OIDC_ISSUER=https://token.actions.githubusercontent.com
+
 say()  { printf '\n==> %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 warn() { printf '    WARNING: %s\n' "$*" >&2; }
@@ -67,12 +80,37 @@ preflight() {
 }
 
 install_packages() {
-    say "Installing packages (podman, firewalld, chrony, curl, openssl)"
-    dnf -y -q install podman container-selinux firewalld chrony curl openssl policycoreutils
+    say "Installing packages (podman, firewalld, chrony, curl, openssl, rsync)"
+    dnf -y -q install podman container-selinux firewalld chrony curl openssl policycoreutils rsync
     local v
     v=$(podman version --format '{{.Client.Version}}' 2>/dev/null || podman --version | awk '{print $3}')
     info "podman $v"
     version_ge "$v" "$MIN_PODMAN" || die "podman $v is too old (need $MIN_PODMAN or newer for these Quadlet files)"
+}
+
+install_cosign() {
+    say "Installing cosign $COSIGN_VERSION (checks the image signatures)"
+    if [ "$(cosign version 2>/dev/null | sed -n 's/^GitVersion: *v//p')" = "$COSIGN_VERSION" ]; then
+        info "already installed"
+        return 0
+    fi
+    local arch sum rpm tmp
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64) sum=$COSIGN_SHA256_x86_64 ;;
+        aarch64) sum=$COSIGN_SHA256_aarch64 ;;
+        *) die "no cosign checksum for $arch in lib/common.sh" ;;
+    esac
+    rpm="cosign-$COSIGN_VERSION-1.$arch.rpm"
+    tmp=$(mktemp -d)
+    curl -fsSL --retry 3 -o "$tmp/$rpm" "https://github.com/sigstore/cosign/releases/download/v$COSIGN_VERSION/$rpm"
+    if ! echo "$sum  $tmp/$rpm" | sha256sum -c --quiet; then
+        rm -rf "$tmp"
+        die "$rpm does not match the checksum in lib/common.sh"
+    fi
+    dnf -y -q install "$tmp/$rpm"
+    rm -rf "$tmp"
+    info "cosign $(cosign version 2>/dev/null | sed -n 's/^GitVersion: *//p')"
 }
 
 ensure_clock() {
@@ -137,6 +175,13 @@ ensure_user() {
     info "user manager running (user@$uid.service)"
 }
 
+# Port 443 is bound by the container itself (host network) rather than
+# forwarded to a high port: firewalld's forward-ports (nftables, as port 80
+# on the site) apply only to traffic arriving from outside, so the host's
+# own checks and health checks would need another port, and they are IPv4
+# only unless rich rules are added per host. The sysctl lets any
+# unprivileged process on the host bind 443 and up; openarcanum is the only
+# such user here (README.md, "Port 443").
 ensure_sysctl() {
     say "Letting unprivileged processes bind port 443 ($SYSCTL_FILE)"
     local want='net.ipv4.ip_unprivileged_port_start = 443'
@@ -281,17 +326,46 @@ check_quadlet() {
 
 image_of() { sed -n 's/^Image=//p' "$HOST_DIR/$SERVICE.container"; }
 
+# verify_image IMAGE: checks the keyless signature as the user and prints
+# the digest it covers (empty when there is none). cosign reads docker's
+# config.json for the registry login; podman's auth.json has the same
+# shape, so a private package needs only the login from the README.
+verify_image() {
+    local auth="$OA_HOME/.config/containers/auth.json" env=()
+    if [ -f "$auth" ]; then
+        make_dir "$OA_HOME/.config/cosign-docker" 0700
+        ln -sfn "$auth" "$OA_HOME/.config/cosign-docker/config.json"
+        env=(DOCKER_CONFIG="$OA_HOME/.config/cosign-docker")
+    fi
+    as_oa env "${env[@]}" cosign verify --certificate-oidc-issuer "$IMAGE_OIDC_ISSUER" \
+        --certificate-identity-regexp "$IMAGE_SIGNER" --output json "$1" 2>/dev/null \
+        | grep -o '"docker-manifest-digest":"sha256:[0-9a-f]*"' | head -n1 | cut -d'"' -f4
+}
+
 pull_image() {
-    local image
+    local image repo digest
     image=$(image_of)
-    say "Pulling $image as $OA_USER"
-    if ! oa_podman pull -q "$image" >/dev/null; then
-        die "could not pull $image. If the package is private on ghcr.io, log in once as the user:
+    repo=${image%%@*}
+    repo=${repo%:*}
+    say "Checking the signature of $image (cosign, keyless: the Containers workflow's release tags)"
+    digest=$(verify_image "$image")
+    [ -n "$digest" ] || die "no valid signature for $image. The images are signed by the Containers workflow of
+  github.com/hyperkubeorg/openarcanum for its release tags (docs/release.md); a tag that isn't a release, or a
+  tampered image, fails here. If the package is private on ghcr.io, log in once as the user:
     oa-podman login --authfile /home/openarcanum/.config/containers/auth.json ghcr.io
   (user name: your GitHub user; password: a token with only read:packages), then run this script again.
   See 'GHCR' in deploy/podman/README.md."
+    info "signed; covers $digest"
+    say "Pulling $repo@$digest as $OA_USER"
+    if ! oa_podman pull -q "$repo@$digest" >/dev/null; then
+        die "could not pull $repo@$digest. If the package is private on ghcr.io, see 'GHCR' in deploy/podman/README.md."
     fi
-    info "ok: $(oa_podman image inspect --format '{{.Digest}}' "$image")"
+    # The Quadlet file names the tag: point it at what was verified.
+    case "$image" in
+        *@*) ;;
+        *) oa_podman tag "$repo@$digest" "$image" ;;
+    esac
+    info "ok: $(oa_podman image inspect --format '{{.Digest}}' "$repo@$digest")"
 }
 
 start_service() {
@@ -393,6 +467,7 @@ check_public() {
 setup_main() {
     preflight
     install_packages
+    install_cosign
     ensure_clock
     ensure_user
     ensure_sysctl

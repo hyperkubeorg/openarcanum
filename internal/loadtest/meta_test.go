@@ -49,6 +49,7 @@ func TestMaintainer(t *testing.T) {
 		// are for abuse, not what's measured here.
 		"OPENARCANUM_META_LISTINGS_PER_HOUR=1000000",
 		"OPENARCANUM_META_WRITES_PER_MINUTE=1000000",
+		"OPENARCANUM_META_READS_PER_MINUTE=1000000",
 	}, serverBinary(t, "meta"))
 	waitPort(t, port)
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)

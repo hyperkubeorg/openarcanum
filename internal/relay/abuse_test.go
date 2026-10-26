@@ -353,6 +353,65 @@ func TestLargeFanoutNeedsToken(t *testing.T) {
 	sb.wait(t, 1)
 }
 
+// The checks run on a message's first chunk, so every later chunk must
+// name the same topic: one that switches to a large topic is refused, and
+// nothing of it reaches that topic's subscribers. A message refused on its
+// first chunk stays refused, whatever topic its later chunks name.
+func TestChunksStayOnTheirTopic(t *testing.T) {
+	srv, url := start(t, func(c *relay.Config) { c.FanoutThreshold = 2 })
+	issuer, _ := identity.Generate()
+	big := fanout.NewTopic(issuer.Public)
+	boxes := make([]*inbox, 3)
+	for i := range boxes {
+		boxes[i] = newInbox()
+		if err := dial(t, url).Subscribe(ctx(t), big, boxes[i].handler); err != nil {
+			t.Fatal(err)
+		}
+	}
+	small := newInbox()
+	if err := dial(t, url).Subscribe(ctx(t), []byte("small"), small.handler); err != nil {
+		t.Fatal(err)
+	}
+	ws, hello := rawHello(t, url)
+	writeRaw(t, ws, startFrame(hello.Versions[len(hello.Versions)-1], nil))
+	if f := readRaw(t, ws); f.GetAck() == nil {
+		t.Fatalf("start: %v", f)
+	}
+	publish := func(topic []byte, id uint64, seq uint32, final bool, data string) {
+		writeRaw(t, ws, &wire.RelayFrame{Kind: &wire.RelayFrame_Publish{Publish: &wire.Publish{Topic: topic, MessageId: id, Seq: seq, Final: final, Data: []byte(data)}}})
+	}
+	// Started on the small topic, finished on the large one.
+	publish([]byte("small"), 1, 0, false, "x")
+	publish(big, 1, 1, true, "spam")
+	if f := readRaw(t, ws); f.GetError().GetCode() != wire.ErrorCode_ERROR_CODE_BAD_FRAME {
+		t.Fatalf("chunk on another topic: %v", f)
+	}
+	// Refused on the large topic, continued on the small one.
+	publish(big, 2, 0, false, "spam")
+	if f := readRaw(t, ws); f.GetError().GetCode() != wire.ErrorCode_ERROR_CODE_FANOUT_TOKEN_REQUIRED {
+		t.Fatalf("large topic without a token: %v", f)
+	}
+	publish([]byte("small"), 2, 1, true, "y")
+	// A whole message on the small topic still goes through: the two
+	// above never did.
+	publish([]byte("small"), 3, 0, false, "o")
+	publish([]byte("small"), 3, 1, true, "k")
+	if got := small.wait(t, 1); string(got[0]) != "ok" {
+		t.Fatalf("small topic got %q", got)
+	}
+	for _, b := range boxes {
+		b.mu.Lock()
+		n := len(b.msgs)
+		b.mu.Unlock()
+		if n != 0 {
+			t.Fatal("a chunk reached the large topic without a token")
+		}
+	}
+	if n := srv.Stats().FanoutRefused.Load(); n != 1 {
+		t.Fatalf("FanoutRefused = %d", n)
+	}
+}
+
 func TestFanoutTokenChecks(t *testing.T) {
 	_, url := start(t, nil)
 	issuer, _ := identity.Generate()
@@ -544,6 +603,12 @@ func TestChunkCacheBounded(t *testing.T) {
 		if srv.CacheBytes() > 64<<10 {
 			t.Fatalf("cache at %d bytes, over its cap", srv.CacheBytes())
 		}
+	}
+	// A round trip on the publisher's connection: the relay has handled every
+	// publish before it (frames on a connection are handled in order), so the
+	// late subscriber below gets the cache only, nothing still in flight.
+	if err := pub.Subscribe(ctx(t), []byte("barrier"), newInbox().handler); err != nil {
+		t.Fatal(err)
 	}
 	time.Sleep(200 * time.Millisecond)
 	if n := srv.CacheBytes(); n > 64<<10 || n == 0 {

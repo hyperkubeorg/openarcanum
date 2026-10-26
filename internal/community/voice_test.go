@@ -71,7 +71,9 @@ func TestCallJoinGrantsAndRekeys(t *testing.T) {
 	if !bytes.Equal(g.Participant, as.Participant) || g.Kid != as.Slot || as.Slot != 1 || as.Relay == "" {
 		t.Fatalf("session: %v grant: %v", as, g)
 	}
-	if exp := time.UnixMilli(g.ExpiresAt); time.Until(exp) > callauth.MaxGrantLifetime || time.Until(exp) < time.Minute {
+	// Short of the longest lifetime, so a relay whose clock is a little
+	// behind still takes it.
+	if exp := time.UnixMilli(g.ExpiresAt); time.Until(exp) > callauth.MaxGrantLifetime-community.GrantClockMargin || time.Until(exp) < time.Minute {
 		t.Fatalf("grant expiry %v", exp)
 	}
 

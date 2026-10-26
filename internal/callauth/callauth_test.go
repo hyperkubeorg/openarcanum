@@ -296,6 +296,34 @@ func TestVerifyControlListCap(t *testing.T) {
 	}
 }
 
+// Each list names participants by their 16-byte id, nothing longer: the
+// relay keeps removed ids for as long as a grant lives.
+func TestVerifyControlParticipantLength(t *testing.T) {
+	k := newKey(t)
+	callID := CallID(k.Public, randBytes(t, 16))
+	for name, edit := range map[string]func(*wire.CallControl, []byte){
+		"muted":     func(c *wire.CallControl, p []byte) { c.Muted = [][]byte{p} },
+		"deafened":  func(c *wire.CallControl, p []byte) { c.Deafened = [][]byte{p} },
+		"removed":   func(c *wire.CallControl, p []byte) { c.Removed = [][]byte{p} },
+		"no_video":  func(c *wire.CallControl, p []byte) { c.NoVideo = [][]byte{p} },
+		"no_screen": func(c *wire.CallControl, p []byte) { c.NoScreen = [][]byte{p} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, n := range []int{0, 15, 17, 1024} {
+				c := &wire.CallControl{CallId: callID}
+				edit(c, randBytes(t, n))
+				_, err := VerifyControl(signControl(t, k, c), k.Public)
+				wantErr(t, err, "malformed participant")
+			}
+			c := &wire.CallControl{CallId: callID}
+			edit(c, randBytes(t, 16))
+			if _, err := VerifyControl(signControl(t, k, c), k.Public); err != nil {
+				t.Fatalf("16-byte id refused: %v", err)
+			}
+		})
+	}
+}
+
 func TestControlCallIDMalformed(t *testing.T) {
 	if _, err := ControlCallID(nil); err == nil {
 		t.Fatal("nil control accepted")

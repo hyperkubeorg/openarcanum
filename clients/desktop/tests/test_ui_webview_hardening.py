@@ -7,12 +7,15 @@ DevTools stay off unless asked for (app.devtools_allowed), in the real app.
 - dropped files and links never navigate (the page cancels drag events, and
   Qt refuses a drop at the engine);
 - the page asking for DevTools opens nothing unless the app was started with
-  --debug or OPENARCANUM_DEVTOOLS=1.
+  --debug or OPENARCANUM_DEVTOOLS=1;
+- the page reads no local file outside its own folder (its sibling
+  scripts, styles and images still load).
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import stat
@@ -100,6 +103,50 @@ def test_the_window_stays_on_the_apps_page(tmp_path):
             assert "refused a navigation away from the app's page" in log
             assert "refused a new window from the page" in log
             app.assert_no_errors()
+        finally:
+            await app.stop()
+
+    asyncio.run(go())
+
+
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def test_the_page_reads_no_local_file_outside_its_own_folder(tmp_path):
+    """Script in the page can't read other files on disk: a file:// image
+    from outside the UI's folder fails to load and a file:// fetch fails,
+    while the page's own scripts, styles and brand images load as before."""
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(PNG)
+
+    async def go():
+        app = await App(tmp_path / "olive", name="olive").start()
+        try:
+            await app.wait_js("document.querySelector('#lock')", "the lock screen")
+            # The page's own files loaded: its scripts ran and its styles apply.
+            assert await app.js("typeof render === 'function' && typeof lockNow === 'function'")
+            assert await app.js("getComputedStyle(document.body).backgroundColor") != "rgba(0, 0, 0, 0)"
+            r = await app.call(
+                """
+                async (outside) => {
+                  const load = (src) => new Promise((r) => {
+                    const i = new Image(); i.onload = () => r('loaded'); i.onerror = () => r('error'); i.src = src;
+                  });
+                  const read = (u) => fetch(u).then((x) => 'ok ' + x.status, (e) => 'failed');
+                  const brand = new URL('brand/openarcanum-32.png', location.href).href;
+                  return [await load(brand), await load(outside), await read(outside), await read(brand)];
+                }
+                """,
+                outside.as_uri(),
+            )
+            # (Both fetches stop at the page's own CSP, connect-src 'none',
+            # before any request is made: the outside image is the one
+            # request the interceptor refuses.)
+            assert r == ["loaded", "error", "failed", "failed"], r
+            log = (tmp_path / "olive" / "log" / "client.log").read_text()
+            assert log.count("refused a request for a local file outside the app's page") == 1
         finally:
             await app.stop()
 

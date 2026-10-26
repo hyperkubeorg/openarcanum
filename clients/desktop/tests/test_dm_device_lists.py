@@ -106,6 +106,15 @@ def test_a_device_adds_itself_only_with_a_certificate(tmp_path):
     s2d, l2d = make_list(key, 2, [w])
     s2d.added, s2d.approver, s2d.approval = w.id, y.ed, y.certify(w.id)
     assert dm.check_list_change(l1, s2d, l2d) is not None
+    # Nothing else changes: the listed devices keep their keys and names
+    # (a device adding itself can't swap Y's keys for its own on the way).
+    for change in ("curve25519", "ed25519", "name"):
+        changed = y.entry()
+        setattr(changed, change, "renamed" if change == "name" else b"\x07" * 32)
+        l2e = dmp.DmDeviceList(identity=key.public, seq=2, devices=[changed, w.entry()])
+        s2e = dm.sign_device_list(key, l2e)
+        s2e.added, s2e.approver, s2e.approval = w.id, y.ed, y.certify(w.id)
+        assert dm.check_list_change(l1, s2e, l2e) == "a device adding itself changed more than that", change
 
 
 def test_peers_refuse_a_removed_devices_list_and_the_removal_wins(tmp_path):
@@ -154,6 +163,61 @@ def test_peers_refuse_a_removed_devices_list_and_the_removal_wins(tmp_path):
             assert {d.device_id for d in dms._devices_of(dm.b64(key2.public))} == {y2.id}
             again, _ = make_list(key2, 60, [y2, x2])
             assert not dms._remember_list(key2.public, x2.approve(again))
+        finally:
+            await core.shutdown()
+
+    asyncio.run(go())
+
+
+def test_a_stale_card_cant_put_back_an_old_fallback_key_or_inbox(tmp_path):
+    """A contact card older than the one held (a community server serving
+    a stale copy) doesn't replace the fallback key and inbox the newer card
+    brought, so senders don't go back to a key the device has forgotten."""
+
+    async def go():
+        core, _ev = await new_core(tmp_path / "peer", "peer", maintainers=[])
+        core.meta.urls = []
+        try:
+            dms = core.dms
+            key = SigningKey.generate()
+            y = Device(tmp_path, "y", key.public)
+            curve = y.olm.curve(y.label)
+            s1, _ = make_list(key, 1, [y])
+
+            def card(issued_at: int, kid: str, fk: bytes, inbox: bytes) -> dm.Card:
+                otk = dmp.OneTimeKey(
+                    curve25519=curve,
+                    key_id=kid,
+                    key=fk,
+                    fallback=True,
+                    signature=y.olm.signed_otk(y.label, kid, fk, True),
+                )
+                c = dmp.ContactCard(
+                    identity=key.public,
+                    name="Y",
+                    devices=s1,
+                    fallback_keys=[otk],
+                    inboxes=[dmp.DeviceInbox(curve25519=curve, inbox=inbox)],
+                    issued_at=issued_at,
+                )
+                return dm.open_card(dm.sign_card(key, c))
+
+            def held() -> tuple[bytes, bytes | None]:
+                return dms._fallback_key(key.public, curve).key, dms._first_inbox(key.public, curve)
+
+            kid1, fk1 = y.olm.fallback_key(y.label)
+            kid2, fk2 = y.olm.fallback_key(y.label, rotate=True)
+            older = card(1000, kid1, fk1, b"i" * 32)
+            newer = card(2000, kid2, fk2, b"j" * 32)
+            dms._remember_card(older)
+            assert held() == (fk1, b"i" * 32)
+            dms._remember_card(newer)
+            assert held() == (fk2, b"j" * 32)
+            dms._remember_card(older)  # served again later: ignored
+            assert held() == (fk2, b"j" * 32)
+            assert dms.d["peers"][dm.b64(key.public)]["card"] == dm.b64(newer.signed.SerializeToString())
+            dms._remember_card(newer)  # the same card again is fine
+            assert held() == (fk2, b"j" * 32)
         finally:
             await core.shutdown()
 

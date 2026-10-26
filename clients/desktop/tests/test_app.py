@@ -2,6 +2,7 @@
 engine flags, and exit with a dead window."""
 
 import os
+import stat
 import subprocess
 import sys
 import textwrap
@@ -12,6 +13,7 @@ import pytest
 from conftest import GUI, headless
 
 from openarcanum import guard
+from openarcanum.paths import Paths, atomic_write, ensure_dir
 
 # Windows can open here (conftest.GUI); tests that open them are marked
 # `gui`: skipped locally without a display, failed in CI.
@@ -74,6 +76,35 @@ def test_smoke_writes_nothing_outside_home(tmp_path):
             except OSError:
                 pass
     assert newer == [], f"smoke run wrote outside --home: {newer[:10]}"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="file modes")
+def test_the_apps_folders_are_private_but_a_named_home_keeps_its_mode(tmp_path):
+    """`--home DIR` makes the app's own folders readable by the user only,
+    but a directory the user named (`--home .`) keeps its mode, as does a
+    folder a file is saved into."""
+    home = tmp_path / "home"
+    home.mkdir()
+    home.chmod(0o755)
+    ensure_dir(home)
+    paths = Paths.under(home)
+    paths.ensure()
+    assert stat.S_IMODE(home.stat().st_mode) == 0o755
+    for d in (paths.config, paths.data, paths.cache, paths.log):
+        assert stat.S_IMODE(d.stat().st_mode) == 0o700
+    # The app's own folders, even when they exist already.
+    paths.data.chmod(0o755)
+    paths.ensure()
+    assert stat.S_IMODE(paths.data.stat().st_mode) == 0o700
+    # A new folder is private; a write into an existing one leaves it alone.
+    ensure_dir(tmp_path / "fresh")
+    assert stat.S_IMODE((tmp_path / "fresh").stat().st_mode) == 0o700
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(0o755)
+    atomic_write(shared / "f", b"x")
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+    assert stat.S_IMODE((shared / "f").stat().st_mode) == 0o600
 
 
 def test_storage_guard_passes_on_the_real_ui():

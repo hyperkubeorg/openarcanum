@@ -190,6 +190,7 @@ func (s *Server) expireMonthKeys(ctx context.Context, now time.Time) (months []i
 		files += nf
 	}
 	if len(months) > 0 {
+		s.reportsChanged()
 		if err := s.checkpoint(ctx); err != nil {
 			s.log.Warn("WAL checkpoint after month key deletion failed; it runs again after the next deletion or restart", "err", err)
 		}

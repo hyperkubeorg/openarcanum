@@ -62,8 +62,11 @@ type Config struct {
 
 	// Listing rate limit: accepted listing updates per community per hour.
 	ListingsPerHour int `json:"listings_per_hour" env:"LISTINGS_PER_HOUR"`
-	// Write requests per client IP per minute (all write endpoints).
+	// Write requests per client IP per minute (all write endpoints), and
+	// read requests (every GET but /healthz; searches, snapshots and
+	// replication batches cost the most).
 	WritesPerMinute int `json:"writes_per_minute" env:"WRITES_PER_MINUTE"`
+	ReadsPerMinute  int `json:"reads_per_minute" env:"READS_PER_MINUTE"`
 	// Delisted community ids (owner keys, base64url) and relay URLs.
 	Delisted       []string `json:"delisted" env:"DELISTED"`
 	DelistedRelays []string `json:"delisted_relays" env:"DELISTED_RELAYS"`
@@ -153,6 +156,7 @@ func DefaultConfig() Config {
 		PeerBlobBytesPerHour:    2 << 30,
 		ListingsPerHour:         60,
 		WritesPerMinute:         600,
+		ReadsPerMinute:          1200,
 		RelayTTL:                config.Duration{Duration: 2 * time.Minute},
 		RelayProof:              true,
 		CommunityOfflineAfter:   config.Duration{Duration: 3 * time.Minute},
@@ -186,7 +190,7 @@ func (c *Config) Validate() error {
 		return errors.New("listen address is required")
 	case c.DataDir == "":
 		return errors.New("data_dir is required")
-	case c.ListingsPerHour < 1 || c.WritesPerMinute < 1 || c.MailboxDropsPerMin < 1 || c.NameplatesPerMinute < 1:
+	case c.ListingsPerHour < 1 || c.WritesPerMinute < 1 || c.ReadsPerMinute < 1 || c.MailboxDropsPerMin < 1 || c.NameplatesPerMinute < 1:
 		return errors.New("rate limits must be positive")
 	case c.RelayTTL.Duration < 10*time.Second:
 		return errors.New("relay_ttl must be at least 10s")

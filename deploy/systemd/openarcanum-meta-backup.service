@@ -1,11 +1,13 @@
 # One maintainer node backup (started by openarcanum-meta-backup.timer). Safe
 # while the node runs: `meta backup` reads a consistent snapshot and keeps
 # the newest 7 backups in /var/lib/openarcanum-meta/backups. Copy them off the
-# machine (rsync, restic, …) from there.
+# machine from there: openarcanum-meta-backup-sync.service does that after
+# each backup once it is configured (rsync, restic, … work too).
 
 [Unit]
 Description=OpenArcanum maintainer node backup
 After=openarcanum-meta.service
+Wants=openarcanum-meta-backup-sync.service
 
 [Service]
 Type=oneshot

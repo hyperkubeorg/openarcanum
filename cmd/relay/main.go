@@ -66,6 +66,7 @@ func run() error {
 	defer stop()
 	// TLS (tls_mode) for wss:// straight from browsers; with acme the
 	// certificates are obtained in the background on this listener.
+	ops.WarnPlainListener(log, cfg.Listen, cfg.TLSSettings)
 	ln, err := ops.ListenPublic(ctx, cfg.Listen, cfg.TLSSettings, ops.TLSOptions{CacheDir: cfg.ACMECacheDir, Log: log})
 	if err != nil {
 		return err

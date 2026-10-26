@@ -10,6 +10,7 @@ package ops
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/mail"
 	"net/netip"
@@ -79,6 +80,29 @@ func (s *Settings) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ExposedAddr reports whether a listen address (host:port, as listen and
+// metrics_listen are written) accepts connections from other machines:
+// the host is empty, unspecified (0.0.0.0, ::) or not a loopback address.
+func ExposedAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	return host == "" || !loopbackHost(host)
+}
+
+// WarnPlainListener logs a warning when the public listener at addr
+// (listen) serves other machines without TLS: tls_mode is off and the
+// address isn't on loopback. The nodes default to that for tests and
+// local networks; in production browsers need wss:// and https://
+// (docs/operations.md "TLS and browsers").
+func WarnPlainListener(log *slog.Logger, addr string, s TLSSettings) {
+	if log == nil || s.Enabled() || !ExposedAddr(addr) {
+		return
+	}
+	log.Warn("tls_mode is off and listen is not on loopback: other machines reach this node over plain http:// and ws://; set tls_mode (acme or files) or put a TLS proxy in front", "addr", addr)
 }
 
 // TLSSettings are the public listener's TLS settings, shared by the nodes
@@ -210,6 +234,8 @@ func tlsName(s string) (string, error) {
 	return n, nil
 }
 
+// loopbackHost: localhost or a loopback address. An unspecified address
+// (0.0.0.0, ::) means every interface, so it isn't one.
 func loopbackHost(h string) bool {
 	if h == "localhost" {
 		return true

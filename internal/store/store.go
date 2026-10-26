@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -22,6 +23,14 @@ func Open(path string, pragmas ...string) (*sql.DB, error) {
 	}
 	if path != ":memory:" {
 		dsn += "&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+		// A new database file is made here, mode 0600, before SQLite would
+		// make it with the default mode (the WAL and journal files take
+		// the database file's mode).
+		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		f.Close()
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

@@ -196,7 +196,11 @@ def test_backup_units(host):
     stem = HOSTS[host][0]
     for name in units:
         unit = parse_unit(KIT / host / name)
-        if name.endswith(".service"):
+        if name.endswith("-backup-sync.service"):
+            cmd = one(unit["Service"], "ExecStart")
+            assert cmd.startswith("/usr/bin/rsync ") and "/backups/" in cmd
+            assert one(unit["Unit"], "ConditionPathExists").endswith("/backup-remote/env")
+        elif name.endswith(".service"):
             cmd = one(unit["Service"], "ExecStart")
             assert cmd.startswith(f"/usr/bin/podman exec {stem} {HOSTS[host][1]} backup ")
             assert "/data/backups" in cmd
@@ -239,8 +243,10 @@ PLACEHOLDERS = [r"example\.(?:invalid|com|org)", r"\bTODO\b", r"\bFIXME\b", r"(?
 def test_no_secrets_placeholders_or_old_names():
     for p in kit_files():
         text = p.read_text()
+        # Declared checksums (COSIGN_SHA256_...=) are the one hex blob allowed.
+        checked = "\n".join(line for line in text.splitlines() if not re.match(r"\w*SHA256\w*=[0-9a-f]{64}$", line))
         for pat in SECRET_PATTERNS:
-            assert not re.search(pat, text), f"{p}: looks like a secret ({pat})"
+            assert not re.search(pat, checked), f"{p}: looks like a secret ({pat})"
         assert "fragment" not in text.lower(), f"{p}: uses the old name"
         if p.suffix != ".md":
             for pat in PLACEHOLDERS:

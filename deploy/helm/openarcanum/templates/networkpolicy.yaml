@@ -1,0 +1,81 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- /*
+One NetworkPolicy per server (docs/kubernetes.md): only the port it serves
+is reachable, from anywhere, since clients come from the internet; the
+community server serves nothing. Outbound traffic isn't restricted. A
+dedicated relay runs in the community server's pod, so its policy selects
+that pod and the two policies add up.
+*/}}
+{{- if .Values.meta.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openarcanum.fullname" . }}-meta
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: meta
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openarcanum.selector" (dict "root" . "component" "meta") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {port: {{ .Values.meta.port }}, protocol: TCP}
+---
+{{- end }}
+{{- if .Values.relay.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openarcanum.fullname" . }}-relay
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: relay
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openarcanum.selector" (dict "root" . "component" (ternary "community" "relay" .Values.relay.dedicated)) | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {port: {{ .Values.relay.port }}, protocol: TCP}
+        {{- if .Values.relay.calls }}
+        - {port: {{ .Values.relay.mediaUDPPort }}, protocol: UDP}
+        {{- end }}
+---
+{{- end }}
+{{- if .Values.community.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openarcanum.fullname" . }}-community
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: community
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openarcanum.selector" (dict "root" . "component" "community") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress: []
+---
+{{- end }}
+{{- if .Values.site.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openarcanum.fullname" . }}-site
+  labels:
+    {{- include "openarcanum.labels" . | nindent 4 }}
+    app.kubernetes.io/component: site
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "openarcanum.selector" (dict "root" . "component" "site") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {port: {{ .Values.site.port }}, protocol: TCP}
+{{- end }}
+{{- end }}

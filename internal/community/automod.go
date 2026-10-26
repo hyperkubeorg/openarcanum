@@ -476,7 +476,7 @@ func (s *Server) autoModAct(ctx context.Context, o *autoModOutcome, m *memberRec
 		// The same limits as member reports: the queue's open-report cap,
 		// and a per-author rate, so one member tripping rules can't flood
 		// the queue.
-		open, err := s.count(ctx, `SELECT count(*) FROM reports WHERE status = ?`, int(wire.ReportStatus_REPORT_STATUS_OPEN))
+		open, err := s.openReportCount(ctx)
 		if err != nil {
 			s.log.Error("AutoMod alert failed", "err", err)
 			continue

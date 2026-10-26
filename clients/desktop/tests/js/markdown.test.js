@@ -8,8 +8,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const UI = path.join(__dirname, '..', '..', '..', 'shared', 'ui', 'js');
+// The page loads dom.js before markdown.js, which takes the role-color
+// check from it (roleColorStyle); the same here.
+const domCtx = vm.createContext({ Node: class {}, document: { addEventListener() {} } });
+vm.runInContext(fs.readFileSync(path.join(UI, 'icons.js'), 'utf8'), domCtx);
+vm.runInContext(fs.readFileSync(path.join(UI, 'dom.js'), 'utf8'), domCtx);
+globalThis.roleColorStyle = domCtx.roleColorStyle;
 const md = require(path.join(UI, 'markdown.js'));
 
 // ---------------------------------------------------------------- fake DOM
@@ -162,6 +169,12 @@ test('mentions', () => {
   assert.ok(m[0].classList.contains('me') && !m[1].classList.contains('me'));
   // The role's color, which styles.css keeps legible in each theme.
   assert.equal(m[2].style['--role-color'], '#ff0000');
+  // Only a #rrggbb color goes in (dom.js roleColorStyle): a community's
+  // role color that isn't one can't carry anything else into the style.
+  for (const color of ['red', 'url(x)', '#ff0000; background: url(x)', '#ff000', 'rgb(1,2,3)']) {
+    const bad = render('<@&4>', { ...ctx, roleColor: () => color });
+    assert.equal(byClass(bad, 'mention')[0].style['--role-color'], undefined, color);
+  }
   // Plain @name only where the context asks (DMs).
   assert.equal(byClass(render('@olive hi'), 'mention').length, 0);
   assert.deepEqual(byClass(render('@olive hi', { plainMentions: true }), 'mention').map((e) => e.textContent), ['@olive']);

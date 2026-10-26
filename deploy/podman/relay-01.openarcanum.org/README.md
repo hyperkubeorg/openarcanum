@@ -68,7 +68,8 @@ The script stops at the first error and can be run again at any time. It does
 this, in order:
 
 1. Installs `podman`, `container-selinux`, `firewalld`, `chrony`, `curl`,
-   `openssl` with dnf and checks podman is 4.9 or newer.
+   `openssl`, `rsync` with dnf, cosign from its GitHub release (the rpm's
+   checksum is in `lib/common.sh`), and checks podman is 4.9 or newer.
 2. Enables chronyd and checks the clock is synchronized.
 3. Creates the user `openarcanum`, checks it has 65536 subordinate uids and
    gids (`/etc/subuid`, `/etc/subgid`), and runs
@@ -84,7 +85,8 @@ this, in order:
 9. Runs the Quadlet generator in dry-run mode to catch mistakes.
 10. Checks DNS (and warns when the name points at an address that is not on
     this machine, see "Calls behind NAT"), checks the maintainer node
-    answers, then pulls the image as `openarcanum`.
+    answers, then checks the image's cosign signature and pulls the digest
+    it covers, as `openarcanum`.
 11. Runs `systemctl --user daemon-reload` and (re)starts `openarcanum-relay`.
 12. Checks: the unit is active, the container health check passes, a trusted
     certificate is served for the name, and the relay shows up at
@@ -133,6 +135,10 @@ curl -s http://127.0.0.1:7000/metrics | grep '^openarcanum_relay_'
 
 The image tag is pinned in the Quadlet file (`Image=...:2026.10.0`). Releases
 are tagged `<version>` (for example `2026.10.1`), `YYYY.MM` and `latest`.
+setup.sh takes a tag only with a valid cosign signature made by the
+repository's Containers workflow for a release tag, and pulls the digest that
+signature covers (it prints it). To pin that digest as well, append it to
+the tag: `Image=...:2026.10.0@sha256:<digest>`.
 
 To upgrade:
 
@@ -154,7 +160,9 @@ tag points at a new image. With a version tag that only happens if a release is
 republished. To follow fixes for the month automatically, set the tag to
 `YYYY.MM` (for example `2026.10`).
 
-The timer that runs it daily is off. To check or turn it on:
+The timer that runs it daily is off, and `podman auto-update` pulls without
+the signature check setup.sh does, so changing the tag and running setup.sh
+is the better way. To check or turn it on anyway:
 
 ```sh
 oa-podman auto-update --dry-run
@@ -329,6 +337,9 @@ journalctl CONTAINER_NAME=openarcanum-relay -n 50
   kit and run setup.sh.
 - The image can't be pulled (`unauthorized`, `denied`): see "GHCR" in
   `/root/openarcanum-podman/README.md`.
+- `no valid signature`: the tag isn't a release (branch and `sha-<commit>`
+  images are signed for other refs), or the package is private and cosign
+  has no login (see "GHCR" there).
 - Nothing starts after a reboot: `loginctl show-user openarcanum -p Linger`
   must say `Linger=yes`.
 

@@ -18,7 +18,7 @@ TCP_PORTS="443/tcp"
 UDP_PORTS=""
 # Port 80 only redirects to https; the site listens for it on 7380.
 FORWARD_PORTS="port=80:proto=tcp:toport=7380"
-EXTRA_UNITS="openarcanum-site-backup.service openarcanum-site-backup.timer"
+EXTRA_UNITS="openarcanum-site-backup.service openarcanum-site-backup.timer openarcanum-site-backup-sync.service"
 EXTRA_TIMERS="openarcanum-site-backup.timer"
 
 host_prechecks() {
@@ -45,6 +45,11 @@ host_checks() {
 
     say "Backups"
     oa_systemctl list-timers --no-pager openarcanum-site-backup.timer | sed 's/^/    /'
+    if [ -f "$OA_HOME/site/backup-remote/env" ]; then
+        info "copied after each backup ($(grep -o 'BACKUP_REMOTE=.*' "$OA_HOME/site/backup-remote/env"))"
+    else
+        info "not copied anywhere yet: README.md, 'Copying backups to another machine'"
+    fi
 
     say "Admin accounts"
     oa_podman exec "$SERVICE" site admin list | sed 's/^/    /'

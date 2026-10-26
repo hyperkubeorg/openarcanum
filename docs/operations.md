@@ -170,7 +170,9 @@ All of these are per relay and need no accounts (docs/protocol.md §2).
   messages aren't cached at all), and the cache's heap stays within
   `chunk_cache_bytes` plus Go's own overhead. The oldest messages go first;
   one topic holds at most `chunk_cache_topic_bytes` and one publishing
-  connection at most `chunk_cache_conn_bytes` (its own oldest go first),
+  connection at most `chunk_cache_conn_bytes` (its own oldest go first; its
+  unfinished cacheable messages may hold that much again, dropped after
+  `chunk_cache_ttl`),
   so one publisher can't push everyone else's messages out. Evicting is
   constant time whatever the number of entries. Only subscribers who know
   the topic (and so could have received the message live) can ask for a
@@ -278,6 +280,8 @@ only changes the advice printed. `DIR/config.json`:
 | `preview_schemes` | `["https"]` | link schemes that get previews: `https`, optionally `http` |
 | `upload_quota_per_member` | 1073741824 (1 GiB; at least 25 MiB) | bytes one member may upload in any rolling 24 hours (see "Quotas") |
 | `file_store_max` | 21474836480 (20 GiB; at least 25 MiB) | encrypted bytes of files the community stores in all (see "Quotas") |
+| `max_sessions_per_device` | 4 (at least 1) | sessions one device key may have open at once; a newer one past the cap closes the oldest (see "Quotas") |
+| `max_sessions_per_member` | 20 (at least 1) | sessions one member may have open at once across their devices; a newer one past the cap closes the oldest (see "Quotas") |
 
 Every key has a `OPENARCANUM_COMMUNITY_<KEY>` environment override (lists are
 comma-separated, e.g. `OPENARCANUM_COMMUNITY_PREVIEW_SCHEMES=https,http`).
@@ -376,7 +380,9 @@ settings → Ownership → Move to new hardware). Stop the old server.
 ### Search index
 
 Message search uses a full-text index that lives **only in memory**, so no
-plaintext index ever reaches the disk. The server rebuilds it from the
+plaintext index ever reaches the disk. The index database is opened with
+`temp_store = MEMORY`, so its sorts and merges never spill to temporary files
+either. The server rebuilds it from the
 encrypted messages each time it starts, and again whenever a community turns
 search on (Community Admin → Features); with search off there is no index
 and no rebuild. The rebuild decrypts one stored message at a time and streams
@@ -559,6 +565,11 @@ Version 10 adds the tables for statuses (`status.go`): each member's status
 devices and status ciphertext, and the key drops waiting for recipient
 devices, all sealed.
 
+Version 11 (`schema_v11.go`) rebuilds `roles`, `channels`, `categories`,
+`emoji` and `join_keys` with AUTOINCREMENT ids, so a deleted role, channel,
+category, emoji or join key's id is never given to a new one (join keys and
+AutoMod rules keep role and channel ids in their sealed records).
+
 **WAL checkpoints.** Besides the checkpoint after each month-key deletion,
 the server runs `wal_checkpoint(TRUNCATE)` at shutdown and again at startup,
 so a checkpoint that failed (an open reader) is retried; failures are
@@ -567,14 +578,15 @@ logged.
 ### Quotas
 
 Every collection a member or admin can grow has a cap; the server enforces
-each one and refuses the request with the message shown. Two are node
-settings (above); the custom emoji count and the file size are community
+each one and refuses the request with the message shown. Four are node settings (above); the custom emoji count and the file size are community
 settings; the rest are fixed in the code (`internal/community`).
 
 | Limit | Default | Set by | What the member sees |
 |---|---|---|---|
 | Uploads per member | 1 GiB per rolling 24 h | `upload_quota_per_member` | "you've uploaded X in the last 24 hours; this community allows Y per member per day" |
 | File storage, whole community | 20 GiB | `file_store_max` | "this community's file storage is full; try again after older files expire" |
+| Sessions per device key / per member | 4 / 20 | `max_sessions_per_device`, `max_sessions_per_member` | the oldest session is closed ("replaced by a newer session"); nothing is refused |
+| GetInfo per session | 3 at once, then 1 per second | fixed | "too many requests for the community's info; try again in a moment" |
 | File size | 25 MB | community setting (Max file size, 1 KB to 25 MB; 10 MB for new communities) | "files may be at most X in this community" |
 | Uploads in progress | 4 per member | fixed | "too many uploads in progress" |
 | Unsent (staged) attachments | 40 per member per channel, 400 per channel (`MaxStagedPerMember`, `MaxStagedPerChannel`) | fixed | "you have N unsent attachments in this channel; …" / "too many unsent attachments in this channel; …" |
@@ -713,17 +725,18 @@ with their next publication (within `publish_interval`).
 | `peer_bytes_per_day` | 2 GiB (≥ `mailbox_max_item`) | replicated bytes one trusted peer may push per rolling day; above it the node stops pulling from that peer until the window ends |
 | `peer_items_per_minute` | 5000 | replicated mailbox items (and blob records) one trusted peer may push per minute |
 | `peer_tombstones_per_minute` | 5000 | replicated deletes one trusted peer may push per minute (bounds what a compromised member can delete) |
-| `follow_decisions` | `[]` | node keys of the cluster members whose moderation decisions (delistings, relay removals) this node applies too; its own decisions always win (`meta init -replica-of` sets the root) |
+| `follow_decisions` | `[]` | node keys of the cluster members whose moderation decisions (delistings, relay removals) this node applies too; its own decisions always win (`meta init -replica-of` sets the root); only decisions of trusted members are kept and passed on, and they stay in the peer log 90 days |
 | `peer_blob_bytes_per_hour` | 2 GiB | DM blob content copied from trusted peers in the background per hour (chunks a client asks for are fetched at once) |
 | `trusted_interval` | 5s (100ms to 1h) | how often the node pulls each trusted node's log (at once when a connected peer reports a change) |
 | `directory_enabled` | false | the public directory (off by default: communities are joined through invites shared another way; set true to run a directory) (listings, search, snapshots). Off, the node lists no communities: listing posts, search, snapshots and listings answer 501 "directory disabled", listings neither replicate out nor in, stored ones are deleted; routes are unaffected (also `meta directory disable`) |
 | `listings_per_hour` | 60 | accepted listing updates per community |
 | `writes_per_minute` | 600 | per client IPv4 address or IPv6 /64, all write endpoints |
+| `reads_per_minute` | 1200 | per client IPv4 address or IPv6 /64, every GET but `/healthz` (searches, snapshots and replication batches cost the most) |
 | `delisted` | `[]` | community ids (base64url owner keys) refused and removed |
 | `delisted_relays` | `[]` | relay URLs removed from the registry (each removes its whole host; must be valid relay URLs) |
 | `relay_ttl` | 2m | registry entries without a heartbeat expire |
 | `allow_private_relays` | false | development only (`scripts/dev-up.sh`, kind, the tests): accept relay URLs on loopback, private and link-local addresses and local-only names in the registry, and let the proof-of-control fetch reach them. Off, they are refused (community servers dial registry relays) |
-| `relay_proof` | true | a relay URL is listed only after a plain GET of it returned the heartbeat's key (proof of control, docs/protocol.md §7.3). `false` only together with `allow_private_relays` (kind: the node's pod can't reach the relay's 127.0.0.1 URL) |
+| `relay_proof` | true | a relay URL is listed only after a plain GET of it returned the heartbeat's key (proof of control, docs/protocol.md §7.3; checks: 16 at once, one per URL at a time, 10 per minute per client network for unproven URLs). `false` only together with `allow_private_relays` (kind: the node's pod can't reach the relay's 127.0.0.1 URL) |
 | `community_offline_after` | 3m (10s to 24h) | a community whose server sent no heartbeat for this long shows as offline |
 | `community_reap_after` | 168h, 7 days (≥ `community_offline_after`, ≤ 365 days) | a community whose server signed nothing (heartbeat or route) for longer is terminated: its route, listing and status are dropped (see "Community status and reaping") |
 | `community_tombstone_ttl` | 720h, 30 days (1m to 365 days) | how long a terminated community's tombstone is kept: clients are told it was shut down, and its server must re-register explicitly |
@@ -734,7 +747,7 @@ with their next publication (within `publish_interval`).
 | `mailbox_store_max` | 10 GiB (≥ `mailbox_max_item`) | all mailboxes together; drops get 507 when full |
 | `mailbox_bytes_per_ip` | 1 GiB (≥ `mailbox_max_item`) | bytes dropped per rolling 24 h per client IPv4 address or IPv6 /64, whatever the inbox; memory only |
 | `nameplate_ttl` | 5m (5s to 1h) | device-link code lifetime |
-| `nameplates_per_minute` | 10 | link codes made, and claims tried, per client IPv4 address or IPv6 /64 (each separately; codes are random six-digit numbers) |
+| `nameplates_per_minute` | 10 | link codes made, and claims tried, per client IPv4 address or IPv6 /64 (each separately; codes are random six-digit numbers); failed claims are also limited to 200 per minute for the whole node |
 | `blob_ttl` | 72h (1m to 30 days) | DM file lifetime from upload; deleted earlier once every recipient device releases it |
 | `blob_max_size` | 26 MiB (1 MiB to 1 GiB) | largest blob: 25 MiB file plus encryption overhead |
 | `blob_quota_per_ip` | 250 MiB (≥ `blob_max_size`) | bytes uploaded per rolling 24 h per client IPv4 address or IPv6 /64; kept in memory only |
@@ -1133,9 +1146,12 @@ itself (port 443 must reach it), `files` serves `tls_cert_file` /
 tests, or a TLS-terminating proxy in front). With TLS on, every response
 carries `Strict-Transport-Security: max-age=63072000` (two years, without
 `includeSubDomains`, so other hosts under the domain aren't affected), and
-`http_listen` (`:80`) answers everything with a redirect to https. When
-`tls_domains` is set, the site answers only requests for those names
-(others get 421), so a rebound DNS name can't reach the admin portal.
+`http_listen` (`:80`) answers everything with a redirect to https. With TLS on
+`tls_domains` is required (also with `files`), and the site answers only
+requests for those names (others get 421), so a rebound DNS name can't reach
+the admin portal and the https redirect and security.txt never name a host
+from the request; behind a TLS-terminating proxy (`tls_mode` off) set
+`tls_domains` too.
 Admin cookies are `Secure`: browsers only send them over https (or to
 `localhost`), so with `tls_mode` `off` sign in through a TLS proxy or on
 localhost.
@@ -1232,7 +1248,8 @@ are marked in red in the list and on their page. Reports can be deleted
 - **Logs.** The access log (`internal/httpx`, gorilla/handlers'
   `CustomLoggingHandler`, Apache combined format) writes the client as `-`,
   never a query string (`?-` marks one) or a Referer's query; the
-  server's error log (TLS handshake errors) has addresses replaced by `-`.
+  server's error log (TLS handshake errors) has addresses replaced by `-`; ids
+  in `/admin/…` paths are logged as `-`.
   Report contents, passphrases, tokens and codes are never logged; sign-ins
   are logged with the admin's name, failures without one.
 
@@ -1289,8 +1306,11 @@ can't be guessed. Files in the older whole-file formats (`FRAGBK1`,
 `FRAGBK2`) are refused with a message saying so.
 
 **Maintainer node.** `meta backup -data DIR` writes
-`DIR/backups/meta-<UTC time>.tar` (or into `-out`), keeping the newest
-`-keep` (7); the systemd timer `openarcanum-meta-backup.timer` runs it daily.
+`DIR/backups/meta-<UTC time>.tar` (or into `-out`), keeping the newest `-keep`
+(7); the systemd timer `openarcanum-meta-backup.timer` runs it daily, and
+`openarcanum-meta-backup-sync.service` copies the backups to another machine
+after each run once `/etc/openarcanum/backup-remote.env` exists (see the
+unit).
 It is safe while the node runs:
 
 - `meta.db` is copied with `VACUUM INTO`, one consistent state of every
@@ -1350,7 +1370,7 @@ starting at once never both run a step. Relays have no database.
 A database written by a **newer** release is refused, untouched:
 
 ```
-community: /var/lib/openarcanum-community/community.db: database schema version 11 is newer than
+community: /var/lib/openarcanum-community/community.db: database schema version 12 is newer than
 this build supports (10): it was written by a newer release; run that release or a newer one
 (going back to an older release needs a backup taken before the upgrade)
 ```
@@ -1399,8 +1419,10 @@ stderr.
 **What logs never contain.** No node logs message content, names (members,
 channels, roles, communities), join-key labels or secrets, invite or claim
 codes, reasons, search queries, keys, tokens, inbox addresses or
-passphrases, nor clients' IP addresses (relays included: a dedicated
-relay's `block_file` is the one place addresses are kept, never its log).
+passphrases, nor clients' IP addresses (relays included, at debug level
+too: connection errors are logged by kind, the WebRTC stack's warnings with
+addresses redacted; a dedicated relay's `block_file` is the one place
+addresses are kept, never its log).
 Members, devices, servers and relay endpoints appear only as
 fingerprints (first 6 bytes of SHA-256 of the public key); blobs by upload
 id and size; maintainer request errors by route pattern (`POST
@@ -1413,15 +1435,16 @@ Tests that drive typical traffic and scan the logs: `internal/relay`
 community chat and a DM, `clients/desktop/tests/test_e2e_ops.py`
 `test_logs_and_metrics_carry_no_content`.
 
-**Health.** The status listener answers `GET /healthz` with 200 `ok` while
-the node works (meta and community: the database answers) and `GET
-/readyz` with 200 when it can serve (community: at least one relay
-attached; relay and meta: same as healthz); otherwise 503 with a one-line
-reason (`unhealthy: no relay attached`). Relays and maintainer nodes also
-answer `/healthz` on their public listener (meta's checks the database).
-The community server has no other listener, so its health endpoint exists
-only when `metrics_listen` is set (the container image sets
-`127.0.0.1:7201`).
+**Health.** The status listener answers `GET /healthz` with 200 `ok` while the
+node works (meta and community: the database answers) and `GET /readyz` with
+200 when it can serve (community: at least one relay attached; relay and meta:
+same as healthz); otherwise 503 with a one-line reason (`unhealthy: no relay
+attached`). Relays and maintainer nodes also answer `/healthz` on their public
+listener (meta's checks the database). The community server has no other
+listener, so its health endpoint exists only when `metrics_listen` is set (the
+container image sets `127.0.0.1:7201`). A node warns at start when
+`metrics_listen` is not a loopback address, and the relay and maintainer node
+when `listen` serves other machines with `tls_mode` off.
 
 **Metrics.** `GET /metrics` on the status listener serves the Prometheus
 text exposition format 0.0.4, written by `internal/ops` (no client

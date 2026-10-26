@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/flynn/noise"
@@ -116,6 +117,9 @@ type Server struct {
 	reports rateLimiter
 	// alertLimit limits AutoMod alert reports per message author.
 	alertLimit rateLimiter
+	// openReports is the open report count, or -1 until it is counted
+	// again (reports.go openReportCount).
+	openReports atomic.Int64
 	// profileLimit limits profile changes per member (each one rebuilds
 	// every session's state).
 	profileLimit rateLimiter
@@ -191,6 +195,7 @@ func Open(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 		lastPublish: map[int64]time.Time{},
 	}
 	s.startedAt = s.now()
+	s.openReports.Store(-1)
 	var err error
 	if s.storageKey, err = readHexFile(cfg.StorageKeyFile, chacha20poly1305.KeySize); err != nil {
 		return nil, fmt.Errorf("storage key: %w", err)
@@ -583,10 +588,11 @@ type sess struct {
 	srv *Server
 	s   *session.Session
 	// The relay stream the session runs on (network blocks name it).
-	stream *relayclient.Stream
-	member []byte
-	device []byte
-	name   string
+	stream  *relayclient.Stream
+	member  []byte
+	device  []byte
+	name    string
+	started time.Time
 
 	mu     sync.Mutex
 	status wire.MemberStatus
@@ -726,15 +732,16 @@ func (s *Server) serveStream(ctx context.Context, st *relayclient.Stream) {
 	}
 	sctx, scancel := context.WithCancel(ctx)
 	ss := &sess{
-		srv:    s,
-		s:      sn,
-		stream: st,
-		member: sn.Client.IdentityKey,
-		device: sn.PeerStatic,
-		name:   truncate(sn.Client.DeviceName, 64),
-		out:    make(chan []byte, 1024),
-		ctx:    sctx,
-		cancel: scancel,
+		srv:     s,
+		s:       sn,
+		stream:  st,
+		member:  sn.Client.IdentityKey,
+		device:  sn.PeerStatic,
+		name:    truncate(sn.Client.DeviceName, 64),
+		started: s.now(),
+		out:     make(chan []byte, 1024),
+		ctx:     sctx,
+		cancel:  scancel,
 	}
 	guard.n, guard.ss = 0, ss
 	go ss.writer()
@@ -752,9 +759,9 @@ func (s *Server) serveStream(ctx context.Context, st *relayclient.Stream) {
 		return
 	}
 	s.noteInvisible(ss.member)
-	s.smu.Lock()
-	s.sessions[ss] = struct{}{}
-	s.smu.Unlock()
+	for _, old := range s.capSessions(ss) {
+		old.close("replaced by a newer session")
+	}
 	s.presenceChanged(ss.member)
 	defer func() {
 		s.smu.Lock()
@@ -767,6 +774,13 @@ func (s *Server) serveStream(ctx context.Context, st *relayclient.Stream) {
 
 	limiter := newByteBucket(0)
 	limiter.rate, limiter.burst, limiter.tokens = 100, 200, 200
+	// Before admission a session gets a tenth of that, and GetInfo, whose
+	// reply carries the community icon (up to 256 KiB) and is open to
+	// anyone, one a second (the join preview asks once).
+	pre := newByteBucket(0)
+	pre.rate, pre.burst, pre.tokens = 10, 20, 20
+	info := newByteBucket(0)
+	info.rate, info.burst, info.tokens = 1, 3, 3
 	for {
 		b, err := sn.Recv(sctx)
 		if err != nil {
@@ -776,9 +790,16 @@ func (s *Server) serveStream(ctx context.Context, st *relayclient.Stream) {
 		if limiter.wait(sctx, 1) != nil {
 			return
 		}
+		if ss.getStatus() != wire.MemberStatus_MEMBER_STATUS_ACTIVE && pre.wait(sctx, 1) != nil {
+			return
+		}
 		var m wire.ClientMessage
 		if err := proto.Unmarshal(b, &m); err != nil || m.Id == 0 {
 			ss.send(&wire.ServerMessage{Body: errBody(errInvalid("malformed request"))})
+			continue
+		}
+		if _, ok := m.Body.(*wire.ClientMessage_GetInfo); ok && !info.take(1) {
+			ss.send(&wire.ServerMessage{ReplyTo: m.Id, Body: errBody(errRateLimited("too many requests for the community's info; try again in a moment"))})
 			continue
 		}
 		reply := s.dispatch(sctx, ss, &m)
@@ -867,6 +888,44 @@ func (s *Server) recordDevice(ctx context.Context, member, device []byte, name s
 	}
 	now := s.now().UnixMilli()
 	return s.saveDevice(ctx, s.db, &deviceRec{DeviceKey: device, Member: member, Name: name, FirstSeen: now, LastSeen: now})
+}
+
+// capSessions registers ss and returns the sessions it displaces: the
+// oldest live session of the same device key once that key has
+// MaxSessionsPerDevice, and the oldest of the member once they have
+// MaxSessionsPerMember. Each session costs a goroutine, a send queue and
+// a state build per broadcast; a device that reconnects while its old
+// sessions linger replaces them rather than being refused.
+func (s *Server) capSessions(ss *sess) []*sess {
+	s.smu.Lock()
+	defer s.smu.Unlock()
+	s.sessions[ss] = struct{}{}
+	var out []*sess
+	gone := map[*sess]bool{}
+	for _, limit := range []struct {
+		same func(*sess) bool
+		max  int
+	}{
+		{func(o *sess) bool { return string(o.device) == string(ss.device) }, s.cfg.MaxSessionsPerDevice},
+		{func(o *sess) bool { return string(o.member) == string(ss.member) }, s.cfg.MaxSessionsPerMember},
+	} {
+		n := 0
+		var oldest *sess
+		for o := range s.sessions {
+			if o == ss || gone[o] || o.ctx.Err() != nil || !limit.same(o) {
+				continue
+			}
+			n++
+			if oldest == nil || o.started.Before(oldest.started) {
+				oldest = o
+			}
+		}
+		if n >= limit.max && oldest != nil {
+			gone[oldest] = true
+			out = append(out, oldest)
+		}
+	}
+	return out
 }
 
 func (s *Server) sessionsFor(member []byte) []*sess {

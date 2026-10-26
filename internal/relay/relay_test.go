@@ -350,6 +350,39 @@ func TestEndpointDisconnectClosesStreams(t *testing.T) {
 	}
 }
 
+// A connection hosts one endpoint: registering another key (rotation) frees
+// the one before, and closing the connection frees the last.
+func TestEndpointKeysFreedOnClose(t *testing.T) {
+	srv, url := start(t, nil)
+	ep := dial(t, url)
+	var keys []*identity.Key
+	for range 3 {
+		k, _ := identity.Generate()
+		keys = append(keys, k)
+		if err := ep.RegisterEndpoint(ctx(t), k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cl := dial(t, url)
+	for i, k := range keys {
+		_, _, ok := srv.FrameBudget(k.Public)
+		_, err := cl.OpenStream(ctx(t), k.Public)
+		if last := i == len(keys)-1; ok != last || (err == nil) != last {
+			t.Fatalf("key %d: registered %v, stream %v", i, ok, err)
+		}
+	}
+	ep.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for srv.Connections() > 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	for i, k := range keys {
+		if _, _, ok := srv.FrameBudget(k.Public); ok {
+			t.Fatalf("key %d still registered after the connection closed", i)
+		}
+	}
+}
+
 // A subscriber that stops reading is disconnected instead of buffered forever,
 // and other subscribers keep receiving.
 func TestSlowConsumerDisconnected(t *testing.T) {

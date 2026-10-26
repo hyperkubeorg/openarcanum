@@ -405,6 +405,22 @@ def test_refuses_replayed_older_manifest(tmp_path, server, key):
     rig.refused("older update information")
 
 
+def test_release_time_floor_cant_run_ahead_of_the_clock(tmp_path, server, key):
+    """A manifest dated far in the future is used, but the remembered
+    release time (the floor later manifests must reach) is capped at a day
+    ahead of this clock, so such a manifest can't refuse every later one."""
+    asset = asset_for(server, "/F.AppImage", NEW)
+    far = time.time() + 20 * 86400
+    publish(server, [key], "2.0.0", [asset], released=far, expires_in=86400)
+    rig = Rig(tmp_path, server, [key.public])
+    assert rig.check()["version"] == "2.0.0"
+    assert rig.u._saved()["released_at"] <= time.time() + updates.RELEASE_SKEW_SECONDS + 1
+    publish(server, [key], "2.0.1", [asset_for(server, "/G.AppImage", NEW + b"1")], released=time.time() - 60)
+    rig.refused("older update information")  # still older than the floor
+    publish(server, [key], "2.0.1", [asset_for(server, "/G.AppImage", NEW + b"1")], released=time.time() + 2 * 86400)
+    assert rig.check()["version"] == "2.0.1"
+
+
 def test_refuses_mismatched_downloads(tmp_path, server, key):
     rig = Rig(tmp_path, server, [key.public])
     good = asset_for(server, "/F.AppImage", NEW)

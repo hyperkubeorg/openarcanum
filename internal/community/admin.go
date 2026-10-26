@@ -1194,7 +1194,6 @@ func (s *Server) opRaidRevoke(ctx context.Context, actor *memberRec, r *wire.Rai
 	}
 	cutoff := s.now().Add(-time.Duration(r.Hours) * time.Hour).UnixMilli()
 	_, roles := s.roleInfos()
-	before := s.viewSets()
 	var n uint32
 	for _, m := range s.members {
 		if m.JoinKeyID != r.JoinKeyId || m.JoinedAt < cutoff || s.isOwner(m) {
@@ -1206,16 +1205,13 @@ func (s *Server) opRaidRevoke(ctx context.Context, actor *memberRec, r *wire.Rai
 		if !Outranks(s.subject(actor), s.subject(m), roles) {
 			continue
 		}
-		m.Status = wire.MemberStatus_MEMBER_STATUS_REMOVED
-		m.Roles = nil
-		if err := s.saveMember(ctx, s.db, m); err != nil {
+		// As a kick: their channels rotate and what the server kept for
+		// them goes.
+		if err := s.removeMember(ctx, m, wire.MemberStatus_MEMBER_STATUS_REMOVED); err != nil {
 			return err
 		}
 		out.removed = append(out.removed, removal{m.Key, wire.MemberStatus_MEMBER_STATUS_REMOVED})
 		n++
-	}
-	if err := s.rotateChannels(ctx, lostAccess(before, s.viewSets())); err != nil {
-		return err
 	}
 	out.result.Removed = n
 	out.summary = fmt.Sprintf("raid revoke: revoked join key %q and removed %d members who joined with it in the last %d hours", label, n, r.Hours)
@@ -1281,13 +1277,18 @@ func (s *Server) opReplace(ctx context.Context, actor *memberRec, r *wire.Replac
 // cursor to continue from (docs/operations.md "Data at rest").
 const auditScanBudget = 2000
 
-// auditView is a decrypted audit row with what the filters need.
+// auditView is a decrypted audit row with what the filters need, and the
+// channel or category the entry concerns (auditVisible): by id, or by
+// name for the one that created it.
 type auditView struct {
 	id     int64
 	rec    auditRec
 	op     string
 	target []byte
 	system bool
+
+	channel, category         int64
+	channelName, categoryName string
 }
 
 func (s *Server) auditView(id int64, data []byte) (*auditView, error) {
@@ -1296,7 +1297,7 @@ func (s *Server) auditView(id int64, data []byte) (*auditView, error) {
 		return nil, err
 	}
 	if len(v.rec.Action) == 0 {
-		v.system, v.op, v.target = true, v.rec.Op, v.rec.Target
+		v.system, v.op, v.target, v.channel = true, v.rec.Op, v.rec.Target, v.rec.Channel
 		return v, nil
 	}
 	var a wire.AdminAction
@@ -1304,7 +1305,74 @@ func (s *Server) auditView(id int64, data []byte) (*auditView, error) {
 		return nil, &TamperError{"audit", "data", rowID(id)}
 	}
 	v.op, v.target = actionName(&a), targetOf(&a)
+	switch op := a.Op.(type) {
+	case *wire.AdminAction_CreateChannel:
+		kind := op.CreateChannel.Kind
+		if kind == wire.ChannelKind_CHANNEL_KIND_UNSPECIFIED {
+			kind = wire.ChannelKind_CHANNEL_KIND_TEXT
+		}
+		v.channelName, _ = channelName(kind, op.CreateChannel.Name)
+	case *wire.AdminAction_EditChannel:
+		v.channel = op.EditChannel.Id
+	case *wire.AdminAction_DeleteChannel:
+		v.channel = op.DeleteChannel.Id
+	case *wire.AdminAction_SetChannelOverride:
+		v.channel, v.category = op.SetChannelOverride.ChannelId, op.SetChannelOverride.CategoryId
+	case *wire.AdminAction_BulkDelete:
+		v.channel = op.BulkDelete.ChannelId
+	case *wire.AdminAction_VoiceMove:
+		v.channel = op.VoiceMove.ChannelId
+	case *wire.AdminAction_CreateCategory:
+		v.categoryName, _ = validCategoryName(op.CreateCategory.Name)
+	case *wire.AdminAction_EditCategory:
+		v.category = op.EditCategory.Id
+	case *wire.AdminAction_DeleteCategory:
+		v.category = op.DeleteCategory.Id
+	case *wire.AdminAction_ReorderChannels:
+		v.category = op.ReorderChannels.CategoryId
+	}
 	return v, nil
+}
+
+// auditVisible reports whether an entry may be shown to a member who sees
+// the log only because it is open to everyone: entries about a channel
+// (or category) they can't see are left out, since the summary names it
+// and the action says who was given what there. A channel that no longer
+// exists counts as one they can't see. Callers hold s.mu.
+func (s *Server) auditVisible(viewer *memberRec, v *auditView) bool {
+	sees := func(c *channelRec) bool { return s.channelPerms(viewer, c)&PermViewChannel != 0 }
+	switch {
+	case v.channel != 0:
+		c := s.channels[v.channel]
+		return c != nil && sees(c)
+	case v.channelName != "":
+		for _, c := range s.channels {
+			if c.Name == v.channelName && sees(c) {
+				return true
+			}
+		}
+		return false
+	case v.category != 0:
+		for _, c := range s.channelsIn(v.category) {
+			if sees(c) {
+				return true
+			}
+		}
+		return false
+	case v.categoryName != "":
+		for _, cat := range s.categories {
+			if cat.Name != v.categoryName {
+				continue
+			}
+			for _, c := range s.channelsIn(cat.ID) {
+				if sees(c) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return true
 }
 
 func (q *auditFilter) match(v *auditView) bool {
@@ -1387,6 +1455,7 @@ func (s *Server) auditLog(ctx context.Context, ss *sess, q *wire.AuditQuery) (*w
 			done = true
 		}
 		s.mu.RLock()
+		viewer := s.members[string(ss.member)]
 		for i, v := range views {
 			scanned++
 			cursor = v.id
@@ -1396,7 +1465,7 @@ func (s *Server) auditLog(ctx context.Context, ss *sess, q *wire.AuditQuery) (*w
 				done = true
 				break
 			}
-			if !f.match(v) {
+			if !f.match(v) || (!privileged && !s.auditVisible(viewer, v)) {
 				continue
 			}
 			e := &wire.AuditEntry{

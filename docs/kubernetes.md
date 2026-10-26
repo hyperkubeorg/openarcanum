@@ -154,7 +154,8 @@ without running it.
 It needs:
 
 - **uv** (Arch: `sudo pacman -S uv`). uv installs the Python
-  `clients/desktop/.python-version` names (3.14) by itself, and the dependencies into
+  `clients/desktop/.python-version` names (3.14.8) by itself, and the
+  dependencies into
   `clients/desktop/.venv`.
 - **The system libraries Qt WebEngine loads** (PySide6's wheels bring Qt and
   Chromium, not these). On Arch:
@@ -249,7 +250,11 @@ relay's public address (`wss://…`, with TLS terminated in front of port
 7000), and give the relay a way to receive UDP
 on `relay.mediaUDPPort`: `relay.hostNetwork: true` on a node with a public
 address (and `relay.mediaPublicIPs` if it's behind NAT) is the simplest.
-The community server needs no inbound port. `values.yaml` lists every value;
+The community server needs no inbound port. A NetworkPolicy per server admits
+only the port it serves (`networkPolicy.enabled`, on by default; outbound
+traffic is left open, pods on the node's network are not covered), the pods
+mount no service-account token, and each server has default resource requests
+and a memory limit (`<server>.resources`). `values.yaml` lists every value;
 `values.schema.json` checks them. More server settings go in each server's
 `env` map as `OPENARCANUM_*` variables (docs/operations.md).
 
@@ -321,8 +326,9 @@ trust) or a self-signed one (docs/operations.md "Testing TLS locally").
 
 The chart can also run the project website (docs/operations.md
 "Website"), off by default: `--set site.enabled=true`, with
-`site.tls.mode=acme` and `site.tls.domains={openarcanum.org}` when its
-Service is reachable on port 443 (or `off` behind a TLS-terminating
+`site.tls.mode=acme` (or `files` with `site.tls.secretName`) and
+`site.tls.domains={openarcanum.org}`, which both modes need, when its Service
+is reachable on port 443 (or `off` behind a TLS-terminating
 ingress, then with `OPENARCANUM_SITE_TRUSTED_PROXY_HEADER` in `site.env` so
 rate limits see clients rather than the ingress). Its database and the key
 that seals reports get separate claims. Create the first admin in the pod:

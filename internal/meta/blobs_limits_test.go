@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -236,5 +237,27 @@ func TestBlobCompletionIsResumable(t *testing.T) {
 	data = interrupted(true)
 	if st, code := n.createBlob(t, hashOf(data), len(data), tk); code != 200 || !st.Complete {
 		t.Fatalf("resume after the rename: %d %v", code, st)
+	}
+}
+
+// A chunk index past the end of the file is refused with 400 whatever its
+// size, including ones that don't fit a 32-bit int (which the chunk bitmap
+// would otherwise be indexed with).
+func TestBlobChunkIndexPastTheEnd(t *testing.T) {
+	n := openNode(t, t.TempDir(), nil)
+	data := randBytes(meta.BlobChunkSize + 100)
+	hash := hashOf(data)
+	st, code := n.createBlob(t, hash, len(data), blobToken(1))
+	if code != 200 {
+		t.Fatalf("create: %d", code)
+	}
+	stored := n.upload(t, randBytes(100), blobToken(2))
+	for _, index := range []uint32{2, 1 << 31, math.MaxUint32} {
+		if code, _ := n.rawPost(t, "/v1/blobs/chunk", &wire.BlobChunk{Hash: hash, Upload: st.Upload, Index: index, Data: chunkOf(data, 1)}); code != http.StatusBadRequest {
+			t.Fatalf("chunk %d: %d, want 400", index, code)
+		}
+		if code, _ := n.rawPost(t, "/v1/blobs/fetch", &wire.BlobFetch{Hash: stored, Token: blobToken(2), Index: index}); code != http.StatusBadRequest {
+			t.Fatalf("fetch of chunk %d: %d, want 400", index, code)
+		}
 	}
 }

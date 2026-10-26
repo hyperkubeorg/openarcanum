@@ -166,9 +166,27 @@ func (s *Server) Handler(accessLog io.Writer) http.Handler {
 		AccessLog:          accessLog,
 		LogClientIPs:       s.cfg.LogClientIPs,
 		TrustedProxyHeader: s.cfg.TrustedProxyHeader,
+		Redact:             redactPath,
 		// Admin pages carry CSRF tokens next to text reporters wrote.
 		NoCompress: isAdminPath,
 	})
+}
+
+// redactPath masks the ids in admin paths before they are logged
+// (/admin/reports/12 → /admin/reports/-): which report someone opened
+// doesn't belong in the access log, and a path that carries a token
+// someday goes the same way.
+func redactPath(p string) string {
+	parts := strings.Split(p, "/")
+	if len(parts) < 4 || parts[1] != "admin" {
+		return p
+	}
+	for i := 3; i < len(parts); i++ {
+		if parts[i] != "" && strings.Trim(parts[i], "0123456789") == "" {
+			parts[i] = "-"
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 func mustSub(f fs.FS, dir string) fs.FS {
@@ -219,8 +237,11 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// checkHost answers only for the site's own names (tls_domains) when they
-// are configured, so a rebound DNS name can't reach the admin portal.
+// checkHost answers only for the site's own names (tls_domains, required
+// with TLS on) when they are configured, so a rebound DNS name can't reach
+// the admin portal and nothing built from the request's Host (security.txt,
+// the https redirect) names another host. With tls_mode off (a TLS proxy in
+// front) set tls_domains too, or Host is whatever the proxy passed on.
 func (s *Server) checkHost(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.hosts != nil {
@@ -240,7 +261,8 @@ func (s *Server) checkHost(next http.Handler) http.Handler {
 // sameOrigin refuses state-changing requests a browser says came from
 // another site: Sec-Fetch-Site when the browser sends it, else an Origin
 // (other than "null", which no-referrer pages send) naming another host.
-// The CSRF token is checked on top of this.
+// Every browser sends one of the two with a POST, so a request with
+// neither is refused as well. The CSRF token is checked on top of this.
 func (s *Server) sameOrigin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && !s.isSameOrigin(r) {
@@ -255,11 +277,15 @@ func (s *Server) isSameOrigin(r *http.Request) bool {
 	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "" {
 		return sfs == "same-origin"
 	}
-	if o := r.Header.Get("Origin"); o != "" && o != "null" {
+	switch o := r.Header.Get("Origin"); o {
+	case "":
+		return false
+	case "null":
+		return true
+	default:
 		u, err := url.Parse(o)
 		return err == nil && strings.EqualFold(u.Host, r.Host)
 	}
-	return true
 }
 
 func robots(w http.ResponseWriter, _ *http.Request) {

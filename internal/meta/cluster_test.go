@@ -14,12 +14,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/hyperkubeorg/openarcanum/internal/identity"
 	"github.com/hyperkubeorg/openarcanum/internal/meta"
 	"github.com/hyperkubeorg/openarcanum/internal/meta/clusterset"
 	"github.com/hyperkubeorg/openarcanum/internal/testutil"
+	"github.com/hyperkubeorg/openarcanum/internal/version"
 	"github.com/hyperkubeorg/openarcanum/internal/wire"
 )
 
@@ -447,5 +449,48 @@ func TestTrustedPeerURLOverridesTheSet(t *testing.T) {
 	a.srv.PeerSyncOnce(ctx)
 	if st := peerStatus(t, a)[b.url]; st.LastError != "" || st.LastOK.IsZero() {
 		t.Fatalf("the trusted_peers address wasn't used: %+v", st)
+	}
+}
+
+// Handshakes on /v1/peer run before the caller's key is known, so only a
+// few may be under way per client network: stalled upgrades beyond that
+// are refused at once, and a trusted peer gets through once one ends.
+func TestPeerHandshakesBoundedPerNetwork(t *testing.T) {
+	ctx := context.Background()
+	a, b := pair(t, nil)
+	h := http.Header{}
+	h.Set(version.Header, version.Format(version.Supported()))
+	var stalled []*websocket.Conn
+	defer func() {
+		for _, c := range stalled {
+			_ = c.CloseNow()
+		}
+	}()
+	for range 4 { // peerHandshakesPerNet
+		c, _, err := websocket.Dial(ctx, a.url+"/v1/peer", &websocket.DialOptions{HTTPHeader: h})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stalled = append(stalled, c)
+	}
+	_, resp, err := websocket.Dial(ctx, a.url+"/v1/peer", &websocket.DialOptions{HTTPHeader: h})
+	if err == nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("a fifth handshake from one network: %v %v", err, resp)
+	}
+	b.srv.PeerSyncOnce(ctx)
+	if st := peerStatus(t, b)[a.url]; st.LastError == "" {
+		t.Fatal("b's pull went through while the handshakes were held")
+	}
+	_ = stalled[0].CloseNow()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		b.srv.PeerSyncOnce(ctx)
+		if st := peerStatus(t, b)[a.url]; st.LastError == "" && !st.LastOK.IsZero() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("b's pull after a handshake ended: %+v", peerStatus(t, b)[a.url])
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

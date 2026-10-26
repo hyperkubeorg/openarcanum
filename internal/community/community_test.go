@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -557,7 +558,11 @@ func TestRaidRevokeAndReplaceMember(t *testing.T) {
 	raidKey := e.newInvite(nil)
 	var raiders []*testutil.Member
 	for i := 0; i < 3; i++ {
-		raiders = append(raiders, e.member(fmt.Sprintf("raider%d", i), raidKey.Secret))
+		r := e.member(fmt.Sprintf("raider%d", i), raidKey.Secret)
+		if err := publishCard(ctx, r, []byte("card"), [][]byte{[]byte("d1")}, kp("d1", "a")); err != nil {
+			t.Fatal(err)
+		}
+		raiders = append(raiders, r)
 	}
 	legit := e.member("Legit", e.invite.Secret)
 	res, err := e.owner.Admin(ctx, e.id(), &wire.AdminAction{Op: &wire.AdminAction_RaidRevoke{RaidRevoke: &wire.RaidRevoke{JoinKeyId: raidKey.Id, Hours: 1}}})
@@ -575,7 +580,14 @@ func TestRaidRevokeAndReplaceMember(t *testing.T) {
 	if n := len(ml.GetMembers().Members); n != 2 {
 		t.Fatalf("%d active members after raid revoke, want 2", n)
 	}
-	_ = raiders
+	// As a kick: the raiders' sessions end, and their contact cards go.
+	for _, r := range raiders {
+		for range r.Events {
+		}
+		if _, _, err := e.comm.Server.ContactCard(ctx, r.Identity.Public); err == nil {
+			t.Fatalf("%s's contact card survived the raid revoke", r.Name)
+		}
+	}
 
 	// Replace member: Legit lost their key, rejoins as Legit2, roles move over.
 	rr, _ := e.owner.Admin(ctx, e.id(), &wire.AdminAction{Op: &wire.AdminAction_CreateRole{CreateRole: &wire.CreateRole{Name: "Regular"}}})
@@ -761,5 +773,84 @@ func TestClaimRemovesClaimFile(t *testing.T) {
 	defer srv.Close()
 	if _, err := os.Stat(claimFile); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("claim file still there after a claimed server started: %v", err)
+	}
+}
+
+// Sessions are capped per device key and per member: a newer session past
+// the cap closes the oldest (a device reconnecting while its old sessions
+// linger isn't refused), and the others carry on.
+func TestSessionsCappedPerDeviceAndMember(t *testing.T) {
+	e := setupWithConfig(t, nil, testutil.Quiet(), func(c *community.Config) {
+		c.MaxSessionsPerDevice, c.MaxSessionsPerMember = 2, 3
+	})
+	ctx := testutil.Ctx(t)
+	alice := e.member("Alice", e.invite.Secret)
+	connect := func(sameDevice bool) *testutil.Member {
+		t.Helper()
+		m := testutil.NewMember(t, "Alice")
+		m.Identity = alice.Identity
+		if sameDevice {
+			m.Static = alice.Static
+		}
+		if err := m.Connect(ctx, e.relay.URL, e.serverKey()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(m.Close)
+		if m.Status.Status != wire.MemberStatus_MEMBER_STATUS_ACTIVE {
+			t.Fatalf("session status %v", m.Status.Status)
+		}
+		return m
+	}
+	closed := func(m *testutil.Member) bool {
+		select {
+		case _, open := <-m.Events:
+			for open {
+				_, open = <-m.Events
+			}
+			return true
+		case <-time.After(5 * time.Second):
+			return false
+		}
+	}
+	// Same device key: the third session closes the first.
+	second := connect(true)
+	third := connect(true)
+	if !closed(alice) {
+		t.Fatal("the oldest session of the device wasn't closed")
+	}
+	if err := second.Sync(ctx); err != nil || third.Sync(ctx) != nil {
+		t.Fatalf("a newer session of the device was closed: %v", err)
+	}
+	// Other devices, up to the member's cap: the fourth session closes
+	// the oldest.
+	other := connect(false)
+	more := connect(false)
+	if !closed(second) {
+		t.Fatal("the member's oldest session wasn't closed")
+	}
+	for _, m := range []*testutil.Member{third, other, more} {
+		if err := m.Sync(ctx); err != nil {
+			t.Fatalf("a session under the member's cap was closed: %v", err)
+		}
+	}
+}
+
+// The database (and so its WAL) is readable by its owner only.
+func TestInitCreatesPrivateDatabase(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes")
+	}
+	dir := t.TempDir()
+	cfg := community.DefaultConfig(dir)
+	cfg.Relays = []string{"ws://relay.invalid/ws"}
+	if _, err := community.Init(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(filepath.Join(dir, "community.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := st.Mode().Perm(); m != 0o600 {
+		t.Fatalf("community.db has mode %o", m)
 	}
 }

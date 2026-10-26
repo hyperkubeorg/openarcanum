@@ -8,6 +8,8 @@
 Description=OpenArcanum website backup
 Requisite=openarcanum-site.service
 After=openarcanum-site.service
+# The copy to another machine, when it is set up (README.md).
+Wants=openarcanum-site-backup-sync.service
 
 [Service]
 Type=oneshot

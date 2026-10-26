@@ -66,11 +66,16 @@ func checkHandler(c Check) http.HandlerFunc {
 }
 
 // ServeStatus starts the status listener on addr (Settings.MetricsListen)
-// and stops it when ctx ends. It returns the bound address.
+// and stops it when ctx ends. It returns the bound address. The listener
+// is meant for loopback or a private network; it warns when addr is
+// reachable from other machines.
 func ServeStatus(ctx context.Context, addr string, s Status, log *slog.Logger) (net.Addr, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("metrics_listen: %w", err)
+	}
+	if log != nil && ExposedAddr(addr) {
+		log.Warn("metrics_listen is not on loopback: /healthz, /readyz and /metrics answer other machines; bind 127.0.0.1 or firewall the port", "addr", addr)
 	}
 	hs := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second}
 	go func() {

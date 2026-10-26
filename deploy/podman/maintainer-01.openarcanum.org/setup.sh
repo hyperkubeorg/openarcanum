@@ -17,7 +17,7 @@ DATA_DIRS="data acme"
 TCP_PORTS="443/tcp"
 UDP_PORTS=""
 FORWARD_PORTS=""
-EXTRA_UNITS="openarcanum-maintainer-backup.service openarcanum-maintainer-backup.timer"
+EXTRA_UNITS="openarcanum-maintainer-backup.service openarcanum-maintainer-backup.timer openarcanum-maintainer-backup-sync.service"
 EXTRA_TIMERS="openarcanum-maintainer-backup.timer"
 
 meta_cmd() { oa_podman exec "$SERVICE" meta "$@"; }
@@ -40,7 +40,11 @@ host_checks() {
 
     say "Backups"
     oa_systemctl list-timers --no-pager openarcanum-maintainer-backup.timer | sed 's/^/    /'
-    info "backups go to /home/openarcanum/maintainer/data/backups; copy them off this machine"
+    if [ -f "$OA_HOME/maintainer/backup-remote/env" ]; then
+        info "backups go to /home/openarcanum/maintainer/data/backups and are copied after each backup ($(grep -o 'BACKUP_REMOTE=.*' "$OA_HOME/maintainer/backup-remote/env"))"
+    else
+        info "backups go to /home/openarcanum/maintainer/data/backups; copy them off this machine (README.md, 'Copying backups to another machine')"
+    fi
 }
 
 setup_main

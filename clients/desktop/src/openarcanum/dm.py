@@ -175,9 +175,14 @@ def check_list_change(old: dm.DmDeviceList | None, signed: dm.SignedDmDeviceList
     if approver is None:
         return "not approved by a device of the current list"
     if signed.added:
-        old_ids = {d.device_id for d in old.devices}
-        new_ids = {d.device_id for d in new.devices}
-        if new_ids - old_ids != {signed.added} or not old_ids <= new_ids or removed != set(old.removed):
+        # The listed devices stay as they are, keys and names included.
+        old_devs = {d.device_id: d.SerializeToString(deterministic=True) for d in old.devices}
+        new_devs = {d.device_id: d.SerializeToString(deterministic=True) for d in new.devices}
+        if (
+            set(new_devs) - set(old_devs) != {signed.added}
+            or any(new_devs.get(i) != raw for i, raw in old_devs.items())
+            or removed != set(old.removed)
+        ):
             return "a device adding itself changed more than that"
         msg = device_add_message(new.identity, signed.added)
     else:
@@ -814,8 +819,6 @@ class DMManager:
                 if kp.device == otk.curve25519 and not otk.fallback and check_otk(otk, card.devices):
                     otks[otk.curve25519] = otk
         self._remember_card(card, cid, member)
-        self.d["peers"][b64(card.card.identity)]["card"] = b64(card.signed.SerializeToString())
-        self.core.save_vault()
         return card, otks
 
     def _remember_list(self, identity: bytes, signed: dm.SignedDmDeviceList) -> bool:
@@ -842,11 +845,19 @@ class DMManager:
         ident = card.card.identity
         changed = self._remember_list(ident, card.card.devices)
         peer = self.d["peers"][b64(ident)]
-        for fk in card.card.fallback_keys:
-            peer["fallback"][b64(fk.curve25519)] = b64(fk.SerializeToString())
-        for ib in card.card.inboxes:
-            peer["inbox"][b64(ib.curve25519)] = b64(ib.inbox)
-        peer["name"] = card.card.name or peer.get("name", "")
+        # A card older than the one held (a community server serving a
+        # stale one) can't put back a fallback key or inbox it replaced; the
+        # device list above has its own order (seq).
+        if card.card.issued_at < peer.get("card_at", 0):
+            log.warning("dm: ignored a contact card older than the one held")
+        else:
+            peer["card_at"] = card.card.issued_at
+            peer["card"] = b64(card.signed.SerializeToString())
+            for fk in card.card.fallback_keys:
+                peer["fallback"][b64(fk.curve25519)] = b64(fk.SerializeToString())
+            for ib in card.card.inboxes:
+                peer["inbox"][b64(ib.curve25519)] = b64(ib.inbox)
+            peer["name"] = card.card.name or peer.get("name", "")
         if cid and member:
             # Identity-key change warning: this member showed a different DM
             # identity before.
@@ -2195,8 +2206,6 @@ class DMManager:
             self._adopt_own_card(card)
             return
         self._remember_card(card)
-        self.d["peers"][b64(card.card.identity)]["card"] = b64(card.signed.SerializeToString())
-        self.core.save_vault()
 
     async def _on_invite(self, pub: str, sender_curve: bytes, p: dm.OlmPayload) -> None:
         try:
@@ -2694,10 +2703,18 @@ class DMManager:
             return
         if not self.core.unlocked:
             return
-        k = SigningKey.generate()
-        pub = b64(k.public)
-        iid = f"sync-{pub[:16]}"
-        self.core.vault.data["identities"][iid] = {"seed": b64(k.seed), "kind": "sync", "created": int(time.time())}
+        # A restored backup brings the old sync identity (keys.export_backup):
+        # the new device group keeps it rather than leaving a key unused.
+        idents = self.core.vault.data["identities"]
+        iid = next((i for i, v in idents.items() if v.get("kind") == "sync" and "seed" in v), "")
+        if iid:
+            k = SigningKey(unb64(idents[iid]["seed"]))
+            pub = b64(k.public)
+        else:
+            k = SigningKey.generate()
+            pub = b64(k.public)
+            iid = f"sync-{pub[:16]}"
+            idents[iid] = {"seed": b64(k.seed), "kind": "sync", "created": int(time.time())}
         self.d["ids"][pub] = {"iid": iid, "list": "", "extras": {}, "inbox_token": b64(os.urandom(32))}
         gid_b = os.urandom(16)
         st = dm.GroupState(

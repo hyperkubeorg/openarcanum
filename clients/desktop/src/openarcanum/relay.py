@@ -32,6 +32,15 @@ log = logging.getLogger(__name__)
 
 INBOUND_STREAM_BIT = 0x80000000
 STREAM_BUFFER_BYTES = 64 << 20
+# The largest message this client sends or reassembles, whatever the relay
+# announces.
+MAX_MESSAGE = 25 << 20
+# Messages being reassembled (a relay allows a publisher max_partial in
+# flight): at most this many in all and from one sender, holding at most
+# PARTIAL_BYTES together; the oldest go first.
+MAX_PARTIALS = 1024
+MAX_PARTIALS_BY_SENDER = 64
+PARTIAL_BYTES = 64 << 20
 
 Handler = Callable[[bytes, bytes], Awaitable[None] | None]
 
@@ -199,7 +208,10 @@ class Relay:
         self._stream_ids = itertools.count(1)
         self._pending: dict[int, asyncio.Future] = {}
         self._handlers: dict[bytes, Handler] = {}
+        # (sender, message id) -> [next seq, data so far, started at, topic]
         self._partial: dict[tuple[int, int], list] = {}
+        self._partial_by: dict[int, int] = {}
+        self._partial_bytes = 0
         self._streams: dict[int, Stream] = {}
         self._opening: dict[int, asyncio.Future] = {}
         self._incoming: asyncio.Queue[Stream] = asyncio.Queue()
@@ -250,6 +262,7 @@ class Relay:
                 raise RelayError("relay did not send hello")
             verify_hello(frame.hello)
             self.hello = frame.hello
+            self.hello.max_message = min(self.hello.max_message, MAX_MESSAGE)
             await self._start(frame.hello, timeout)
         except RelayError:
             await self._ws.close()
@@ -549,6 +562,19 @@ class Relay:
             if s is not None:
                 s._remote_close(f.stream_close.reason)
 
+    def _drop_partial(self, key: tuple[int, int]) -> None:
+        p = self._partial.pop(key, None)
+        if p is None:
+            return
+        self._partial_bytes -= len(p[1])
+        sender = key[0]
+        self._partial_by[sender] -= 1
+        if self._partial_by[sender] <= 0:
+            del self._partial_by[sender]
+
+    def _oldest_partial(self, other_than: tuple[int, int]) -> tuple[int, int]:
+        return min((k for k in self._partial if k != other_than), key=lambda k: self._partial[k][2])
+
     def _resolve(self, req: int, f: rp.RelayFrame) -> None:
         fut = self._pending.get(req)
         if fut and not fut.done():
@@ -558,30 +584,41 @@ class Relay:
         key = (d.sender, d.message_id)
         p = self._partial.get(key)
         if p is None:
-            if d.seq != 0:
+            if d.seq != 0 or self._partial_by.get(d.sender, 0) >= MAX_PARTIALS_BY_SENDER:
                 return
-            p = [0, bytearray(), time.monotonic()]
-            self._partial[key] = p
-            if len(self._partial) > 1024:
+            if len(self._partial) >= MAX_PARTIALS:
                 cutoff = time.monotonic() - 120
                 for k in [k for k, v in self._partial.items() if v[2] < cutoff]:
-                    del self._partial[k]
+                    self._drop_partial(k)
+            while len(self._partial) >= MAX_PARTIALS:
+                self._drop_partial(self._oldest_partial(key))
+            p = [0, bytearray(), time.monotonic(), bytes(d.topic)]
+            self._partial[key] = p
+            self._partial_by[d.sender] = self._partial_by.get(d.sender, 0) + 1
         assert self.hello is not None
-        if d.seq != p[0] or len(p[1]) + len(d.data) > self.hello.max_message:
-            self._partial.pop(key, None)
+        # Every chunk belongs to the topic the first one named.
+        if d.seq != p[0] or d.topic != p[3] or len(p[1]) + len(d.data) > self.hello.max_message:
+            self._drop_partial(key)
+            return
+        while self._partial_bytes + len(d.data) > PARTIAL_BYTES and len(self._partial) > 1:
+            self._drop_partial(self._oldest_partial(key))
+        if self._partial_bytes + len(d.data) > PARTIAL_BYTES:
+            self._drop_partial(key)
             return
         p[0] += 1
         p[1] += d.data
+        self._partial_bytes += len(d.data)
         if not d.final:
             return
-        del self._partial[key]
-        handler = self._handlers.get(d.topic)
+        self._drop_partial(key)
+        topic = p[3]
+        handler = self._handlers.get(topic)
         if d.replayed:
-            handler = self._replay_handlers.get(d.topic, handler)
+            handler = self._replay_handlers.get(topic, handler)
         if handler is None:
             return
         try:
-            result = handler(d.topic, bytes(p[1]))
+            result = handler(topic, bytes(p[1]))
             if asyncio.iscoroutine(result):
                 spawn(result)
         except Exception:

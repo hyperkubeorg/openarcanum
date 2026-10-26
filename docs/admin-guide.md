@@ -603,11 +603,13 @@ directory.) To keep the storage key off the data disk, move it to
 `deploy/systemd/openarcanum-community-storage-key.conf` as a drop-in: systemd
 then hands the key to the service as a credential.
 
-Relay and maintainer node: copy `deploy/config/relay.json` or `meta.json`
-to `/etc/openarcanum/`, replace the `example.invalid` names with yours, install
-`openarcanum-relay.service` or `openarcanum-meta.service`, and for a maintainer
-node also `openarcanum-meta-backup.service` and `.timer` (daily backup into
-`/var/lib/openarcanum-meta/backups`; copy them off the machine).
+Relay and maintainer node: copy `deploy/config/relay.json` or `meta.json` to
+`/etc/openarcanum/`, replace the `example.invalid` names with yours, install
+`openarcanum-relay.service` or `openarcanum-meta.service`, and for a
+maintainer node also `openarcanum-meta-backup.service` and `.timer` (daily
+backup into `/var/lib/openarcanum-meta/backups`; copy them off the machine, or
+let `openarcanum-meta-backup-sync.service` do it once its remote is
+configured).
 
 journald keeps and rotates the logs (`journalctl -u openarcanum-meta`). Health:
 `curl http://127.0.0.1:7101/healthz` when `metrics_listen` is set (the

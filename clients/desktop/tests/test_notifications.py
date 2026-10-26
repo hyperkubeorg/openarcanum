@@ -9,6 +9,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import Events, missing_harness, network, new_core, run, wait_until
@@ -16,7 +17,7 @@ from test_e2e_community import general
 from uidriver import App
 from uiflows import claim, create_profile
 
-from openarcanum import PRODUCT_NAME
+from openarcanum import PRODUCT_NAME, keys
 from openarcanum.core import Core
 from openarcanum.paths import Paths
 
@@ -108,6 +109,40 @@ def test_dm_notifications_follow_the_mode_and_hide_everything_while_locked(tmp_p
         assert "Alice" not in json.dumps(n) and SECRET not in json.dumps(n)
         # Not even that it's a DM: the in-window notice shows no place.
         assert n["community_name"] == ""
+        await core.shutdown()
+
+    run(main(), 60)
+
+
+def test_channel_notifications_hide_everything_while_locked(tmp_path):
+    """A channel message's notification names the sender and the channel;
+    while locked it says only that something happened: no sender, text,
+    channel or community name."""
+
+    async def main():
+        core, ev = await new_core(tmp_path / "olive")
+        cid = "c1"
+        core.vault.data["communities"][cid] = {"name": "Notify Town", "display_name": "Olive", "status": "active"}
+        chan = SimpleNamespace(name="general")
+        me = SimpleNamespace(state=SimpleNamespace(self=SimpleNamespace(key=b"\x01" * 32)), channel=lambda _id: chan)
+        core.conns[cid] = me
+        m = {"author": keys.encode(b"\x02" * 32), "author_name": "Alice", "channel_id": 5, "text": SECRET}
+
+        def note() -> dict:
+            before = len(ev.of("notify"))
+            core._maybe_notify(cid, m)
+            after = ev.of("notify")
+            assert len(after) > before
+            return after[-1]
+
+        n = note()
+        assert (n["title"], n["body"], n["community_name"]) == ("Alice · #general", SECRET, "Notify Town")
+        await core.lock()
+        n = note()
+        assert (n["title"], n["body"], n["community_name"]) == (PRODUCT_NAME, "New activity", "")
+        for word in ("Alice", "general", "Notify Town", SECRET):
+            assert word not in json.dumps(n)
+        del core.conns[cid]
         await core.shutdown()
 
     run(main(), 60)

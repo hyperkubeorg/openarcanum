@@ -107,6 +107,7 @@ func run() error {
 	defer func() { _ = srv.Close() }()
 	// TLS (tls_mode) for https:// straight from browsers; with acme the
 	// certificates are obtained in the background on this listener.
+	ops.WarnPlainListener(log, cfg.Listen, cfg.TLSSettings)
 	ln, err := ops.ListenPublic(ctx, cfg.Listen, cfg.TLSSettings, ops.TLSOptions{CacheDir: cfg.ACMECache(), HTTP2: true, Log: log})
 	if err != nil {
 		return err

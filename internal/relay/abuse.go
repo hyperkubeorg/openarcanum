@@ -394,11 +394,14 @@ func (cc *chunkCache) entries() int {
 func (s *Server) CacheBytes() uint64 { return s.cache.Bytes() }
 
 // cachePending accumulates the chunks of a cacheable message until its final
-// chunk; a message that grows past chunk_cache_max_message isn't cached.
+// chunk; a message that grows past chunk_cache_max_message, or past what
+// the connection's pending messages may hold together (its share of the
+// cache), isn't cached. One left unfinished for the cache's TTL is dropped.
 type cachePending struct {
 	chunks []*wire.Deliver
 	size   uint64
 	over   bool
+	at     time.Time
 }
 
 func (c *conn) cacheChunk(m *wire.Publish, d *wire.Deliver) {
@@ -406,17 +409,23 @@ func (c *conn) cacheChunk(m *wire.Publish, d *wire.Deliver) {
 	if s.cache == nil || !m.Cacheable {
 		return
 	}
+	now := time.Now()
 	p := c.pendingCache[m.MessageId]
 	if p == nil {
+		for id, q := range c.pendingCache {
+			if now.Sub(q.at) >= s.cache.ttl {
+				delete(c.pendingCache, id)
+			}
+		}
 		if len(c.pendingCache) >= s.cfg.MaxPartial {
 			return
 		}
-		p = &cachePending{}
+		p = &cachePending{at: now}
 		c.pendingCache[m.MessageId] = p
 	}
 	if !p.over {
 		p.size += uint64(len(d.Data))
-		if p.size > s.cfg.ChunkCacheMaxMessage {
+		if p.size > s.cfg.ChunkCacheMaxMessage || c.pendingBytes() > s.cache.perConn {
 			p.over, p.chunks = true, nil
 		} else {
 			p.chunks = append(p.chunks, d)
@@ -425,9 +434,20 @@ func (c *conn) cacheChunk(m *wire.Publish, d *wire.Deliver) {
 	if m.Final {
 		delete(c.pendingCache, m.MessageId)
 		if !p.over {
-			s.cache.put(string(m.Topic), c.id, p.chunks, p.size, time.Now())
+			s.cache.put(string(m.Topic), c.id, p.chunks, p.size, now)
 		}
 	}
+}
+
+// pendingBytes is what the connection's unfinished cacheable messages hold.
+func (c *conn) pendingBytes() uint64 {
+	var n uint64
+	for _, p := range c.pendingCache {
+		if !p.over {
+			n += p.size
+		}
+	}
+	return n
 }
 
 // ---------------------------------------------------------------- endpoint hosts

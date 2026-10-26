@@ -45,7 +45,7 @@ What each test does:
   (2 minutes); the rest only keep their connection alive. Pass: no
   connection dropped, every delivery arrives, delivery p95 ≤ 250 ms.
 - **Maintainer node** (`TestMaintainer`): `LOAD_LISTINGS` owner-signed
-  listings posted through the API (the per-address write limits raised,
+  listings posted through the API (the per-address write and read limits raised,
   since every listing comes from one address), then `LOAD_SEARCHERS` (16)
   clients search back to back for `LOAD_DURATION` (1 minute), mixing a word,
   a tag, both, and browsing. Pass: search p95 < 200 ms, no errors, no empty

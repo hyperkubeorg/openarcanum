@@ -239,3 +239,19 @@ func BenchmarkSearchRebuild(b *testing.B) {
 		})
 	}
 }
+
+// The index database keeps its temporary tables and sort files in memory
+// too: nothing of the decrypted text may reach the disk.
+func TestSearchIndexKeepsTempInMemory(t *testing.T) {
+	s := searchServer(t, 10)
+	if err := s.rebuildSearch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var mode int
+	if err := s.search.db.QueryRow(`PRAGMA temp_store`).Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if mode != 2 {
+		t.Fatalf("temp_store = %d, want 2 (memory)", mode)
+	}
+}

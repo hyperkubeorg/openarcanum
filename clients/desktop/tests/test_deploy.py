@@ -49,8 +49,8 @@ def test_current_deploy_files_pass(deploy_copy):
     assert r.returncode == 0, r.stderr
     assert "Containerfile: 4 images checked" in r.stdout
     if shutil.which("systemd-analyze"):
-        assert "systemd-analyze verify: 5 units OK" in r.stdout
-        assert r.stdout.count("exposure") == 4
+        assert "systemd-analyze verify: 6 units OK" in r.stdout
+        assert r.stdout.count("exposure") == 5
 
 
 def edit(path: Path, old: str, new: str) -> None:

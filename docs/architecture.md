@@ -113,7 +113,7 @@ Private communities never appear in search. People reach one through an invite l
 - **Channel keys handle fan-out.** For each channel, the server generates a key and sends it, over each member's session, to members allowed to read that channel. The server publishes each event **once**, encrypted with the channel key and signed with the server key, to the channel's topic on every relay it uses, and the relays fan it out. A home server uploads one copy per message instead of one per member. Topics that can grow large commit to the server key, and the server gives each relay connection a short-lived fan-out token, so nobody else can use the relay to flood a large channel.
 - **Posting goes through the server.** Clients send messages to the server over their session. The server checks permissions, slowmode, timeouts, screening and AutoMod, stores and indexes the message, then republishes it to the channel topic. Clients ignore anything on a channel topic that isn't signed by the server.
 - **Keys rotate when someone loses access.** When a member is kicked, banned or loses access through a role or override, the server gives the remaining readers a new channel key **and** a new topic. The removed member can't decrypt new messages and can't even find the topic. The same happens when someone is admitted to a channel whose history is hidden from them, so a relay's cache can't show them older events.
-- **Data is encrypted at rest.** Every stored row is sealed (XChaCha20-Poly1305, bound to its table, column and row): the member roll, roles, channels, join keys, audit log, settings and contact cards under the storage key; message bodies and file metadata under per-month keys. Public keys are stored only as keyed lookup hashes, and the few plaintext columns that decide access are bound to the sealed data. The search index lives in memory only. A stolen disk without the storage key reveals no names or content; admins still read everything through the running server (operations.md "Data at rest").
+- **Data is encrypted at rest.** Every stored row is sealed (XChaCha20-Poly1305, bound to its table, column and row): the member roll, roles, channels, join keys, audit log, settings and contact cards under the storage key; message bodies and file metadata under per-month keys. Public keys are stored only as keyed lookup hashes, and the few plaintext columns that decide access are bound to the sealed data. The search index lives in memory only (with SQLite's temporary storage in memory too). A stolen disk without the storage key reveals no names or content; admins still read everything through the running server (operations.md "Data at rest").
 - **Future option.** If a community ever wants channels that even its own server can't read, end-to-end group encryption could be added on top without changing relays. Not built.
 
 ---
@@ -253,7 +253,7 @@ The search index is held in memory and is roughly the size of the text it covers
 
 - **pywebview on QtWebEngine** on every OS. Python holds every key and network connection on a background thread; the UI is plain HTML, CSS and JavaScript with a strict content security policy, no remote content and no webview storage (§16.6, §17; threat-model "Webview"). The engine is used directly only for calls (§8). Keeping keys in Python keeps them out of the browser engine.
 - **The vault** is unlocked with a passphrase; after an idle timeout the client locks (open sessions keep running). **Staying signed in** is the default after creating, restoring or linking a profile: the vault's key (never the passphrase) is kept in the OS keychain (Windows Credential Manager, macOS Keychain, Secret Service) through Python's `keyring`, or, where no keychain exists, in a 0600 key file in the config folder, with the trade-off stated in Settings → Security. "Ask for my passphrase when OpenArcanum starts" turns it off; a lock deletes the key until the passphrase is entered again.
-- **Native notifications:** the freedesktop notification service on Linux, Qt's tray notifications on Windows and macOS; only "New activity" while locked.
+- **Native notifications:** the freedesktop notification service on Linux, Qt's tray notifications on Windows and macOS; only the app name and "New activity" while locked: no sender, text, channel or community name.
 - **Installers:** a Linux AppImage, a Windows installer (Inno Setup) and a macOS `.dmg` (Apple silicon), built by CI, and signed and notarized when the signing secrets are configured ([packaging.md](packaging.md)).
 - **Auto-update:** the client checks a release manifest signed with an offline Ed25519 release key, verifies it before parsing, checks each download's size and hash, and installs only after the user agrees. A build without a release key never checks ([release.md](release.md)).
 - **Invite links** (`openarcanum://invite/…`) only prefill the Join dialog.
@@ -293,7 +293,7 @@ There are no accounts, so "logging in" means two separate things:
 - After every unlock, the client opens a session to each joined community using that community's key. The server checks the member roll on every handshake.
 - Joins that are still pending are checked again on reconnect.
 - If the server reports the member as removed or banned, the client marks the community as removed, stops reconnecting and deletes its local copy of that community's data.
-- The same key can be in use on two devices at once, so the server allows several sessions per key.
+- The same key can be in use on two devices at once, so the server allows several sessions per key: up to 4 per device key and 20 per member, a newer session past that closing the oldest.
 
 ### 16.4 Creating a community
 
@@ -313,8 +313,8 @@ There are no accounts, so "logging in" means two separate things:
 ### 16.5 Leaving, backups and devices
 
 - **Leave.** The client tells the server, deletes that community's local data, and by default deletes its key.
-- **Export backup.** An encrypted file protected by its own passphrase. It holds every key and the list of joined communities (routes and pinned server keys), but no message history.
-- **Restore from backup.** On first run, "Restore from backup" sets up the profile from a backup file. It's the fallback when no other device is available; the normal way to add a device is linking (§16.7). A restored device generates its own device keys, like a linked one.
+- **Export backup.** An encrypted file protected by its own passphrase. It holds every identity key (community, DM, contact and the device group's sync identity) and the list of joined communities (routes and pinned server keys), but no message history and no device keys.
+- **Restore from backup.** On first run, "Restore from backup" sets up the profile from a backup file. It's the fallback when no other device is available; the normal way to add a device is linking (§16.7). A restored device generates its own device keys, like a linked one. It keeps the sync identity but starts a new device group, and its DM identities' device lists start over unapproved (§9.1), so peers that hold the earlier list refuse them until the identities are published afresh.
 - **Lost everything.** The user rejoins with a new key, and an admin uses **Replace member** to move the old key's roles to the new one.
 
 ### 16.6 Where the client stores data
@@ -337,7 +337,7 @@ There are no accounts, so "logging in" means two separate things:
 Typical locations are `~/.config/OpenArcanum`, `~/.local/share/OpenArcanum` and `~/.cache/OpenArcanum` on Linux, `%LOCALAPPDATA%` on Windows, and `~/Library/Application Support` and `~/Library/Caches` on macOS. The folder name comes from `PRODUCT_NAME` in `openarcanum/__init__.py`.
 
 - Writes are atomic (write a temp file, then rename it), so a crash can't corrupt the vault.
-- On Linux and macOS, directories are created with mode `0700` and files with `0600`.
+- On Linux and macOS, the app's own directories are created with mode `0700` (and kept so) and its files with `0600`; a directory the user names (`--home DIR`, a backup or save folder) keeps its mode. Exported backups are written `0600`; saved attachments follow the user's umask.
 - The config file never holds anything that identifies a person or a community, because it can be read before unlock.
 - `--home DIR` puts all four directories under `DIR`, for tests and for running two clients side by side.
 

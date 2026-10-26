@@ -125,24 +125,29 @@ and has no accounts.
    sends one chunk; a message is the chunks with one `message_id`, in `seq`
    order, ending with `final`. The relay forwards each chunk as `Deliver`
    (adding a relay-local `sender` number) to every subscriber except the
-   publisher. It enforces `max_chunk` per chunk and `max_message` (≤ 25 MiB)
-   per message; an over-size message gets `Error{TOO_LARGE}` and its
-   remaining chunks are dropped. Knowing a topic is the permission: topics are
+   publisher. Every chunk of a message names the topic its first chunk named
+   (a chunk for another topic gets `Error{BAD_FRAME}`). It enforces
+   `max_chunk` per chunk and `max_message` (≤ 25 MiB) per message; an
+   over-size message gets `Error{TOO_LARGE}`. Once a chunk of a message is
+   refused, its remaining chunks are dropped whatever topic they name. Clients
+   cap `max_message` at 25 MiB whatever a relay announces, and bound what
+   unfinished messages may hold (64 MiB, 1024 messages, 64 per sender).
+   Knowing a topic is the permission: topics are
    random 32-byte values.
 3. **Endpoints and streams.** A community server proves it holds its key:
    `RegisterEndpoint{endpoint_key, signature, url}`, the signature with
-   context `openarcanum/relay-endpoint/v2` over
-   `RelayBinding{Hello.relay_key, url, Hello.nonce}` and `url` the canonical
-   URL it dialled ("Relay identity" below; a binding for another relay key,
-   URL or connection, or a v1 signature over the nonce alone, gets
-   `BAD_SIGNATURE`). A newer
-   valid registration replaces an older one (and closes streams to it). A
-   client sends `OpenStream{endpoint_key, stream_id}` (its own id, high bit
-   clear); the relay answers `StreamOpened` to the client and sends the
-   endpoint `StreamOpened` with a relay-chosen id (high bit set). `StreamData`
-   is forwarded one-to-one and preserves message boundaries; `StreamClose`
-   ends it either way. If either side disconnects, the other gets
-   `StreamClose`.
+   context `openarcanum/relay-endpoint/v2` over `RelayBinding{Hello.relay_key,
+   url, Hello.nonce}` and `url` the canonical URL it dialled ("Relay identity"
+   below; a binding for another relay key, URL or connection, or a v1
+   signature over the nonce alone, gets `BAD_SIGNATURE`). A newer valid
+   registration replaces an older one (and closes streams to it). A connection
+   hosts one endpoint: registering another key on it (key rotation) drops the
+   previous one. A client sends `OpenStream{endpoint_key, stream_id}` (its own
+   id, high bit clear); the relay answers `StreamOpened` to the client and
+   sends the endpoint `StreamOpened` with a relay-chosen id (high bit set).
+   `StreamData` is forwarded one-to-one and preserves message boundaries;
+   `StreamClose` ends it either way. If either side disconnects, the other
+   gets `StreamClose`.
 4. **Limits.** Per connection: frames/s and bytes/s token buckets (a sender
    over its rate is paused, not cut off), and a send queue cap: a subscriber
    that can't keep up is disconnected ("slow consumer") rather than buffered
@@ -402,12 +407,18 @@ On every handshake the server checks the roll: `BANNED` (key banned),
 `UNKNOWN` (not on the roll), `ACTIVE`, `PENDING` (approval queue), `REMOVED`
 (left/kicked/denied/replaced), or `DEVICE_LIMIT` (a new device over the
 community's per-member limit). Terminal statuses are sent and the session is
-closed. New device keys of active members are recorded on first connection.
+closed. New device keys of active members are recorded on first connection. A
+device key may have `max_sessions_per_device` (4) sessions open and a member
+`max_sessions_per_member` (20); a newer session past either closes the oldest.
+A member who leaves and joins again keeps a running timeout and any server
+mute or deafen.
 
 ### 4.2 Claim, join, sync
 
 - `GetInfo` → `CommunityInfo` (works for anyone; used for the join preview,
-  with a throwaway key).
+  with a throwaway key). Each session may ask 3 times at once and then once a
+  second (`RATE_LIMITED` beyond that); before admission a session gets a tenth
+  of a member's request rate.
 - `Claim{secret, cert, settings, display_name}` makes the session's identity
   the owner member and `cert.owner_key` the community id. The server creates
   `@everyone`, `Admin`, `#general` and a 7-day invite. Wizard fields
@@ -579,14 +590,16 @@ checked: attachments (and `attachment_kinds`: all or images only), link
 previews, reactions, editing own messages, deleting own messages (Manage
 Messages still deletes), typing indicators, join and leave messages.
 
-- `History` and `Search` need View Channel **and** Read Message History in
-  the channel. With "new members see history" off (community or channel,
+- `History` and `Search` need View Channel **and** Read Message History in the
+  channel. `FileGet` applies the same checks (and the history gate) as the
+  message that carries the file; an attachment not posted yet is readable by
+  its uploader only. With "new members see history" off (community or channel,
   §4.6) they return only messages created at or after the member's join
   time, unless the member can manage messages there.
-- `Post` and `UploadBegin` in a channel with `slowmode_seconds > 0` are
-  refused with `RATE_LIMITED` until that many seconds have passed since the
-  member's last message there; members with Manage Messages or Manage
-  Channels in the channel are exempt.
+- `Post`, `UploadBegin` and `UploadFinish` in a channel with
+  `slowmode_seconds > 0` are refused with `RATE_LIMITED` until that many
+  seconds have passed since the member's last message there; members with
+  Manage Messages or Manage Channels in the channel are exempt.
 - `SetProfile` with a new display name needs Change Nickname.
 - `VoiceJoin` needs the voice toggle on, View Channel and Connect. A
   member without Speak joins listen-only: their grant allows no audio
@@ -662,6 +675,9 @@ Each `AuditEntry` carries `action_name`, `target`, `target_name`, and
 `audit_visibility` EVERYONE, a `save_automod_rule` entry carries its signed
 `action` (which holds the rule's keywords and patterns) only for members
 with View Audit Log; others get the summary, which names the rule only.
+Entries about a channel or category a member can't see (its creation, edits,
+overrides, pins, deletions and bulk deletes there) are left out for members
+without View Audit Log.
 
 ### 4.5 Owner set changes
 
@@ -1049,11 +1065,11 @@ index changes are queued and applied before the next search runs.
 | `POST /v1/mailbox/drop` | `MailboxDrop{inbox, blob}`: no credentials; per-inbox rate limit and quota (507 "inbox is full"), the node's total mailbox storage (507), and a byte budget per client network per day (429) |
 | `POST /v1/mailbox/fetch`, `/delete` | `MailboxFetch{token, after_id}` → `MailboxItems{items, used_bytes, quota_bytes, epoch}` / `MailboxDelete{token, ids, gids}`. The inbox address is `SHA-256("openarcanum/inbox/v1" || 0x00 || token)`, so only the token holder can read or delete. Each item carries its global id `gid` = `SHA-256("openarcanum/mailbox-item/v1" || 0x00 || inbox || blob)`, the same on every node of a maintainer cluster; `gids` deletes items read on another member (§7.5). The same bytes dropped twice into one inbox are one item |
 | `POST /v1/nameplates` | `NameplateRequest{relay}` → `Nameplate{number, topic, relay, expires_at}` (a random unused six-digit number, in a maintainer cluster ending in the member's position; 5-minute lifetime; `relay` in canonical form, §7.3) |
-| `POST /v1/nameplates/claim` | `NameplateClaim{number}` → `Nameplate`, **once**; expired → 410, used → 410, unknown → 404; claims are rate limited per client network like creates (429) |
+| `POST /v1/nameplates/claim` | `NameplateClaim{number}` → `Nameplate`, **once**; expired → 410, used → 410, unknown → 404; claims are rate limited per client network like creates (429); failed claims are also bounded node-wide (200 per minute), and while that bound is reached every claim answers 429 |
 | `GET /v1/replicate?cursor=` | `ReplicationBatch` of listings, routes, relay heartbeats, community heartbeats and maintainer sets changed after the cursor, in revision order, with the node's replication `epoch`; a batch ends before 4 MiB of entries (at least one entry) and skips entries over their size bound. Peers pull and re-verify everything. Route ids are not secret: this public endpoint lists every route, private communities' included (a route names a server key and relays, never content or join keys) |
 | `GET /v1/node` | `NodeInfo{node_key, noise_key, directory}`: the node's identity for maintainer clusters (§7.5), and whether it serves the public directory (§7.2) |
 | `GET /v1/maintainers?operator=` | `SignedMaintainerSet`: the newest member list of the node's cluster (or of `operator`); 404 if it holds none (§7.5) |
-| `GET /v1/peer` | WebSocket upgrade carrying a Noise XX peer session between cluster members (§7.5); refused unless the caller's node key is trusted |
+| `GET /v1/peer` | WebSocket upgrade carrying a Noise XX peer session between cluster members (§7.5); refused unless the caller's node key is trusted; at most 4 handshakes under way per client network and 64 in all (429), each within 10 s |
 
 **Versions.** Every `/v1/` request carries `OpenArcanum-Protocol: <versions>`
 (comma-separated, all the client speaks); the node answers with
@@ -1262,8 +1278,13 @@ path; requests with an upgrade, other methods, and relays that don't
 register get the WebSocket endpoint as before. The maintainer's fetch
 follows no redirects and uses no proxy, connects to public addresses only
 (unless `allow_private_relays`), and reads at most 256 bytes within 5 s;
-at most 8 run at once and one per URL per 30 s, and a result is kept for
-10 minutes. Heartbeats arriving by replication never wait for a fetch:
+at most 16 run at once, one per URL at a time (heartbeats for a URL being
+checked wait for that check), one per URL per 30 s, and 10 per minute per
+client network (IPv4 address or IPv6 /64) for URLs that network hasn't proven;
+a result is kept for 10 minutes. While every slot is busy, a heartbeat for a
+URL whose last proof matched its key is accepted on that proof, so URLs whose
+hosts stall can't push proven relays out of the registry. Heartbeats arriving
+by replication never wait for a fetch:
 one for a URL not yet proven here is refused routinely and checked in the
 background, so the relay's next heartbeat is accepted. The first proven
 key keeps the URL while its heartbeats are fresh (`relay_ttl`).
@@ -1450,11 +1471,17 @@ for from a member that has them (`PeerBlobChunkRequest`, 10 s each), keeps
 them, and copies the rest in the background within
 `peer_blob_bytes_per_hour`, so the blob outlives the node it was uploaded to.
 A member whose `blob_store_max` is reached keeps the record only and serves
-through. Senders list the rest of the cluster as fetch nodes (§11).
+through. A member whose collected chunks don't hash to the blob id discards
+them and keeps the record, so the content is fetched again from the members.
+Senders list the rest of the cluster as fetch nodes (§11).
 
 **Moderation decisions.** Delistings and relay removals made with `meta
 directory`/`meta relays` carry the deciding node's key as origin and pass
-through every member; a member applies those of the origins in its
+through every member that trusts the origin (its maintainer set,
+`trusted_peers` or `meta trust`); decisions of other keys are dropped, a
+decision stays in the peer log for 90 days (the decision itself is kept), and
+the decisions of an origin that loses its trust are dropped at the next
+expiry; a member applies those of the origins in its
 `follow_decisions` (a replica set up with `meta init --replica-of` follows
 the root), newest per origin and key first, never over its own decisions,
 and a followed relist lifts only that origin's delisting. Reasons don't
@@ -1572,7 +1599,8 @@ So:
   Account key (`SignedDmDeviceList.approver`, `approval`): either over the
   whole list (`openarcanum/dm-device-list-approval/v1` || 0x00 || identity ||
   SHA-256(list)), or, for a device adding itself (`added` = its device_id,
-  and nothing else changes), an **add certificate** a listed device issued
+    and every other `DmDevice` entry byte-identical to the held list's, `removed`
+  unchanged), an **add certificate** a listed device issued
   for that device_id (`openarcanum/dm-device-add/v1` || 0x00 || identity ||
   device_id). Certificates are issued by the existing device when linking
   (it chooses the new device's id, §10.1) and by the device that creates an
@@ -1594,7 +1622,12 @@ So:
   per community (off by default; the community can turn cards off for
   everyone, enforced by the server). `member` binds the card to the
   publisher's membership, so it can't be replayed under someone else's.
-- `fallback_keys` holds one signed vodozemac fallback key per device;
+- `fallback_keys` holds one signed vodozemac fallback key per device, replaced
+  every 7 days (the previous key still starts sessions until the next
+  replacement, so a card up to a week old works); a client keeps a peer's card
+  only if its `issued_at` is not below the card it holds (a server can't
+  revert the fallback key or inbox with a stale card), while device lists
+  follow their own `seq` rule;
   `inboxes` one first-contact mailbox address per device. Each device shares
   its fallback key and inbox with the user's other devices (§10.2), so any of
   them can publish the full card.
@@ -1893,8 +1926,14 @@ as a `status` sync event (§10.2; the newest wins).
    the code) by exchanging `{"t":"pake"}` messages: the Magic Wormhole design.
 3. Keys: `HKDF(K, "openarcanum/link/existing-to-new")` and `…/new-to-existing`
    (ChaCha20-Poly1305). The new device sends `hello` (its name) encrypted; if
-   the existing device can't decrypt it the codes differ: it sends `abort`
-   and nothing else. It confirms with an encrypted `confirm`.
+   the existing device can't decrypt it the codes differ: it sends a plain
+   `abort` and nothing else (the only plain abort either side honours, and
+   only while the new device waits for `confirm`). It confirms with an
+   encrypted `confirm`. Anything else on the topic that can't be the other
+   device's is skipped: `abort` before the keys exist or not sealed under them
+   afterwards (a cancel after the keys exist is `{"t":"abort","box":…}`), PAKE
+   messages not shaped like one (the first well-formed one is the only one
+   used), `confirm` or `done` that don't open.
 4. After the user approves (choosing communities, whether to copy DM history
    and cached community messages), `transfer` carries identities (community,
    DM and sync identity seeds), community records (routes, pinned keys, no
@@ -2084,28 +2123,28 @@ SFrame (RFC 9605) in the client before it leaves.
 
 ### 12.1 Keys and key ids
 
-The community server makes a random 32-byte call key per *epoch*; the
-epoch (and the key) change on every join and leave, and when the call moves
-to another relay. Each participant has a *slot* (1..255, the lowest free
-one). A sender's SFrame key id is `epoch << 8 | slot`, and RFC 9605 §4.4.2
-derives the key and salt from the call key **and the key id**, so every
-sender has its own key and nonce space under one call key. Cipher suite:
-`AES_128_GCM_SHA256_128` (4). Receivers keep the current and previous
-epoch; a sender switches to a new key 250 ms after receiving it, so
-everyone has it first. A frame on a participant's track must carry that
-participant's slot, or it is dropped (the shared key alone wouldn't stop
-one participant sending under another's key id). Video frames keep the VP8
-payload header in the clear (10 bytes of a keyframe, 3 otherwise), so the
-SFU can find keyframes. Every frame's SFrame metadata (authenticated, not
-encrypted) is one byte naming its kind of media (1 audio, 2 camera,
-3 screen, 4 screen-audio: the relay's track ids) followed by those clear
-bytes (none for audio), so a frame can't be moved to another kind of the
-same sender's media. A sender's counter runs across all of its kinds and
-never restarts for a key id within a call, however often its key is set.
-Receivers keep a replay window per key id (8192 counters, a bitmap behind
-the highest counter seen): a frame opens once, a frame further behind than
-the window is dropped, and a counter is recorded only after its frame
-authenticates.
+The community server makes a random 32-byte call key per *epoch*; the epoch
+(and the key) change on every join and leave, and when the call moves to
+another relay. Each participant has a *slot* (1..255, the lowest free one). A
+sender's SFrame key id is `epoch << 8 | slot`, and RFC 9605 §4.4.2 derives the
+key and salt from the call key **and the key id**, so every sender has its own
+key and nonce space under one call key. Cipher suite: `AES_128_GCM_SHA256_128`
+(4). Receivers keep the current and previous epoch; a sender switches to a new
+key 250 ms after receiving it, so everyone has it first. A frame on a
+participant's track must carry that participant's slot, or it is dropped (the
+shared key alone wouldn't stop one participant sending under another's key
+id). Video frames keep the VP8 payload header in the clear (10 bytes of a
+keyframe, 3 otherwise), so the SFU can find keyframes. Every frame's SFrame
+metadata (authenticated, not encrypted) is one byte naming its kind of media
+(1 audio, 2 camera, 3 screen, 4 screen-audio: the relay's track ids) followed
+by those clear bytes (none for audio), so a frame can't be moved to another
+kind of the same sender's media. A sender's counter runs across all of its
+kinds and never restarts for a key id within a call, however often its key is
+set. Receivers keep a replay window per key id (8192 counters, a bitmap behind
+the highest counter seen): a frame opens once, a frame further behind than the
+window is dropped, and a counter is recorded only after its frame
+authenticates. The window is freed with its key when the key's epoch is
+dropped; a dropped key id is never set again.
 
 **What stays in the clear.** The relay ends each participant's SRTP, so it
 reads the RTP headers (which SRTP leaves in the clear on the network too)
@@ -2234,7 +2273,8 @@ at once through the control.
   (stored on the member, kept across calls) and `VoiceMove` (to another
   voice channel, or 0 to disconnect). The server sends the relay a
   `SignedCallControl` (`"openarcanum/call-control/v1"`, same server key; the
-  highest `seq` wins; at most 1000 entries per list) listing who is muted
+  highest `seq` wins; at most 1000 entries per list, each a 16-byte
+  participant id) listing who is muted
   (server mute, or no Speak), deafened, without Video (`no_video`) or
   Screen Share (`no_screen`), and removed (the newest 500 who left or were
   removed, for as long as their grants could still be used). A mute (or no

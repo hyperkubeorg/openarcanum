@@ -19,8 +19,9 @@
 # built per platform inside the bundle, so users install neither Python nor
 # Go. Release file names use "openarcanum".
 #
-# Signing happens only when the secrets exist; otherwise the step logs a
-# notice and the artifact is unsigned (docs/release.md "Without the secrets"):
+# Signing happens only when the secrets exist and the run is for a tag;
+# otherwise the step logs a notice and the artifact is unsigned
+# (docs/release.md "Without the secrets"):
 #   WINDOWS_CERT_PFX (base64 PFX), WINDOWS_CERT_PASSWORD         -> signtool
 #   APPLE_DEVELOPER_ID_P12 (base64), APPLE_DEVELOPER_ID_PASSWORD  -> codesign
 #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD                   -> notarytool + stapler
@@ -32,8 +33,8 @@
 # set (another host).
 #
 # Manual dispatch from a tag does the same as pushing it (a re-run adds to,
-# or replaces files in, that tag's draft); from a branch it builds and
-# keeps the files as workflow artifacts only (no manifest, no release).
+# or replaces files in, that tag's draft); from a branch it builds unsigned
+# and keeps the files as workflow artifacts only (no manifest, no release).
 
 name: Release
 
@@ -131,17 +132,19 @@ jobs:
         working-directory: clients/desktop
         run: uv python install
       - name: GNU make
-        run: choco install make --no-progress -y
+        run: choco install make --version 4.4.1 --require-checksums --no-progress -y
       # The bundle carries the community server (make bundle-server).
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
       - name: Bundle
         run: make bundle
+      # The certificate only for a tag: a manual run from a branch builds
+      # an unsigned installer.
       - name: Installer (signed when the certificate is configured)
         env:
-          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
-          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_CERT_PFX: ${{ github.ref_type == 'tag' && secrets.WINDOWS_CERT_PFX || '' }}
+          WINDOWS_CERT_PASSWORD: ${{ github.ref_type == 'tag' && secrets.WINDOWS_CERT_PASSWORD || '' }}
         run: clients/desktop/packaging/windows/build_installer.sh
       - name: Install, smoke-run, upgrade, uninstall
         run: clients/desktop/packaging/windows/test_installer.sh "clients/desktop/dist/OpenArcanum-Setup-$VERSION.exe"
@@ -174,13 +177,15 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
+      # The certificate and the notarization account only for a tag: a
+      # manual run from a branch builds an unsigned app.
       - name: App and .dmg (signed and notarized when configured)
         env:
-          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
-          APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_DEVELOPER_ID_P12: ${{ github.ref_type == 'tag' && secrets.APPLE_DEVELOPER_ID_P12 || '' }}
+          APPLE_DEVELOPER_ID_PASSWORD: ${{ github.ref_type == 'tag' && secrets.APPLE_DEVELOPER_ID_PASSWORD || '' }}
+          APPLE_ID: ${{ github.ref_type == 'tag' && secrets.APPLE_ID || '' }}
+          APPLE_TEAM_ID: ${{ github.ref_type == 'tag' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_APP_PASSWORD: ${{ github.ref_type == 'tag' && secrets.APPLE_APP_PASSWORD || '' }}
         run: clients/desktop/packaging/macos/build_dmg.sh
       - name: Check the .dmg and smoke-run the app in it
         run: clients/desktop/packaging/macos/test_dmg.sh "clients/desktop/dist/OpenArcanum-$VERSION.dmg"

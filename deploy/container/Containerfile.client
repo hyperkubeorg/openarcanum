@@ -15,7 +15,10 @@
 #   podman build -f deploy/container/Containerfile.client \
 #       --ignorefile deploy/container/Containerfile.client.dockerignore -t localhost/openarcanum-client:dev .
 
-FROM docker.io/library/archlinux:base
+# Pinned by digest, like the server images (deploy/container/Containerfile);
+# the digest is the image index (linux/amd64). To move on:
+#   skopeo inspect --raw docker://docker.io/library/archlinux:base | sha256sum
+FROM docker.io/library/archlinux:base@sha256:52dfbd5afb23a220d5ee92dafcb4c788d96c026ed04179890c23adef4c897fa0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -37,13 +40,13 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1
 WORKDIR /opt/openarcanum
-# .python-version pins the interpreter the project is tested with (uv would
-# otherwise take the newest one requires-python allows); the build fails if
-# the environment doesn't match it.
+# .python-version pins the exact interpreter the project is tested with (uv
+# would otherwise take the newest one requires-python allows); the build
+# fails if the environment doesn't match it.
 COPY clients/desktop/pyproject.toml clients/desktop/uv.lock clients/desktop/.python-version ./
 RUN uv sync --frozen --no-dev --no-install-project \
  && want=$(cat .python-version) \
- && got=$(/opt/venv/bin/python -c 'import sys; print("%d.%d" % sys.version_info[:2])') \
+ && got=$(/opt/venv/bin/python -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])') \
  && if [ "$got" != "$want" ]; then echo "Python $got in the image, but .python-version says $want" >&2; exit 1; fi \
  && rm -rf /root/.cache
 

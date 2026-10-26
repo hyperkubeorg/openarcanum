@@ -36,17 +36,16 @@ func (b *bucket) take(n float64) time.Duration {
 }
 
 // set changes the rate and burst (a connection that becomes an endpoint
-// host gets a larger budget). Growing the burst makes the extra available at
-// once; tokens above a smaller burst are dropped.
+// host gets a larger budget). The tokens held carry over: a larger burst
+// is filled at the new rate, not credited at once (a host that opened and
+// closed streams in a loop would mint tokens each time), and tokens above
+// a smaller burst are dropped.
 func (b *bucket) set(rate, burst float64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := time.Now()
 	b.tokens += now.Sub(b.last).Seconds() * b.rate
 	b.last = now
-	if burst > b.burst {
-		b.tokens += burst - b.burst
-	}
 	b.rate, b.burst = rate, burst
 	if b.tokens > b.burst {
 		b.tokens = b.burst

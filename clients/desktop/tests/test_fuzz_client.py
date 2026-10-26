@@ -325,13 +325,22 @@ def _mutate_json(raw: bytes, edits: list[tuple[int, int]]) -> bytes:
 async def _until_stalled(task: asyncio.Task, sess: devices.LinkSession) -> None:
     """Wait for the link run to finish, or to sit waiting on an empty inbox
     (everything here is in memory, so a quiet inbox means it's blocked);
-    then the other side gives up, as a user cancelling would."""
+    then the stall is broken the only ways the topic allows: a well-formed
+    PAKE message while the run has no keys yet (it skips malformed ones),
+    and once it has them a sealed abort, as the other device cancelling."""
+    from spake2 import SPAKE2_Symmetric
+
     quiet = 0
     while not task.done():
         await asyncio.sleep(0)
         quiet = quiet + 1 if sess.inbox.empty() else 0
         if quiet > 200:
-            sess._on(b"t", json.dumps({"t": "abort", "why": "cancelled"}).encode())
+            if sess.k_in:
+                box = keys.encode(crypto.seal(sess.k_in, json.dumps("cancelled").encode(), devices.LINK_ID))
+                sess._on(b"t", json.dumps({"t": "abort", "box": box}).encode())
+            else:
+                m = keys.encode(SPAKE2_Symmetric(b"0", idSymmetric=devices.LINK_ID).start())
+                sess._on(b"t", json.dumps({"t": "pake", "m": m}).encode())
             quiet = 0
     await task
 
@@ -409,8 +418,16 @@ def test_existing_device_link_messages(messages):
     messages from the topic: whatever arrives, the step ends with a result
     or UserError (shown to the user), nothing else."""
 
+    from spake2 import SPAKE2_Symmetric
+
+    # After the fuzzed messages, what someone else on the topic can end the
+    # step with: a well-formed PAKE message (a guess at the code) and a hello
+    # that doesn't open under the keys it makes.
+    pake = json.dumps({"t": "pake", "m": keys.encode(SPAKE2_Symmetric(b"0", idSymmetric=devices.LINK_ID).start())})
+    hello = json.dumps({"t": "hello", "box": "AAAA"})
+
     async def main():
-        relay = TopicRelay(lambda m: [*messages, json.dumps({"t": "abort", "why": "gone"}).encode()])
+        relay = TopicRelay(lambda m: [*messages, pake.encode(), hello.encode()])
         sess = devices.LinkSession(relay, b"t")
         await sess.open()
         return await devices.link_handshake_existing(sess, devices.make_code(7))
@@ -422,14 +439,29 @@ def test_existing_device_link_messages(messages):
 
 
 def test_link_session_recv_waits_for_its_kind():
-    """recv skips other kinds and ends on abort with the sender's reason."""
+    """recv skips other kinds and aborts that can't be the other device's
+    (anyone on the topic can publish): every abort until the keys exist,
+    and after that any that isn't sealed under the session key, except
+    while waiting for the confirmation, where a plain abort is how the
+    existing device reports a code that didn't match."""
 
     async def main():
         sess = devices.LinkSession(TopicRelay(lambda m: []), b"t")
         await sess.open()
         sess._on(b"t", b'{"t": "x"}')
         sess._on(b"t", b'{"t": "abort", "why": "no"}')
+        sess._on(b"t", b'{"t": "pake", "m": "yes"}')
+        assert (await sess.recv("pake", timeout=2))["m"] == "yes"
+        sess.set_keys(bytes(32), i_am_new=True)
+        sess._on(b"t", b'{"t": "abort", "why": "no"}')
+        sess._on(b"t", b'{"t": "abort", "box": "AAAA"}')
+        other = devices.LinkSession(TopicRelay(lambda m: []), b"t")
+        other.set_keys(bytes(32), i_am_new=False)
+        sess._on(b"t", json.dumps({"t": "abort", "box": other.seal("no")}).encode())
         with pytest.raises(UserError, match="no"):
             await sess.recv("pake", timeout=2)
+        sess._on(b"t", b'{"t": "abort", "why": "whatever"}')
+        with pytest.raises(UserError, match="didn't match"):
+            await sess.recv("confirm", timeout=2)
 
     asyncio.run(main())

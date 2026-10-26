@@ -71,3 +71,27 @@ func TestAdministratorRoleBelowModerator(t *testing.T) {
 	_, err = e.adminAs(mod, &wire.AdminAction{Op: &wire.AdminAction_DeleteRole{DeleteRole: &wire.DeleteRole{Id: admins}}})
 	wantErr(t, err, "permissions you all have")
 }
+
+// A deleted role's id is never given to a new role: an invite that still
+// names the deleted role in its sealed record grants nothing for it, even
+// after the next role is created.
+func TestDeletedRoleIdIsNeverReused(t *testing.T) {
+	e := setup(t, nil)
+	helpers := e.role("Helpers", community.PermCreateInvite)
+	invite := e.newInvite(func(c *wire.CreateJoinKey) { c.RoleIds = []int64{helpers} })
+	e.mustAdmin(e.owner, &wire.AdminAction{Op: &wire.AdminAction_DeleteRole{DeleteRole: &wire.DeleteRole{Id: helpers}}})
+	admins := e.role("Administrators", community.PermAdministrator)
+	if admins <= helpers {
+		t.Fatalf("new role got id %d after role %d was deleted", admins, helpers)
+	}
+	late := e.member("Late", invite.Secret)
+	if st := fresh(t, late); len(st.Self.RoleIds) != 0 || st.Permissions&community.PermAdministrator != 0 {
+		t.Fatalf("an invite for a deleted role granted %v (permissions %x)", st.Self.RoleIds, st.Permissions)
+	}
+	// Channels and emoji ids don't come back either.
+	ch := e.must(&wire.AdminAction{Op: &wire.AdminAction_CreateChannel{CreateChannel: &wire.CreateChannel{Name: "gone"}}}).Id
+	e.must(&wire.AdminAction{Op: &wire.AdminAction_DeleteChannel{DeleteChannel: &wire.DeleteChannel{Id: ch}}})
+	if next := e.must(&wire.AdminAction{Op: &wire.AdminAction_CreateChannel{CreateChannel: &wire.CreateChannel{Name: "next"}}}).Id; next <= ch {
+		t.Fatalf("new channel got id %d after channel %d was deleted", next, ch)
+	}
+}

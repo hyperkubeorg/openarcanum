@@ -30,6 +30,7 @@ meta:
   env:
     # Every client's writes arrive from the port-forward's one address.
     OPENARCANUM_META_WRITES_PER_MINUTE: "60000"
+    OPENARCANUM_META_READS_PER_MINUTE: "120000"
     OPENARCANUM_META_LISTINGS_PER_HOUR: "1000"
     OPENARCANUM_META_NAMEPLATES_PER_MINUTE: "600"
     OPENARCANUM_META_MAILBOX_DROPS_PER_MINUTE: "6000"
@@ -40,3 +41,8 @@ meta:
     OPENARCANUM_META_RELAY_PROOF: "false"
 
 logLevel: debug
+
+# `make kind-partition` applies its own NetworkPolicy to the maintainer
+# nodes; the chart's would admit them to each other again.
+networkPolicy:
+  enabled: false

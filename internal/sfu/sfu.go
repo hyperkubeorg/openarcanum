@@ -102,12 +102,21 @@ type SFU struct {
 	mu    sync.Mutex
 	calls map[string]*call
 	// Removed participants (call id + participant id), until their grants
-	// can no longer be used: the call itself may end before then.
-	removed   map[string]time.Time
-	sweptAt   time.Time
-	peers     int
-	peersByIP map[string]int
+	// can no longer be used: the call itself may end before then. The
+	// queue has them oldest first; past maxRemembered the oldest go early.
+	removed      map[string]time.Time
+	removedQueue []removal
+	peers        int
+	peersByIP    map[string]int
 }
+
+type removal struct {
+	key   string
+	until time.Time
+}
+
+// maxRemembered bounds the removals the relay remembers across its calls.
+const maxRemembered = 1 << 16
 
 // New opens the media socket and builds the WebRTC stack.
 func New(cfg Config) (*SFU, error) {
@@ -366,26 +375,41 @@ func (s *SFU) Update(sc *wire.SignedCallControl) error {
 	return nil
 }
 
-// rememberRemoved keeps a removal until any grant for it has expired.
-func (s *SFU) rememberRemoved(callID, participant []byte) {
+// rememberRemoved keeps removals until any grant for them has expired.
+func (s *SFU) rememberRemoved(callID []byte, participants [][]byte) {
+	if len(participants) == 0 {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepRemovedLocked()
-	s.removed[string(callID)+string(participant)] = time.Now().Add(callauth.MaxGrantLifetime)
+	until := time.Now().Add(callauth.MaxGrantLifetime)
+	for _, p := range participants {
+		key := string(callID) + string(p)
+		s.removed[key] = until
+		s.removedQueue = append(s.removedQueue, removal{key, until})
+	}
+	for len(s.removedQueue) > maxRemembered {
+		s.forgetOldestLocked()
+	}
 }
 
-// sweepRemovedLocked drops expired removals, at most every 30 seconds
-// (s.mu held).
+// sweepRemovedLocked drops expired removals (s.mu held).
 func (s *SFU) sweepRemovedLocked() {
 	now := time.Now()
-	if now.Sub(s.sweptAt) < 30*time.Second {
-		return
+	for len(s.removedQueue) > 0 && now.After(s.removedQueue[0].until) {
+		s.forgetOldestLocked()
 	}
-	s.sweptAt = now
-	for k, until := range s.removed {
-		if now.After(until) {
-			delete(s.removed, k)
-		}
+}
+
+// forgetOldestLocked pops the queue's first removal; the participant is
+// forgotten unless a later removal of them is still queued (s.mu held).
+func (s *SFU) forgetOldestLocked() {
+	r := s.removedQueue[0]
+	s.removedQueue[0] = removal{}
+	s.removedQueue = s.removedQueue[1:]
+	if s.removed[r.key].Equal(r.until) {
+		delete(s.removed, r.key)
 	}
 }
 

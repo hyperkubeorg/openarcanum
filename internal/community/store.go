@@ -149,9 +149,11 @@ type auditRec struct {
 	Action    []byte `json:"action"`
 	Signature []byte `json:"signature"`
 	// Entries the server writes itself (AutoMod) have no signed action;
-	// they name their op and target here instead (audit filters, admin.go).
-	Op     string `json:"op,omitempty"`
-	Target []byte `json:"target,omitempty"`
+	// they name their op and target here instead (audit filters, admin.go),
+	// and the channel a message action was in (auditVisible).
+	Op      string `json:"op,omitempty"`
+	Target  []byte `json:"target,omitempty"`
+	Channel int64  `json:"channel,omitempty"`
 }
 
 // fileMeta is a file's sealed metadata, under its month key.
@@ -231,6 +233,24 @@ func (s *Server) count(ctx context.Context, query string, args ...any) (int, err
 	var n int
 	err := s.db.QueryRowContext(ctx, query, args...).Scan(&n)
 	return n, err
+}
+
+// idsOf runs a query that selects one integer column.
+func (s *Server) idsOf(ctx context.Context, query string, args ...any) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 type execer interface {
@@ -577,15 +597,19 @@ func boolInt(b bool) int {
 	return 0
 }
 
-// nextID returns max(id)+1 for a table; callers hold s.mu.
+// nextID returns a fresh id for a table: past max(id), and for the
+// AUTOINCREMENT tables (schema 11) past every id ever used, so a deleted
+// role, channel, category, emoji or join key's id never comes back for
+// something else (join keys and AutoMod rules keep role and channel ids
+// in their sealed records). Callers hold s.mu.
 func (s *Server) nextID(ctx context.Context, x interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, table string) (int64, error) {
-	var id sql.NullInt64
-	if err := x.QueryRowContext(ctx, "SELECT max(id) FROM "+table).Scan(&id); err != nil {
+	var id int64
+	if err := x.QueryRowContext(ctx, `SELECT max(coalesce((SELECT seq FROM sqlite_sequence WHERE name = ?), 0), coalesce((SELECT max(id) FROM `+table+`), 0))`, table).Scan(&id); err != nil {
 		return 0, err
 	}
-	return id.Int64 + 1, nil
+	return id + 1, nil
 }
 
 // ---------------------------------------------------------------- helpers on the model

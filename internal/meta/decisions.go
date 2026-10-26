@@ -16,7 +16,6 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"errors"
-	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -79,6 +78,11 @@ const decisionsSignedSchema = `ALTER TABLE decisions ADD COLUMN signature BLOB N
 // later one of its origin.
 const decisionAhead = 10 * time.Minute
 
+// decisionLogTTL is how long a decision stays in the peer log (the
+// decision itself is kept): a member that was away for longer catches up
+// from a backup (`meta init -replica-of ... -from-backup`).
+const decisionLogTTL = 90 * 24 * time.Hour
+
 // decisionBytes is what a decision's signature covers.
 func decisionBytes(d *wire.PeerDecision) []byte {
 	b := append(bytes.Clone(d.Origin), d.Kind...)
@@ -110,7 +114,7 @@ ON CONFLICT (origin, kind, key) DO UPDATE SET action = excluded.action, at = exc
 		d.Origin, d.Kind, d.Key, d.Action, d.At, d.Signature); err != nil {
 		return err
 	}
-	return logPeer(ctx, tx, logDecision, decisionKey(d.Origin, d.Kind, d.Key), math.MaxInt64)
+	return logPeer(ctx, tx, logDecision, decisionKey(d.Origin, d.Kind, d.Key), time.UnixMilli(d.At).Add(decisionLogTTL).UnixMilli())
 }
 
 // adminKey is the node key decisions made through the data directory are
@@ -177,7 +181,9 @@ func checkDecision(d *wire.PeerDecision, now time.Time) bool {
 }
 
 // applyDecision keeps a peer's decision (newest per origin and key), passes
-// it on, and applies it when this node follows its origin.
+// it on, and applies it when this node follows its origin. Only decisions
+// of origins this node trusts now are kept: anyone's signed decisions
+// would otherwise travel the cluster for good.
 func (s *Server) applyDecision(ctx context.Context, d *wire.PeerDecision) (bool, error) {
 	if !checkDecision(d, s.now()) {
 		s.refused(refusedInvalid)
@@ -185,6 +191,10 @@ func (s *Server) applyDecision(ctx context.Context, d *wire.PeerDecision) (bool,
 	}
 	if bytes.Equal(d.Origin, s.id.key.Public) {
 		return false, nil // this node's own decision, back from a peer
+	}
+	if !s.isTrusted(ctx, d.Origin) {
+		s.refused(refusedInvalid)
+		return false, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -210,6 +220,41 @@ func (s *Server) applyDecision(ctx context.Context, d *wire.PeerDecision) (bool,
 		}
 	}
 	return true, tx.Commit()
+}
+
+// pruneDecisions drops the decisions of origins this node no longer trusts
+// (Expire), so they stop being passed on; what they delisted stays, under
+// their key as its source, until relisted.
+func (s *Server) pruneDecisions(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT origin FROM decisions`)
+	if err != nil {
+		return err
+	}
+	var origins [][]byte
+	for rows.Next() {
+		var o []byte
+		if err := rows.Scan(&o); err != nil {
+			rows.Close()
+			return err
+		}
+		origins = append(origins, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	trusted := s.trustedPeers(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, o := range origins {
+		if _, ok := trusted[string(o)]; ok || bytes.Equal(o, s.id.key.Public) {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM decisions WHERE origin = ?`, o); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // followDecision applies a followed origin's decision (inside tx): a

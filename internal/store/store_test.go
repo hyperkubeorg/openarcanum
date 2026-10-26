@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -111,5 +113,30 @@ func TestFTS5Available(t *testing.T) {
 	var n int
 	if err := db.QueryRow(`SELECT count(*) FROM f WHERE f MATCH 'hello'`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("fts5 match count = %d, %v", n, err)
+	}
+}
+
+// A database file (and so its WAL) is created readable by its owner only.
+func TestOpenCreatesPrivateFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes")
+	}
+	path := filepath.Join(t.TempDir(), "s.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE a (x INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{path, path + "-wal"} {
+		st, err := os.Stat(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := st.Mode().Perm(); m != 0o600 {
+			t.Fatalf("%s has mode %o", f, m)
+		}
 	}
 }

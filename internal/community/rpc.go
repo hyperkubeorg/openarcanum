@@ -575,6 +575,12 @@ func (s *Server) join(ctx context.Context, ss *sess, j *wire.Join) (*wire.Server
 	m := &memberRec{Key: ss.member, Name: name, JoinedAt: now, JoinKeyID: keyID, Status: wire.MemberStatus_MEMBER_STATUS_ACTIVE, Roles: roles}
 	if existing != nil {
 		m.HasAvatar, m.AvatarVer = existing.HasAvatar, existing.AvatarVer
+		// A timeout and a server mute or deafen outlast leaving and
+		// rejoining, as on Discord.
+		if existing.TimeoutUntil > now {
+			m.TimeoutUntil = existing.TimeoutUntil
+		}
+		m.VoiceMuted, m.VoiceDeafened = existing.VoiceMuted, existing.VoiceDeafened
 	}
 	if pending {
 		m.Status = wire.MemberStatus_MEMBER_STATUS_PENDING
@@ -1154,7 +1160,7 @@ func (s *Server) deleteMessage(ctx context.Context, ss *sess, d *wire.DeleteMess
 	if string(old.Author) != string(ss.member) {
 		// A moderator deleting someone else's message (or a join/leave
 		// notice): who, whose and where, never the text.
-		s.recordAudit(ctx, ss.member, "delete_message", old.Author, fmt.Sprintf("deleted a message by %s in #%s", s.nameOf(old.Author), c.Name))
+		s.recordAudit(ctx, ss.member, "delete_message", old.Author, c.ID, fmt.Sprintf("deleted a message by %s in #%s", s.nameOf(old.Author), c.Name))
 	}
 	s.publishEvent(c, &wire.ChannelEvent{Kind: &wire.ChannelEvent_Deleted{Deleted: d.MessageId}})
 	return okBody(), nil

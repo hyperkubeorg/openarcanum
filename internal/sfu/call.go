@@ -25,7 +25,10 @@ type call struct {
 	mu      sync.Mutex
 	peers   map[string]*Peer
 	control *wire.CallControl
-	removed map[string]bool
+	// Participants removed by any control so far (the current control
+	// lists only recent ones), the newest maxRemoved of them in order.
+	removed      map[string]bool
+	removedOrder []string
 	// Audio sources per (source, kind).
 	audio map[string]*audioSource
 	// Video sources per (source, kind).
@@ -91,6 +94,10 @@ type audioOut struct {
 
 // defaultMaxParticipants applies when a grant names no limit.
 const defaultMaxParticipants = 99
+
+// maxRemoved bounds the removals a call remembers beyond its current
+// control's list.
+const maxRemoved = 4 * defaultMaxParticipants
 
 func maxParticipants(g *wire.CallGrant) uint32 {
 	if g.MaxParticipants == 0 || g.MaxParticipants > defaultMaxParticipants {
@@ -163,7 +170,7 @@ func (c *call) join(ctx context.Context, g *wire.CallGrant, j *wire.CallJoin, si
 	case c.ended:
 		c.mu.Unlock()
 		return nil, "", errors.New("this call has ended")
-	case c.removed[id]:
+	case c.removed[id] || listHas(c.control.Removed, g.Participant):
 		c.mu.Unlock()
 		return nil, "", errors.New("you were removed from this call")
 	case c.peers[id] != nil:
@@ -755,7 +762,7 @@ func (c *call) applyControl(ctl *wire.CallControl) {
 	}
 	var kick []*Peer
 	for _, r := range ctl.Removed {
-		c.removed[pid(r)] = true
+		c.removeLocked(pid(r))
 		if p := c.peers[pid(r)]; p != nil {
 			kick = append(kick, p)
 		}
@@ -765,15 +772,27 @@ func (c *call) applyControl(ctl *wire.CallControl) {
 	}
 	c.mu.Unlock()
 	// Remembered outside the call lock: the SFU lock is taken before it.
-	for _, r := range ctl.Removed {
-		c.sfu.rememberRemoved(c.id, r)
-	}
+	c.sfu.rememberRemoved(c.id, ctl.Removed)
 	for _, p := range kick {
 		p.sig.CallState(&wire.CallState{CallId: c.id, Ended: "A moderator disconnected you from this call."})
 		p.Leave()
 	}
 	c.broadcastState()
 	c.notifyWatchers()
+}
+
+// removeLocked notes a removed participant, forgetting the oldest once
+// maxRemoved are kept (c.mu held).
+func (c *call) removeLocked(id string) {
+	if c.removed[id] {
+		return
+	}
+	c.removed[id] = true
+	c.removedOrder = append(c.removedOrder, id)
+	if len(c.removedOrder) > maxRemoved {
+		delete(c.removed, c.removedOrder[0])
+		c.removedOrder = c.removedOrder[1:]
+	}
 }
 
 func (c *call) broadcastState() {

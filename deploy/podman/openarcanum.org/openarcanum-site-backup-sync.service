@@ -1,0 +1,40 @@
+# Copies the website backups to another machine after each backup
+# (openarcanum-site-backup.service wants it, so the backup timer runs both).
+# User unit: /home/openarcanum/.config/systemd/user/openarcanum-site-backup-sync.service
+# Off until /home/openarcanum/site/backup-remote/env exists; README.md,
+# "Copying backups to another machine", sets it up. Nothing is deleted on
+# the other side: prune there yourself (here the newest 14 are kept).
+
+[Unit]
+Description=OpenArcanum website backup copy
+After=openarcanum-site-backup.service
+ConditionPathExists=%h/site/backup-remote/env
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/site/backup-remote/env
+ExecStart=/usr/bin/rsync -rt --chmod=F600,D700 -e "ssh -i %h/site/backup-remote/ssh.key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%h/site/backup-remote/known_hosts" %h/site/data/backups/ ${BACKUP_REMOTE}/
+Nice=10
+IOSchedulingClass=idle
+
+# Reads the backups and the key; writes nothing on this machine.
+PrivateUsers=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077

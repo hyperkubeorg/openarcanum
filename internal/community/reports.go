@@ -62,6 +62,25 @@ var maxOpenReports = 5000
 // at once, so a few members can't fill the queue (a variable for tests).
 var MaxOpenReportsPerReporter = 20
 
+// openReportCount is how many reports are open: counted once, then kept
+// until a report is filed, closed or purged (reportsChanged), since every
+// state build asks for it. Callers hold s.mu.
+func (s *Server) openReportCount(ctx context.Context) (int, error) {
+	if n := s.openReports.Load(); n >= 0 {
+		return int(n), nil
+	}
+	n, err := s.count(ctx, `SELECT count(*) FROM reports WHERE status = ?`, int(wire.ReportStatus_REPORT_STATUS_OPEN))
+	if err != nil {
+		return 0, err
+	}
+	s.openReports.Store(int64(n))
+	return n, nil
+}
+
+// reportsChanged forgets the open report count; callers hold s.mu for
+// writing.
+func (s *Server) reportsChanged() { s.openReports.Store(-1) }
+
 // openReportsBy counts the open reports member filed. The reporter is
 // sealed in each record, so this reads the open queue (at most
 // maxOpenReports rows; reporting is rate limited). Callers hold s.mu.
@@ -159,6 +178,7 @@ func (s *Server) createReport(ctx context.Context, rec *reportRec, reason string
 		}
 		return nil, err
 	}
+	s.reportsChanged()
 	return s.reportProto(id, wire.ReportStatus_REPORT_STATUS_OPEN, rec, reason), nil
 }
 
@@ -214,7 +234,7 @@ func (s *Server) modQueueLocked(ctx context.Context, m *memberRec) *wire.ModQueu
 	}
 	q := &wire.ModQueue{}
 	if reports {
-		n, err := s.count(ctx, `SELECT count(*) FROM reports WHERE status = ?`, int(wire.ReportStatus_REPORT_STATUS_OPEN))
+		n, err := s.openReportCount(ctx)
 		if err != nil {
 			s.log.Warn("counting open reports failed", "err", err)
 		}
@@ -275,7 +295,7 @@ func (s *Server) reportMessage(ctx context.Context, ss *sess, r *wire.ReportMess
 		s.mu.Unlock()
 		return nil, errInvalid("you can't report your own message")
 	}
-	open, err := s.count(ctx, `SELECT count(*) FROM reports WHERE status = ?`, int(wire.ReportStatus_REPORT_STATUS_OPEN))
+	open, err := s.openReportCount(ctx)
 	if err != nil {
 		s.mu.Unlock()
 		return nil, err
@@ -412,6 +432,7 @@ func (s *Server) opResolveReport(ctx context.Context, actor *memberRec, r *wire.
 		int(next), s.sealJSON("reports", "data", rowID(r.Id), rec), r.Id); err != nil {
 		return err
 	}
+	s.reportsChanged()
 	what := "report"
 	if rec.Kind == wire.ReportKind_REPORT_KIND_AUTOMOD {
 		what = "AutoMod alert"

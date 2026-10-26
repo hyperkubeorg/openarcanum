@@ -263,7 +263,7 @@ func (s *Server) chunkFromPeers(ctx context.Context, upload []byte, index uint32
 // localChunk reads a chunk this node holds (nil: not here).
 func (s *Server) localChunk(ctx context.Context, upload []byte, index uint32) ([]byte, error) {
 	r, err := s.blobs.get(ctx, upload)
-	if err != nil || r == nil || !r.complete || int(index) >= chunkCount(r.size) {
+	if err != nil || r == nil || !r.complete || chunkPast(r.size, index) {
 		return nil, err
 	}
 	remote, err := s.isRemote(ctx, upload)
@@ -285,7 +285,7 @@ func (s *Server) localChunk(ctx context.Context, upload []byte, index uint32) ([
 		return nil, err
 	}
 	defer f.Close()
-	data := make([]byte, chunkLen(r.size, int(index)))
+	data := make([]byte, chunkLen(r.size, index))
 	if _, err := f.ReadAt(data, int64(index)*BlobChunkSize); err != nil {
 		return nil, err
 	}
@@ -329,7 +329,7 @@ func (s *Server) keepChunk(ctx context.Context, upload []byte, index uint32, dat
 		return err
 	}
 	remote, err := s.isRemote(ctx, upload)
-	if err != nil || !remote || int(index) >= chunkCount(r.size) || r.has(index) || int64(len(data)) != chunkLen(r.size, int(index)) {
+	if err != nil || !remote || chunkPast(r.size, index) || r.has(index) || int64(len(data)) != chunkLen(r.size, index) {
 		return err
 	}
 	used, err := b.used(ctx)
@@ -375,12 +375,29 @@ func (s *Server) keepChunk(ctx context.Context, upload []byte, index uint32, dat
 }
 
 // finishRemote verifies a remote blob whose chunks have all arrived and
-// moves it into place as a local blob. Callers hold b.mu.
+// moves it into place as a local blob. On a hash mismatch (a member served
+// a wrong chunk) the chunks are discarded but the record is kept, so the
+// content is fetched again, from any member that has it. Callers hold b.mu.
 func (b *blobStore) finishRemote(ctx context.Context, r *blobRow) error {
-	if err := b.finish(ctx, r, b.partPath(r.id)); err != nil {
+	ok, err := b.verify(r, b.partPath(r.id))
+	if err != nil {
 		return err
 	}
-	_, err := b.db.ExecContext(ctx, `UPDATE blobs SET remote = 0 WHERE id = ?`, r.id)
+	if !ok {
+		if err := os.Remove(b.partPath(r.id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		clear(r.received)
+		if _, err := b.db.ExecContext(ctx, `UPDATE blobs SET received = ? WHERE id = ?`, r.received, r.id); err != nil {
+			return err
+		}
+		b.log.Warn("replicated blob content doesn't match its hash; discarded, to be fetched again", "upload", shortID(r.id))
+		return errHashMismatch
+	}
+	if err := b.place(ctx, r, b.partPath(r.id)); err != nil {
+		return err
+	}
+	_, err = b.db.ExecContext(ctx, `UPDATE blobs SET remote = 0 WHERE id = ?`, r.id)
 	return err
 }
 
@@ -423,7 +440,7 @@ func (s *Server) copyRemoteBlobs(ctx context.Context) {
 			continue
 		}
 		for _, i := range r.missing() {
-			n := uint64(chunkLen(r.size, int(i)))
+			n := uint64(chunkLen(r.size, i))
 			if !s.blobBudget.charge("copy", n, s.now()) {
 				return
 			}
@@ -431,7 +448,9 @@ func (s *Server) copyRemoteBlobs(ctx context.Context) {
 			if data == nil {
 				break // no member has it now; try again next round
 			}
-			if err := s.keepChunk(ctx, id, i, data); err != nil {
+			if err := s.keepChunk(ctx, id, i, data); errors.Is(err, errHashMismatch) {
+				break // starts over next round
+			} else if err != nil {
 				return // store full: keep records only
 			}
 		}

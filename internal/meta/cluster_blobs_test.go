@@ -3,6 +3,8 @@ package meta_test
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hyperkubeorg/openarcanum/internal/meta"
@@ -86,5 +88,46 @@ func TestClusterBlobFullStoreKeepsRecordOnly(t *testing.T) {
 	a.kill()
 	if _, code := b.download(t, hash, tok); code != 404 {
 		t.Fatalf("serving without content or peer: %d", code)
+	}
+}
+
+// A member that serves a wrong chunk doesn't cost the others the blob: the
+// member collecting the content discards what it got and keeps the record,
+// so the content is fetched again once a member serves it right.
+func TestClusterBlobBadChunkKeepsRecord(t *testing.T) {
+	a, b := pair(t, nil)
+	data := randBytes(meta.BlobChunkSize + 99)
+	tok := blobToken(0xb3)
+	hash := a.upload(t, data, tok)
+	syncAll(t, a, b)
+	files := blobFiles(t, a.dir)
+	if len(files) != 1 {
+		t.Fatalf("a's files: %v", files)
+	}
+	path := filepath.Join(a.dir, "blobs", files[0])
+	good, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := bytes.Clone(good)
+	bad[meta.BlobChunkSize+1] ^= 1
+	if err := os.WriteFile(path, bad, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := b.download(t, hash, tok); code != 200 {
+		t.Fatalf("download through b while a serves bad data: %d", code)
+	}
+	if files := blobFiles(t, b.dir); len(files) != 0 {
+		t.Fatalf("b kept the bad content: %v", files)
+	}
+	if err := os.WriteFile(path, good, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, code := b.download(t, hash, tok); code != 200 || !bytes.Equal(got, data) {
+		t.Fatalf("download through b once a serves it right: %d", code)
+	}
+	a.kill()
+	if got, code := b.download(t, hash, tok); code != 200 || !bytes.Equal(got, data) {
+		t.Fatalf("b didn't keep the content the second time: %d", code)
 	}
 }

@@ -2,12 +2,15 @@
 server binaries."""
 
 import asyncio
+import os
 import sqlite3
+import stat
 import time
 
 import pytest
 from conftest import PASS, new_core, run, run_community, run_relay, wait_until
 
+from openarcanum import keys
 from openarcanum.core import Core, UserError
 from openarcanum.paths import Paths
 from openarcanum.wire import community_pb2 as cp
@@ -157,6 +160,36 @@ def test_backup_restore_reconnects(tmp_path):
             await fresh.shutdown()
 
         run(main(), 90)
+
+
+def test_backup_file_is_private_and_carries_the_sync_identity(tmp_path):
+    """The backup file is readable by its user only (it holds every key),
+    the folder it goes into keeps its mode, and the device group's sync
+    identity is in it: a restored profile keeps it."""
+
+    async def main():
+        core, _ = await new_core(tmp_path / "p")
+        sync_pub = core.dms.d["sync"]["pub"]
+        folder = tmp_path / "exports"
+        folder.mkdir()
+        if os.name == "posix":
+            folder.chmod(0o755)
+        await core.export_backup(str(folder), "backup passphrase here")
+        path = folder / "openarcanum-backup.fbak"
+        if os.name == "posix":
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
+            assert stat.S_IMODE(folder.stat().st_mode) == 0o755
+        data = keys.import_backup(path.read_bytes(), "backup passphrase here")
+        assert [i["kind"] for i in data["identities"].values()] == ["sync"]
+        await core.shutdown()
+
+        fresh = Core(Paths.under(tmp_path / "restored"))
+        await fresh.restore_backup(str(path), "backup passphrase here", PASS, "restored-desktop")
+        assert fresh.dms.d["sync"]["pub"] == sync_pub
+        assert [i["kind"] for i in fresh.vault.data["identities"].values()] == ["sync"]
+        await fresh.shutdown()
+
+    run(main(), 60)
 
 
 def test_removed_member_stops_reconnecting(tmp_path):

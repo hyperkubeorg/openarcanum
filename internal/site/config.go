@@ -112,6 +112,9 @@ func (c *Config) Validate() error {
 	if err := c.TLSSettings.Validate(); err != nil {
 		return err
 	}
+	if c.TLSMode == ops.TLSFiles && len(c.TLSDomains) == 0 {
+		return errors.New("tls_mode files needs tls_domains: the names the site answers for (and redirects to)")
+	}
 	if c.DataDir == "" {
 		return errors.New("data_dir is required")
 	}

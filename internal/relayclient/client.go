@@ -3,6 +3,7 @@
 package relayclient
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -51,7 +52,11 @@ type Client struct {
 	smu      sync.RWMutex
 	handlers map[string]Handler
 
-	partial map[partialKey]*partialMsg // read loop only
+	// Messages being reassembled (read loop only): by sender and id, how
+	// many each sender has, and the bytes they hold together.
+	partial      map[partialKey]*partialMsg
+	partialBy    map[uint64]int
+	partialBytes int
 
 	nextMsg    atomic.Uint64
 	nextStream atomic.Uint32
@@ -62,7 +67,22 @@ type Client struct {
 
 	// StreamBufferBytes caps unread data per stream before the stream is reset.
 	StreamBufferBytes int
+	// PartialBytes caps what partly received messages hold together; past
+	// it the oldest are dropped (the relay picks max_message, and nothing
+	// makes it finish a message it started).
+	PartialBytes int
 }
+
+// maxMessage is the protocol's ceiling for one message (25 MiB,
+// relay.ProtocolMaxMessage); a relay's Hello can't raise it.
+const maxMessage = 25 << 20
+
+// maxPartials bounds the messages being reassembled, in all and from one
+// sender (a relay allows a publisher max_partial in flight).
+const (
+	maxPartials         = 1024
+	maxPartialsBySender = 64
+)
 
 type partialKey struct {
 	sender, id uint64
@@ -114,6 +134,7 @@ func dial(ctx context.Context, url string, versions []uint32, hc *http.Client) (
 		ws.Close(websocket.StatusPolicyViolation, "relay identity")
 		return nil, fmt.Errorf("relayclient: %w", err)
 	}
+	hello.MaxMessage = min(hello.MaxMessage, maxMessage)
 	chosen, err := version.Negotiate(versions, hello.Versions)
 	if err != nil {
 		ws.Close(websocket.StatusNormalClosure, "no common protocol version")
@@ -161,10 +182,12 @@ func dial(ctx context.Context, url string, versions []uint32, hc *http.Client) (
 		pending:           make(map[uint32]chan *wire.RelayFrame),
 		handlers:          make(map[string]Handler),
 		partial:           make(map[partialKey]*partialMsg),
+		partialBy:         make(map[uint64]int),
 		streams:           make(map[uint32]*Stream),
 		incoming:          make(chan *Stream, 256),
 		opening:           make(map[uint32]chan error),
 		StreamBufferBytes: 64 << 20,
+		PartialBytes:      64 << 20,
 	}
 	go c.readLoop()
 	return c, nil
@@ -576,38 +599,76 @@ func (c *Client) deliver(d *wire.Deliver) {
 	key := partialKey{d.Sender, d.MessageId}
 	p := c.partial[key]
 	if p == nil {
-		if d.Seq != 0 {
+		if d.Seq != 0 || c.partialBy[d.Sender] >= maxPartialsBySender {
 			return
+		}
+		if len(c.partial) >= maxPartials {
+			c.gcPartial()
+		}
+		for len(c.partial) >= maxPartials {
+			c.dropPartial(c.oldestPartial(key))
 		}
 		p = &partialMsg{topic: d.Topic, at: time.Now()}
 		c.partial[key] = p
-		if len(c.partial) > 1024 {
-			c.gcPartial()
-		}
+		c.partialBy[d.Sender]++
 	}
-	if d.Seq != p.next || uint64(len(p.buf)+len(d.Data)) > c.hello.MaxMessage {
-		delete(c.partial, key)
+	// Every chunk belongs to the topic the first one named.
+	if d.Seq != p.next || !bytes.Equal(d.Topic, p.topic) || uint64(len(p.buf)+len(d.Data)) > c.hello.MaxMessage {
+		c.dropPartial(key)
+		return
+	}
+	for c.partialBytes+len(d.Data) > c.PartialBytes && len(c.partial) > 1 {
+		c.dropPartial(c.oldestPartial(key))
+	}
+	if c.partialBytes+len(d.Data) > c.PartialBytes {
+		c.dropPartial(key)
 		return
 	}
 	p.next++
 	p.buf = append(p.buf, d.Data...)
+	c.partialBytes += len(d.Data)
 	if !d.Final {
 		return
 	}
-	delete(c.partial, key)
+	c.dropPartial(key)
 	c.smu.RLock()
-	h := c.handlers[string(d.Topic)]
+	h := c.handlers[string(p.topic)]
 	c.smu.RUnlock()
 	if h != nil {
-		h(d.Topic, p.buf)
+		h(p.topic, p.buf)
 	}
+}
+
+func (c *Client) dropPartial(key partialKey) {
+	p := c.partial[key]
+	if p == nil {
+		return
+	}
+	delete(c.partial, key)
+	c.partialBytes -= len(p.buf)
+	if c.partialBy[key.sender]--; c.partialBy[key.sender] <= 0 {
+		delete(c.partialBy, key.sender)
+	}
+}
+
+// oldestPartial is the key of the partial message started longest ago,
+// other than except.
+func (c *Client) oldestPartial(except partialKey) partialKey {
+	var oldest partialKey
+	var at time.Time
+	for k, p := range c.partial {
+		if k != except && (at.IsZero() || p.at.Before(at)) {
+			oldest, at = k, p.at
+		}
+	}
+	return oldest
 }
 
 func (c *Client) gcPartial() {
 	cutoff := time.Now().Add(-2 * time.Minute)
 	for k, p := range c.partial {
 		if p.at.Before(cutoff) {
-			delete(c.partial, k)
+			c.dropPartial(k)
 		}
 	}
 }

@@ -134,6 +134,10 @@ func TestRelayMetricsAndLogsCarryNoContent(t *testing.T) {
 	if !strings.Contains(logs.String(), "endpoint registered") {
 		t.Fatalf("expected debug records; log:\n%s", logs.String())
 	}
+	// Nor the clients' addresses.
+	if strings.Contains(logs.String(), "127.0.0.1") {
+		t.Errorf("log contains a client address:\n%s", logs.String())
+	}
 	for _, secret := range [][]byte{topic, payload, key.Public} {
 		for _, form := range []string{string(secret), hex.EncodeToString(secret), base64.StdEncoding.EncodeToString(secret),
 			base64.RawURLEncoding.EncodeToString(secret), identity.Encode(secret)} {

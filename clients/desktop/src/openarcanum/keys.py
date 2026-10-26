@@ -34,7 +34,6 @@ CTX_LISTING = "openarcanum/listing/v1"
 CTX_RELAY_HEARTBEAT = "openarcanum/relay-heartbeat/v1"
 CTX_COMMUNITY_HEARTBEAT = "openarcanum/community-heartbeat/v1"
 CTX_MAINTAINER_SET = "openarcanum/maintainer-set/v1"
-CTX_CONTACT_CARD = "openarcanum/contact-card/v1"
 CTX_DM_CARD = "openarcanum/dm-card/v2"
 CTX_DM_DEVICE_LIST = "openarcanum/dm-device-list/v2"
 CTX_DM_DEVICE = "openarcanum/dm-device/v2"
@@ -153,9 +152,10 @@ BACKUP_VERSION = 1
 
 
 def export_backup(vault_data: dict, passphrase: str) -> bytes:
-    """An encrypted backup: every identity key and the list of joined
-    communities (routes and pinned keys), but no message history and no
-    device keys (a restored device makes its own)."""
+    """An encrypted backup: every identity key (community, DM, contact and
+    the device group's sync identity) and the list of joined communities
+    (routes and pinned keys), but no message history and no device keys (a
+    restored device makes its own)."""
     import json
     import time
 
@@ -197,7 +197,7 @@ def export_backup(vault_data: dict, passphrase: str) -> bytes:
             "label": v.get("label", ""),
         }
         for i, v in vault_data["identities"].items()
-        if "seed" in v and (i in used or v.get("kind") in ("dm", "contact"))
+        if "seed" in v and (i in used or v.get("kind") in ("dm", "contact", "sync"))
     }
     payload = {
         "format": "openarcanum-backup",

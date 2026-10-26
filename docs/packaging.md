@@ -183,8 +183,10 @@ installed with Chocolatey):
 - with `WINDOWS_CERT_PFX` (base64 of the code-signing PFX) and
   `WINDOWS_CERT_PASSWORD`: signs `OpenArcanum.exe` inside the bundle, the
   installer and its uninstaller (Inno's `SignTool` with `SignedUninstaller`)
-  with `signtool sign /fd sha256 /tr <timestamp> /td sha256`, then
-  `signtool verify /pa` both. `WINDOWS_TIMESTAMP_URL` overrides the RFC 3161
+  through a temporary `sign.cmd` that runs `signtool sign /fd sha256 /tr
+  <timestamp> /td sha256` with the password from its environment (never on a
+  command line), then `signtool verify /pa` both. `WINDOWS_TIMESTAMP_URL`
+  overrides the RFC 3161
   timestamp service (default DigiCert's public one);
 - without them: builds unsigned and logs a workflow notice saying so
   (SmartScreen warns about unsigned installers).

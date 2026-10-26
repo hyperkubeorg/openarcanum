@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -965,6 +966,141 @@ func TestRelayLimits(t *testing.T) {
 	if err := s.Update(ctl); err == nil {
 		t.Fatal("control with 1001 removals accepted")
 	}
+}
+
+// Controls listing many removed participants don't grow the relay's
+// memory without bound: a call keeps the newest removals, the relay the
+// newest across its calls, and a control naming anything but participant
+// ids is refused.
+func TestRemovalsBounded(t *testing.T) {
+	s := newSFU(t)
+	srv := newServer(t)
+	sg, _ := srv.grant(t, "a", 1, nil)
+	c := newClient(t, false)
+	if err := c.join(t, s, sg); err != nil {
+		t.Fatal(err)
+	}
+	ids := func(n, size int) [][]byte {
+		out := make([][]byte, n)
+		for i := range out {
+			out[i] = make([]byte, size)
+			rand.Read(out[i])
+		}
+		return out
+	}
+	ctl, _ := callauth.SignControl(srv.key, &wire.CallControl{CallId: srv.id, Seq: 1, Removed: ids(1, 1024)})
+	if err := s.Update(ctl); err == nil {
+		t.Fatal("control with a kilobyte removed id accepted")
+	}
+	const updates = 100
+	for i := 2; i <= updates+1; i++ {
+		ctl, _ := callauth.SignControl(srv.key, &wire.CallControl{CallId: srv.id, Seq: uint64(i), Removed: ids(callauth.MaxControlList, 16)})
+		if err := s.Update(ctl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, queued, inCall := s.Removals(srv.id)
+	if inCall > sfu.MaxRemoved {
+		t.Fatalf("call remembers %d removals, bound %d", inCall, sfu.MaxRemoved)
+	}
+	if all > sfu.MaxRemembered || queued > sfu.MaxRemembered {
+		t.Fatalf("relay remembers %d removals (%d queued), bound %d", all, queued, sfu.MaxRemembered)
+	}
+	if all == 0 || inCall == 0 {
+		t.Fatal("removals forgotten altogether")
+	}
+	// The newest are the ones kept: the last control's removals are still
+	// refused.
+	last := &wire.CallControl{}
+	_ = proto.Unmarshal(ctl.Control, last)
+	g, _ := srv.grant(t, "r", 2, func(g *wire.CallGrant) { g.Participant = last.Removed[0] })
+	if err := newClient(t, false).join(t, s, g); err == nil {
+		t.Fatal("participant removed by the latest control joined")
+	}
+}
+
+// A relay that lost its state (restarted) takes the first control it is
+// brought, stale or not: someone removed before can get back in with a
+// grant that hasn't expired. The next newer control, brought by any other
+// joiner, puts them out again.
+func TestStaleControlReplacedByANewerOne(t *testing.T) {
+	s := newSFU(t)
+	srv := newServer(t)
+	gx, px := srv.grant(t, "x", 1, nil)
+	gy, _ := srv.grant(t, "y", 2, nil)
+	x, y := newClient(t, false), newClient(t, false)
+	x.control, _ = callauth.SignControl(srv.key, &wire.CallControl{CallId: srv.id, Seq: 3})
+	if err := x.join(t, s, gx); err != nil {
+		t.Fatal(err)
+	}
+	y.control, _ = callauth.SignControl(srv.key, &wire.CallControl{CallId: srv.id, Seq: 5, Removed: [][]byte{px}})
+	if err := y.join(t, s, gy); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for st := x.lastState(); st == nil || st.Ended == ""; st = x.lastState() {
+		if time.Now().After(deadline) {
+			t.Fatal("participant removed by a newer control still in the call")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Nor can x come back on the stale control, or on none.
+	sg, _ := callauth.SignGrant(srv.key, mustGrant(t, gx))
+	again := newClient(t, false)
+	again.control = x.control
+	if err := again.join(t, s, sg); err == nil {
+		t.Fatal("removed participant rejoined on a stale control")
+	}
+	if err := newClient(t, false).join(t, s, sg); err == nil {
+		t.Fatal("removed participant rejoined")
+	}
+}
+
+// mustGrant is the grant inside a signed one.
+func mustGrant(t *testing.T, sg *wire.SignedCallGrant) *wire.CallGrant {
+	t.Helper()
+	g := &wire.CallGrant{}
+	if err := proto.Unmarshal(sg.Grant, g); err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+// What the WebRTC stack logs reaches the relay's log at debug level without
+// the peer addresses ICE names (docs/operations.md "Logs").
+func TestPionLogsCarryNoAddresses(t *testing.T) {
+	var buf lockedBuffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	l := sfu.NewPionLogs(log).NewLogger("ice")
+	l.Warnf("ping error from %s to %s", "203.0.113.7:51234", "[2001:db8::1]:3478")
+	l.Error("conn 198.51.100.4 timed out")
+	l.Info("candidate 192.0.2.9:1")
+	got := buf.String()
+	for _, addr := range []string{"203.0.113.7", "2001:db8::1", "198.51.100.4", "192.0.2.9"} {
+		if strings.Contains(got, addr) {
+			t.Errorf("log names %s:\n%s", addr, got)
+		}
+	}
+	if !strings.Contains(got, "ping error") || !strings.Contains(got, "timed out") || strings.Contains(got, "candidate") {
+		t.Fatalf("warnings and errors at debug, info dropped:\n%s", got)
+	}
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 // A refused join leaves no call behind: anyone can sign grants for calls of

@@ -98,6 +98,33 @@ def test_signatures(tmp_path):
     assert not OlmStore.verify(a.ed("dm:a"), olm.otk_message(a.curve("dm:a"), kid, key, False), s)
 
 
+def test_fallback_key_is_replaced_on_a_schedule_and_the_previous_one_still_works(tmp_path):
+    """The published fallback key stays the same (cards and status device
+    entries don't change on every start) until it's a week old; then a new
+    one is made and the previous one keeps opening sessions until the one
+    after it (a card up to a week old still works)."""
+    a, b = store(tmp_path, "a"), store(tmp_path, "b")
+    t0 = 1_700_000_000.0
+    kid1, k1 = b.fallback_key("dm:b", now=t0)
+    assert b.fallback_key("dm:b", now=t0 + 6 * 86400) == (kid1, k1)
+    assert reopen(b).fallback_key("dm:b", now=t0 + 6 * 86400) == (kid1, k1)
+    kid2, k2 = b.fallback_key("dm:b", now=t0 + 7 * 86400)
+    assert kid2 != kid1 and k2 != k1
+    # A session from the previous key (someone holding the older card).
+    mtype, ct = a.encrypt_olm("dm:a", b.curve("dm:b"), b"older card", one_time_key=k1)
+    assert b.decrypt_olm("dm:b", a.curve("dm:a"), mtype, ct) == b"older card"
+    # The one after that forgets it; an explicit rotation counts as one.
+    kid3, _k3 = b.fallback_key("dm:b", rotate=True, now=t0 + 8 * 86400)
+    assert kid3 not in (kid1, kid2)
+    c = store(tmp_path, "c")
+    mtype, ct = c.encrypt_olm("dm:c", b.curve("dm:b"), b"stale card", one_time_key=k1)
+    with pytest.raises(OlmError):
+        b.decrypt_olm("dm:b", c.curve("dm:c"), mtype, ct)
+    d = store(tmp_path, "d")
+    mtype, ct = d.encrypt_olm("dm:d", b.curve("dm:b"), b"current card", one_time_key=k2)
+    assert b.decrypt_olm("dm:b", d.curve("dm:d"), mtype, ct) == b"current card"
+
+
 GROUP = b"g" * 16
 
 

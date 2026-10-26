@@ -375,6 +375,16 @@ func (s *Server) opDeleteChannel(ctx context.Context, actor *memberRec, d *wire.
 	if c.Kind == wire.ChannelKind_CHANNEL_KIND_TEXT && textChannels == 1 {
 		return errConflict("a community needs at least one text channel")
 	}
+	// What the server keeps in memory about the channel's messages: its
+	// pins, and its recent messages (ban history deletion).
+	pinned, err := s.idsOf(ctx, `SELECT message_id FROM pins WHERE channel_id = ?`, c.ID)
+	if err != nil {
+		return err
+	}
+	recent, err := s.idsOf(ctx, `SELECT id FROM messages WHERE channel_id = ? AND created_at >= ?`, c.ID, s.now().Add(-recentWindow).UnixMilli())
+	if err != nil {
+		return err
+	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM channels WHERE id = ?`, c.ID); err != nil {
 		return err
 	}
@@ -386,6 +396,10 @@ func (s *Server) opDeleteChannel(ctx context.Context, actor *memberRec, d *wire.
 			delete(s.lastPost, k)
 		}
 	}
+	for _, id := range pinned {
+		delete(s.pinned, id)
+	}
+	s.recent.drop(recent)
 	s.unindexChannel(c.ID)
 	// After the action, outside s.mu (it tells the relay).
 	deleted, prev := c.ID, out.after

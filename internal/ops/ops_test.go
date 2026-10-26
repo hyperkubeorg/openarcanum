@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -229,6 +230,61 @@ func TestStatusEndpoints(t *testing.T) {
 	}
 	if _, err := ServeStatus(context.Background(), busy.String(), st, nil); err == nil {
 		t.Fatal("second listener on a busy address")
+	}
+}
+
+func TestExposedAddr(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"127.0.0.1:7101": false, "localhost:7101": false, "[::1]:7101": false, "127.0.0.2:7101": false,
+		":7100": true, "0.0.0.0:7100": true, "[::]:7100": true, "10.0.0.5:7100": true, "203.0.113.7:443": true,
+		"not an address": false,
+	} {
+		if got := ExposedAddr(addr); got != want {
+			t.Errorf("ExposedAddr(%q) = %v, want %v", addr, got, want)
+		}
+	}
+}
+
+// The relay and the maintainer node warn at start when they serve other
+// machines without TLS; the status listener when it isn't on loopback.
+func TestListenerWarnings(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	plain := DefaultTLSSettings()
+	acme := TLSSettings{TLSMode: TLSACME, TLSDomains: []string{"relay.example.invalid"}}
+	for _, c := range []struct {
+		addr string
+		tls  TLSSettings
+		warn bool
+	}{
+		{":7000", plain, true},
+		{"0.0.0.0:7000", plain, true},
+		{"127.0.0.1:7000", plain, false},
+		{":443", acme, false},
+	} {
+		buf.Reset()
+		WarnPlainListener(log, c.addr, c.tls)
+		if got := strings.Contains(buf.String(), "tls_mode is off"); got != c.warn {
+			t.Errorf("WarnPlainListener(%q, %s): warned %v, want %v: %s", c.addr, c.tls.TLSMode, got, c.warn, buf.String())
+		}
+	}
+	WarnPlainListener(nil, ":7000", plain) // no logger: nothing to do
+
+	st := Status{Registry: NewRegistry()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	buf.Reset()
+	if _, err := ServeStatus(ctx, "127.0.0.1:0", st, log); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "metrics_listen") {
+		t.Fatalf("loopback status listener warned: %s", buf.String())
+	}
+	if _, err := ServeStatus(ctx, ":0", st, log); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "metrics_listen is not on loopback") {
+		t.Fatalf("status listener on every interface did not warn: %s", buf.String())
 	}
 }
 
