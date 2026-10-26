@@ -33,6 +33,8 @@ const CALL = {
   // A new key is installed for receiving at once, and used for sending a
   // little later, so everyone has it before frames under it arrive.
   SEND_KEY_DELAY_MS: 250,
+  // Video loss is judged on samples of at least this many packets.
+  LOSS_MIN_PACKETS: 20,
   CAMERA: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
   // Simulcast layers, lowest first (rid, scale, max bitrate).
   LAYERS: [
@@ -887,8 +889,8 @@ class Call {
 
   // Each video is asked for at the layer its tile can show (tiles report
   // their size through watch()), capped by how the link copes: loss over
-  // 5% lowers the cap one layer for everyone, and after 10 s under 1% it
-  // goes back up a layer. (A bandwidth estimate alone can't drive this: a
+  // 5% (counted before repair, videoLoss) lowers the cap one layer for
+  // everyone, and after 10 s under 1% it goes back up a layer. (A bandwidth estimate alone can't drive this: a
   // receiver only sees as much bandwidth as the layers it asked for.)
   // Only what is being watched here is asked for (and a watched screen's
   // sound); the first size starts it at once.
@@ -910,27 +912,41 @@ class Call {
     if (was && kind === 'screen') this.sendListen();
   }
 
+  // The share of video packets dropped on the way since the last sample,
+  // counted before repair: packetsLost alone goes back down when a packet
+  // asked for again (NACK) arrives and fills its gap, so a link losing 15%
+  // can look clean. Packets received again (or, where the engine doesn't
+  // count those, NACKs sent) are dropped packets too. Null until enough
+  // packets came to tell.
   async videoLoss() {
     const stats = await this.pc.getStats();
-    let lost = 0;
-    let got = 0;
+    const now = { lost: 0, got: 0, again: 0, nacks: 0, counted: false };
     stats.forEach((s) => {
-      if (s.type === 'inbound-rtp' && s.kind === 'video') { lost += s.packetsLost || 0; got += s.packetsReceived || 0; }
+      if (s.type !== 'inbound-rtp' || s.kind !== 'video') return;
+      now.lost += s.packetsLost || 0;
+      now.got += s.packetsReceived || 0;
+      now.nacks += s.nackCount || 0;
+      if (s.retransmittedPacketsReceived !== undefined) { now.again += s.retransmittedPacketsReceived; now.counted = true; }
     });
-    const prev = this.lastLoss || { lost, got };
-    this.lastLoss = { lost, got };
-    const dl = lost - prev.lost;
-    const dg = got - prev.got;
-    return dg + dl > 0 ? dl / (dg + dl) : 0;
+    const prev = this.lastLoss || now;
+    this.lastLoss = now;
+    const dl = now.lost - prev.lost;
+    const expected = now.got - prev.got + dl;
+    if (expected < CALL.LOSS_MIN_PACKETS) return null;
+    const dropped = dl + (now.counted ? now.again - prev.again : now.nacks - prev.nacks);
+    return Math.min(1, Math.max(0, dropped) / expected);
   }
 
   async chooseLayers() {
     if (!this.pc || this.layers.size === 0) return;
     const order = ['l', 'm', 'h'];
     const now = performance.now();
-    this.loss = await this.videoLoss();
+    const loss = await this.videoLoss();
+    if (loss !== null) this.loss = loss;
     if (this.cap === undefined) { this.cap = 2; this.capAt = now; }
-    if (this.loss > 0.05 && this.cap > 0) { this.cap -= 1; this.capAt = now; } else if (this.loss < 0.01 && this.cap < 2 && now - this.capAt > 10000) { this.cap += 1; this.capAt = now; }
+    if (loss !== null) {
+      if (loss > 0.05 && this.cap > 0) { this.cap -= 1; this.capAt = now; } else if (loss < 0.01 && this.cap < 2 && now - this.capAt > 10000) { this.cap += 1; this.capAt = now; }
+    }
     for (const [key, v] of this.layers) {
       const want = v.width >= 640 ? 2 : v.width >= 280 ? 1 : 0;
       const rid = order[Math.min(want, this.cap)];

@@ -72,6 +72,8 @@ class FakePC {
   removeEventListener() {}
   close() { this.connectionState = 'closed'; }
   set(state) { this.connectionState = state; if (this.onconnectionstatechange) this.onconnectionstatechange(); }
+  // Inbound statistics the test sets (an array of stats objects).
+  async getStats() { return { forEach: (fn) => (this.stats || []).forEach(fn) }; }
 }
 
 class DOMException extends Error {
@@ -540,6 +542,44 @@ test("a screen share's sound is captured and sent only when shared", async () =>
 
 // A frame of one kind can't be played as another kind of the same sender:
 // the kind is bound into the SFrame metadata.
+test('video loss is counted before retransmissions repair it, and only on enough packets', async () => {
+  const { call, signals } = await started({ audio: true });
+  const layerOf = () => signals.filter((x) => x[0] === 'layer').at(-1)[3];
+  const video = (f) => [{ type: 'inbound-rtp', kind: 'video', ...f }];
+  call.watch('bb', 'camera', 1000);
+  await call.chooseLayers();
+  assert.equal(layerOf(), 'h');
+  // First sample: nothing to compare with yet.
+  call.pc.stats = video({ packetsLost: 0, packetsReceived: 1000, retransmittedPacketsReceived: 0 });
+  await call.chooseLayers();
+  assert.equal(layerOf(), 'h');
+  // 150 of 1010 packets were dropped; 140 of them arrived again and so no
+  // longer count as lost in the engine's running total.
+  call.pc.stats = video({ packetsLost: 10, packetsReceived: 2000, retransmittedPacketsReceived: 140 });
+  await call.chooseLayers();
+  assert.ok(Math.abs(call.loss - 150 / 1010) < 0.001, call.loss);
+  assert.equal(layerOf(), 'm');
+  // The last 10 arrive too: the running total of lost packets goes down,
+  // which is not negative loss, and not loss at all.
+  call.pc.stats = video({ packetsLost: 0, packetsReceived: 3000, retransmittedPacketsReceived: 150 });
+  await call.chooseLayers();
+  assert.equal(call.loss, 0);
+  assert.equal(layerOf(), 'm');
+  // Too few packets to judge: the estimate is left alone.
+  call.pc.stats = video({ packetsLost: 5, packetsReceived: 3005, retransmittedPacketsReceived: 150 });
+  await call.chooseLayers();
+  assert.equal(call.loss, 0);
+  // An engine without retransmission counts: NACKs sent count instead.
+  const { call: c2, signals: s2 } = await started({ audio: true });
+  c2.watch('bb', 'camera', 1000);
+  c2.pc.stats = video({ packetsLost: 0, packetsReceived: 1000, nackCount: 0 });
+  await c2.chooseLayers();
+  c2.pc.stats = video({ packetsLost: 2, packetsReceived: 2000, nackCount: 100 });
+  await c2.chooseLayers();
+  assert.ok(c2.loss > 0.05, c2.loss);
+  assert.equal(s2.filter((x) => x[0] === 'layer').at(-1)[3], 'm');
+});
+
 test('frames are bound to their kind of media', async () => {
   const { call, mod } = await started({ audio: true });
   // Receive as participant bb (slot 2) under the call key: a sender context for bb.

@@ -2238,7 +2238,10 @@ at once through the control.
   `h` full; 150/500/1500 kbit/s). `CallLayer{source, kind, rid}` asks the
   relay for one layer of one source (`""` pauses it); the client picks by
   the size its tile shows, capped by how its link copes: video loss over 5%
-  lowers the cap one layer, and 10 s under 1% raises it again. The relay switches layers at keyframes and rewrites
+  (counted before repair: packets that had to be sent again are lost
+  packets, so retransmissions can't hide a lossy link; samples under 20
+  packets are ignored) lowers the cap one layer, and 10 s under 1% raises
+  it again. The relay switches layers at keyframes and rewrites
   sequence numbers and timestamps. Video is **paused until asked for**:
   clients ask only for the videos their user clicked to watch. A request
   may come before the source sends that video, or before its join reaches
