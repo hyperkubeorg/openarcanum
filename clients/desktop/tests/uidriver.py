@@ -341,7 +341,12 @@ class App:
             await asyncio.sleep(0.1)
 
     async def _fail_shot(self, what: str) -> None:
-        """Keep a screenshot of the failure next to the profile (for CI artifacts)."""
+        """Keep a screenshot of the failure next to the profile (for CI
+        artifacts), and the call engine's state when a call is up."""
+        with contextlib.suppress(Exception):
+            dbg = await self.js("JSON.stringify(window.voiceUI && voiceUI.call ? voiceUI.call.debug() : null)")
+            if dbg and dbg != "null":
+                (self.home.parent / f"{self.name}-call.json").write_text(dbg)
         with contextlib.suppress(Exception):
             await self.screenshot(self.home.parent / f"{self.name}-failure.png")
 

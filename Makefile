@@ -168,12 +168,16 @@ test-py: build
 # The same tests in three parts, so CI can run them side by side: the ones
 # that open no window (`gui` marker absent), the UI flows, and the other
 # windowed tests (calls, the engine probe, the tray, the keychain).
+# TEST_K narrows them further (pytest -k terms; CI leaves out the 25- and
+# 50-person calls, which need more cores than a hosted runner has).
+TEST_K ?=
+K_AND = $(if $(TEST_K), and ($(TEST_K)),)
 test-py-core: build
-	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m "not gui"
+	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m "not gui" $(if $(TEST_K),-k "$(TEST_K)",)
 test-ui: build
-	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m gui -k "test_ui_"
+	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m gui -k "test_ui_$(K_AND)"
 test-media: build
-	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m gui -k "not test_ui_"
+	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m gui -k "not test_ui_$(K_AND)"
 
 # The UI's JavaScript unit tests (Node's built-in runner; no npm packages).
 NODE ?= node

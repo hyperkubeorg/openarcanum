@@ -244,7 +244,9 @@ def test_licences_collected_for_the_bundle(tmp_path):
     assert "no-such-dist" not in by_name
     assert "python/cryptography/" in by_name["cryptography"]
     assert any((tmp_path / "out" / "python" / "cryptography").rglob("LICENSE*"))
-    assert "LGPL-3.0-only" in by_name["PySide6"] and "LICENSES/LGPL-3.0-only.txt" in by_name["PySide6"]
+    # The wheel carries its licence files on some platforms; elsewhere the index points at LICENSES/.
+    assert "LGPL-3.0-only" in by_name["PySide6"]
+    assert "LICENSES/LGPL-3.0-only.txt" in by_name["PySide6"] or "python/PySide6/" in by_name["PySide6"]
     assert "CPython" in by_name
     for text in ("LGPL-3.0-only.txt", "GPL-3.0-only.txt", "CC-BY-3.0-US.txt"):
         assert (licenses.REPO / "LICENSES" / text).is_file()

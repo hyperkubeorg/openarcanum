@@ -519,6 +519,9 @@ class Harness:
         await b.js(f"call.unwatch({aid}, 'camera'); 0")
         await asyncio.sleep(2)
         out["unwatched_again"] = await self.sent(a, 3)
+        # What b hears of a before any muting (the later checks compare).
+        out["before_mute_heard"] = await self.speaking_over(b, 6, until_spoken=True)
+        out["before_mute_a"] = await self.debug(a)
         # b mutes a for itself: a's voice isn't played or received at b, and
         # a (heard by nobody else) stops sending it.
         await b.js("call.setLocalMute('a', true); 0")
@@ -532,6 +535,7 @@ class Harness:
         # takes longer on a loaded machine.
         out["unmuted_heard"] = await self.speaking_over(b, 15, until_spoken=True)
         out["unmuted_b"] = await self.debug(b)
+        out["unmuted_a"] = await self.debug(a)
         # b deafens: a stops sending its voice.
         await b.js_async("call.setSelfDeaf(true)")
         await asyncio.sleep(2)

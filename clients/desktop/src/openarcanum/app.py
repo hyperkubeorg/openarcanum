@@ -1085,9 +1085,11 @@ def run(paths: Paths, args: argparse.Namespace) -> int:
     bus = Bus()
     gui = Gui(None, bus, smoke=args.smoke, debug=args.debug, devtools=devtools_allowed(args.debug))
     # Quitting through the system (the macOS app menu or Dock, logging out)
-    # is quitting, not closing the window to the tray.
+    # is quitting, not closing the window to the tray. A sign-out (Windows
+    # WM_QUERYENDSESSION, commitDataRequest here) gives the app a few
+    # seconds: it saves and quits at once, as on a terminate signal.
     qapp.set_quit_handler(lambda: setattr(gui, "quitting", True))
-    qapp.commitDataRequest.connect(lambda *_args: setattr(gui, "quitting", True))
+    qapp.commitDataRequest.connect(lambda *_args: gui._quit_now())
     gui.sandbox_file = sandbox_file
     link = codes.link_from_os(args.link) if args.link else None
     listener = None

@@ -381,12 +381,12 @@ def test_new_translation_lists_every_string(tmp_path, monkeypatch):
     monkeypatch.setattr(ss, "STRINGS", tmp_path)
     catalog = {"strings": {"Later": {}, "{n} file": {"plural": "{n} files"}}}
     path = ss.new_translation("de", catalog)
-    doc = json.loads(path.read_text())
+    doc = json.loads(path.read_text(encoding="utf-8"))
     assert doc["strings"] == {"Later": "", "{n} file": ["", ""]}
     doc["strings"]["Later"] = "Später"
-    path.write_text(json.dumps(doc))
+    path.write_text(json.dumps(doc), encoding="utf-8")
     catalog["strings"]["Cancel"] = {}
-    doc = json.loads(ss.new_translation("de", catalog).read_text())
+    doc = json.loads(ss.new_translation("de", catalog).read_text(encoding="utf-8"))
     assert doc["strings"] == {"Cancel": "", "Later": "Später", "{n} file": ["", ""]}
 
 

@@ -90,6 +90,21 @@ async def claim(app: App, claim_code: str, community: str, display_name: str) ->
     return invite
 
 
+async def open_community_menu(app: App) -> None:
+    """The menu at the top of the channel list, confirmed open (a redraw of
+    the channel list can swallow the click on a slow machine)."""
+    for attempt in range(3):
+        await app.click(".side-head")
+        try:
+            entry = '#ctx-menu .mi[aria-label="Copy community ID"]'
+            await app.wait_js(f"document.querySelector('{entry}')", "the community menu", 5)
+            return
+        except UIError:
+            if attempt == 2:
+                raise
+            await app.key("Escape")
+
+
 async def synced(app: App) -> None:
     """The open community is connected and its permissions are in (the
     menus depend on them; a slow machine shows the channel view first)."""
@@ -133,7 +148,7 @@ async def open_settings(app: App, which: str = "user") -> None:
     if which == "user":
         await app.click('.user-panel button[title="Settings"]')
     else:
-        await app.click(".side-head")
+        await open_community_menu(app)
         await app.click(".menu .mi", "Community Admin")
     await app.wait_js(SETTINGS_PAGE, "settings")
     await app.wait_js("document.querySelector('.settings section h2')", "a settings section")
@@ -362,7 +377,7 @@ async def attach_files(app: App, paths: list[str], caption: str = "") -> None:
 
 
 async def edit_my_profile(app: App, nickname: str | None = None, pronouns: str | None = None) -> None:
-    await app.click(".side-head")
+    await open_community_menu(app)
     await app.click(".menu .mi", "Your profile here")
     if nickname is not None:
         await app.fill('.modal input[aria-label="Nickname"]', nickname)

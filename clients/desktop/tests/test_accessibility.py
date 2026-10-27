@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from conftest import ENGINE_TEST_FLAGS, network, run
-from uidriver import App
+from uidriver import App, UIError
 from uiflows import (
     FAKE_SCREEN,
     claim,
@@ -81,8 +81,14 @@ def test_views_pass_axe_and_work_from_the_keyboard(tmp_path):
                 problems += await audit(app, "community")
                 # Statuses (status.js): the picker, then the member list and
                 # user panel showing a status with custom text.
-                await app.click(".user-panel .me-btn")
-                await app.wait_js("document.querySelector('.status-picker')", "the status picker")
+                for attempt in range(3):
+                    await app.click(".user-panel .me-btn")
+                    try:
+                        await app.wait_js("document.querySelector('.status-picker')", "the status picker", 5)
+                        break
+                    except UIError:
+                        if attempt == 2:
+                            raise
                 problems += await audit(app, "status picker")
                 await app.click('.status-choice[data-state="dnd"]')
                 await app.fill(".status-picker input[type=text]", "Checking contrast")

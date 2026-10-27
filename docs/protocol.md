@@ -2129,7 +2129,7 @@ another relay. Each participant has a *slot* (1..255, the lowest free one). A
 sender's SFrame key id is `epoch << 8 | slot`, and RFC 9605 §4.4.2 derives the
 key and salt from the call key **and the key id**, so every sender has its own
 key and nonce space under one call key. Cipher suite: `AES_128_GCM_SHA256_128`
-(4). Receivers keep the current and previous epoch; a sender switches to a new
+(4). Receivers keep the newest four epochs (frames in flight at a key change arrive under the old one); a sender switches to a new
 key 250 ms after receiving it, so everyone has it first. A frame on a
 participant's track must carry that participant's slot, or it is dropped (the
 shared key alone wouldn't stop one participant sending under another's key

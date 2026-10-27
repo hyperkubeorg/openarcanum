@@ -191,7 +191,7 @@ class Call {
     this.signal = signal;
     this.onChange = onChange || (() => {});
     this.sframe = new SFrame.Context();
-    this.epochs = []; // [{epoch, key}] newest last, at most two
+    this.epochs = []; // [{epoch, key}] newest last, the newest few (frames in flight at a key change arrive late)
     this.pc = null;
     this.tx = {}; // kind -> transceiver
     this.local = {}; // kind -> MediaStreamTrack being sent
@@ -248,7 +248,7 @@ class Call {
     // Who held which slot in this epoch: a frame must carry the slot its
     // track's participant held in the frame's epoch.
     this.epochs.push({ epoch, key, slots: new Map(this.s.participants.map((p) => [p.participant, p.slot])) });
-    while (this.epochs.length > 2) {
+    while (this.epochs.length > 4) {
       const old = this.epochs.shift();
       for (const kid of [...this.sframe.recv.keys()]) if (kid >> 8n === BigInt(old.epoch)) this.sframe.dropRecvKey(kid);
     }
@@ -858,6 +858,15 @@ class Call {
 
   tick() {
     const now = performance.now();
+    // The audio graph only renders while its context runs: the engine
+    // suspends it on its own at times (a starved machine, a policy), and
+    // then every analyser reads zeros. That isn't silence at the
+    // microphone, so the gate keeps its state until the context is back.
+    if (this.ctx && this.ctx.state && this.ctx.state !== 'running') {
+      this.ctx.resume().catch(() => {});
+      this.audioStalls = (this.audioStalls || 0) + 1;
+      return;
+    }
     if (this.micAnalyser) {
       this.myLevel = levelDb(this.micAnalyser, this.micBuf);
       if (this.myLevel > this.s.vadThreshold) { this.vadOpen = true; this.vadUntil = now + CALL.VAD_HANGOVER_MS; } else if (now > this.vadUntil) this.vadOpen = false;
@@ -1015,6 +1024,7 @@ class Call {
       remote: [...this.remote].map(([id, r]) => ({ id, audio: !!r.audio, camera: !!r.camera, screen: !!r.screen, speaking: r.speaking, level: r.level })),
       layers: [...this.layers].map(([k, v]) => ({ key: k, rid: v.rid || '' })),
       myLevel: this.myLevel,
+      audio: this.ctx ? { state: this.ctx.state, time: this.ctx.currentTime, stalls: this.audioStalls || 0 } : null,
       epochs: this.epochs.map((e) => e.epoch),
     };
   }

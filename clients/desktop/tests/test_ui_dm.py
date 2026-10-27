@@ -11,6 +11,7 @@ from uiflows import (
     community_member_menu,
     create_profile,
     join,
+    open_community_menu,
     set_maintainers_in_settings,
     unlock,
 )
@@ -35,7 +36,7 @@ async def publish_card(app: App) -> None:
     that didn't tick the box, or a publish that didn't stick, would otherwise
     only show up later and in the other window ("hasn't published a contact
     card")."""
-    await app.click(".side-head")
+    await open_community_menu(app)
     await app.click(".menu .mi", "Your profile here")
     box = "document.querySelector('.modal input[type=checkbox][aria-label=\"Publish a contact card here\"]').checked"
     await app.click(".modal input[type=checkbox]", "Publish a contact card here")

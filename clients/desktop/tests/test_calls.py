@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import ENGINE_TEST_FLAGS, headless, missing_harness, run_relay
+from conftest import ENGINE_TEST_FLAGS, binary, headless, run_relay
 
 HARNESS = Path(__file__).parent / "webengine" / "callharness.py"
 
@@ -68,8 +68,12 @@ def test_three_people_audio_video_screen_rekey_layers_and_moderation(tone):
     chosen = {x["key"].split("/")[0]: x["rid"] for x in r["layers"]["debug"]}
     rank = {"l": 0, "m": 1, "h": 2}
     assert sorted(rank[x] for x in chosen.values()) in ([0, 1], [0, 2]), r["layers"]
-    size = {"l": (320, 180), "m": (640, 360), "h": (1280, 720)}
+    # The top layer is the camera's own size (1280x720 asked for; the fake
+    # camera on some systems gives a larger one), the others its halves.
     sizes = {(v["w"], v["h"]) for v in r["layers"]["inbound"]}
+    top = max(sizes, key=lambda wh: wh[0])
+    assert top[0] >= 1280, sizes
+    size = {"l": (320, 180), "m": (640, 360), "h": top}
     for rid in chosen.values():
         assert size[rid] in sizes, (rid, sizes)
     # Server mute: b goes silent at a, c doesn't.
@@ -105,7 +109,10 @@ def test_nothing_is_sent_that_nobody_takes(tone):
     assert all(s["max"] == -120 and not s["spoke"] for s in r["muted_for_b_heard"].values()), r["muted_for_b_heard"]
     back = r["unmuted"]
     assert back["audio"] > 100 and back["sending"]["audio"], back
-    assert any(s["spoke"] for s in r["unmuted_heard"].values()), (r["unmuted_heard"], r["unmuted_b"])
+    # The receiver's state when nobody was heard (printed in full: pytest shortens assertion messages).
+    for label in ("before_mute_heard", "before_mute_a", "unmuted_b", "unmuted_a", "unmuted_heard"):
+        print(f"\n{label}:", json.dumps(r[label]))
+    assert any(s["spoke"] for s in r["unmuted_heard"].values()), r["unmuted_heard"]
     assert r["deafened"]["audio"] == 0 and not r["deafened"]["sending"]["audio"], r["deafened"]
     assert r["undeafened"]["audio"] > 100, r["undeafened"]
 
@@ -313,9 +320,7 @@ def test_latency_on_a_poor_network(tone):
 
 
 def mixed(tone, tmp_path, **plan) -> dict:
-    callload = Path(os.environ.get("OPENARCANUM_BIN", Path(__file__).parents[3] / "bin")) / "callload"
-    if not callload.exists():
-        missing_harness(f"{callload} not built (run `make build`)")
+    callload = binary("callload")
     # Every participant here comes from 127.0.0.1, past the default limit of
     # 20 call participants per address.
     with run_relay(max_call_peers_per_ip=200) as relay:

@@ -142,19 +142,19 @@ jobs:
         if: runner.os != 'Linux'
         run: |
           temp=$(cygpath -m "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")
-          export PYTEST_ADDOPTS="--basetemp=$temp/pytest -vv -k 'not fifty and not twenty_five'"
-          make check-${{ matrix.part }}
+          export PYTEST_ADDOPTS="--basetemp=$temp/pytest -vv"
+          make check-${{ matrix.part }} TEST_K="not fifty and not twenty_five"
 
       # On Linux the keychain tests need a Secret Service: an unlocked GNOME
       # Keyring on the session bus (Windows and macOS have theirs built in).
       - name: make check-${{ matrix.part }} (Linux, with a keyring)
         if: runner.os == 'Linux'
         env:
-          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest -vv -k "not fifty and not twenty_five"
+          PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest -vv
         run: |
           dbus-run-session -- bash -ec '
             echo -n ci-keyring | gnome-keyring-daemon --unlock --components=secrets >/dev/null
-            make check-${{ matrix.part }}'
+            make check-${{ matrix.part }} TEST_K="not fifty and not twenty_five"'
 
       # uidriver.py saves a screenshot of the window when a UI step fails.
       - name: Keep UI failure screenshots
@@ -165,6 +165,7 @@ jobs:
           path: |
             ${{ runner.temp }}/pytest/**/*-failure.png
             ${{ runner.temp }}/pytest/**/*-stderr.log
+            ${{ runner.temp }}/pytest/**/*-call.json
             ${{ runner.temp }}/pytest/**/log/client.log
           if-no-files-found: ignore
 

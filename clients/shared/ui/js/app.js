@@ -63,6 +63,7 @@ function storageCheck() { return 'checked-in-python'; }
 
 async function enterApp(status) {
   st.status = status;
+  if (pendingMaintainers) { st.status.maintainers = pendingMaintainers; pendingMaintainers = null; }
   applyAppearance(status.appearance);
   // Drop the lock screen's DOM so no typed passphrase lingers in it.
   clear($('#lock')).classList.add('hidden');
@@ -230,8 +231,11 @@ function noDirectoryNote() {
   return h('p', { class: 'small muted no-directory-note', text: t("Public listing isn't available on your maintainer nodes. Share invites to let people join.") });
 }
 
+// A network update that arrives before the app is in (the first check runs
+// as the profile opens) is kept for it.
+let pendingMaintainers = null;
 on('maintainers', (m) => {
-  if (!st.status) return;
+  if (!st.status) { pendingMaintainers = m; return; }
   const before = directoryAvailable();
   st.status.maintainers = m;
   if (before !== directoryAvailable() && st.view === 'add' && addUI.el) {
