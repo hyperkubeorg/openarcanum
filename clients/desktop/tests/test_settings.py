@@ -57,6 +57,7 @@ EXPECTED_DEFAULTS = {
     "status_communities": {},
     "status_idle_minutes": 10,
     "device_name": "",
+    "display_name": "",
 }
 
 BAD = {
@@ -105,6 +106,7 @@ BAD = {
     "status_communities": [[], {"c": "text"}, {"": "full"}, {"c": True}],
     "status_idle_minutes": [-1, 241, "10", 2.5, True],
     "device_name": ["", "x" * 65, "bad\nname"],
+    "display_name": ["x" * 65, "bad\x01name", 3],
 }
 
 

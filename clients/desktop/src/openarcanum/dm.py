@@ -234,7 +234,6 @@ def open_card(signed: dm.SignedContactCard) -> Card:
 
 
 CONTACT_CODE_PREFIX = "openarcanum-contact:"
-MAX_CODE_NAME = 64
 # A contact card is at most 64 KiB (docs/protocol.md §9.2).
 MAX_CONTACT_CODE = len(CONTACT_CODE_PREFIX) + (64 << 10) * 4 // 3 + 4
 
@@ -521,7 +520,8 @@ class DMManager:
             device_id=bytes.fromhex(self.core.vault.data["device_id"]),
             curve25519=curve,
             ed25519=self.olm.ed(label),
-            name=self.core.device_name,
+            # No name: the list goes out in contact cards and contact codes,
+            # and device names stay between my own devices (devices.py).
             added_at=int(time.time()),
             device_signature=self.olm.sign(label, device_consent(unb64(pub), curve)),
         )
@@ -750,7 +750,7 @@ class DMManager:
         card = dm.ContactCard(
             identity=unb64(pub),
             member=self.core.identity_public(rec["identity"]) if rec.get("identity") else b"",
-            name=rec.get("display_name", "") if cid else self.d.get("contact_name", ""),
+            name=rec.get("display_name", "") if cid else self.core.settings.get("display_name", ""),
             devices=dm.SignedDmDeviceList.FromString(unb64(ent["list"])),
             issued_at=int(time.time()),
         )
@@ -1006,13 +1006,10 @@ class DMManager:
         fallback key, which is replaced every 7 days, so a code works for
         about a week; a new one is made each time."""
         self.core.require_unlocked()
-        name = " ".join((name or "").split())
-        if len(name) > MAX_CODE_NAME:
-            raise UserError(_("Names can be at most {max} characters.").format(max=MAX_CODE_NAME))
+        if name:
+            # The name in it is the profile's display name (settings).
+            await self.core.set_setting("display_name", name)
         pub = self._ident("", create=True)
-        if name != self.d.get("contact_name", ""):
-            self.d["contact_name"] = name
-            self.core.save_vault()
         await self._ensure_listed(pub)
         signed, _curves = self._build_card(pub, "")
         return CONTACT_CODE_PREFIX + b64(signed.SerializeToString())
@@ -1059,6 +1056,25 @@ class DMManager:
         if existing:
             return {"id": existing}
         return await self._create("", [(card, "", b"", {})], name="", direct=True)
+
+    async def _contact_invitee(self, ident: str) -> tuple[Card, str, bytes, dict]:
+        """A contact to invite: their card fetched again from the community
+        they're a contact from (while I'm in it), else the card I hold for
+        them (a contact code)."""
+        c = self.d["contacts"].get(ident)
+        if c is None:
+            raise UserError(_("That person isn't in your contacts."))
+        if self._blocked(unb64(ident)):
+            raise UserError(_("You blocked this person. Unblock them first."))
+        cid, member = c.get("community", ""), c.get("member", "")
+        rec = self.core.vault.data["communities"].get(cid, {}) if cid else {}
+        if member and rec.get("status") == "active":
+            card, otks = await self._fetch_card(cid, unb64(member))
+            return card, cid, unb64(member), otks
+        raw = self.d["peers"].get(ident, {}).get("card")
+        if not raw:
+            raise UserError(_("Ask {name} for a new contact code.").format(name=c.get("name") or "them"))
+        return open_card(dm.SignedContactCard.FromString(unb64(raw))), "", b"", {}
 
     def _direct_with(self, them: str) -> str | None:
         for gid, g in self.d["groups"].items():
@@ -1331,7 +1347,8 @@ class DMManager:
 
     def _me_member(self, cid: str, pub: str, seq: int) -> dm.GroupMember:
         if not cid:
-            return dm.GroupMember(identity=unb64(pub), joined_seq=seq)
+            name = self.core.settings.get("display_name", "") if pub == self.d.get("contact_identity") else ""
+            return dm.GroupMember(identity=unb64(pub), name=name, joined_seq=seq)
         rec = self.core.vault.data["communities"][cid]
         return dm.GroupMember(
             identity=unb64(pub),
@@ -1378,6 +1395,12 @@ class DMManager:
             raise UserError(_("Pick at least one person."))
         if len(members) + 1 > groups.MAX_MEMBERS:
             raise UserError(_("A group DM can have at most {max} people.").format(max=groups.MAX_MEMBERS))
+        if not cid:
+            # From my contacts, with no community: the identity of my
+            # contact code, unless they all came from the same community.
+            cards = [await self._contact_invitee(m) for m in members]
+            shared = {inv[1] for inv in cards}
+            return await self._create(shared.pop() if len(shared) == 1 else "", cards, name=name, direct=False)
         cards = []
         for m in members:
             card, otks = await self._fetch_card(cid, unb64(m))
@@ -1472,10 +1495,13 @@ class DMManager:
             raise UserError(_("You can't add people to this conversation."))
         if len(info["members"]) + len(info["invited"]) + len(members) > groups.MAX_MEMBERS:
             raise UserError(_("A group DM can have at most {max} people.").format(max=groups.MAX_MEMBERS))
-        cards = []
-        for m in members:
-            card, otks = await self._fetch_card(cid, unb64(m))
-            cards.append((card, cid, unb64(m), otks))
+        if cid:
+            cards = []
+            for m in members:
+                card, otks = await self._fetch_card(cid, unb64(m))
+                cards.append((card, cid, unb64(m), otks))
+        else:
+            cards = [await self._contact_invitee(m) for m in members]
         async with self._lock(gid):
             await self._invite_cards(gid, cards)
         return {"ok": True}
@@ -1606,6 +1632,7 @@ class DMManager:
             raise UserError(_("There's no invitation to accept."))
         pub = g["me"]
         cid = g["community"]
+        was_request = g.get("status") == "request"
         await self._ensure_listed(pub)
         group = self._group(gid)
         me = unb64(pub)
@@ -1625,8 +1652,29 @@ class DMManager:
         await self.send_event(gid, dm.DmEvent(card=self._build_card(pub, cid)[0]))
         await self._announce_inbox(gid)
         await self.core.devices.broadcast("dm_group", self._group_sync(gid))
+        if was_request and group.state.direct:
+            # Accepting someone's message request is agreeing to talk with
+            # them: they become a contact (so they can also add me to groups).
+            await self._add_requester(group.state, me)
         self.core.emit("dm", {"id": gid})
         return {"ok": True}
+
+    async def _add_requester(self, st: dm.GroupState, me: bytes) -> None:
+        other = next((m for m in [*st.members, *st.invited] if m.identity != me), None)
+        if other is None:
+            return
+        ident = b64(other.identity)
+        if ident in self.d["contacts"] or not self.d["peers"].get(ident, {}).get("card"):
+            return
+        self.d["contacts"][ident] = {
+            "name": other.name or self.d["peers"][ident].get("name") or "Contact",
+            "community": other.community,
+            "member": b64(other.member) if other.member else "",
+            "added_at": int(time.time()),
+        }
+        self.core.save_vault()
+        await self.core.devices.broadcast("contact_added", {"id": ident, "contact": self.d["contacts"][ident]})
+        self.core.emit("dm_contacts", {})
 
     async def decline(self, gid: str) -> dict:
         g = self.d["groups"].get(gid)

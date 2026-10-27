@@ -495,7 +495,8 @@ class CommunityConnection:
             self.core.identity_public(rec["identity"]),
             StaticKey(keys.decode(dev["static"])),
             keys.decode(dev["sig"]),
-            self.core.device_name,
+            # The device's name stays on my devices: the server doesn't need it.
+            "",
             make_verifier(rec, self._accept_new_key),
             on_event=self._on_event,
         )

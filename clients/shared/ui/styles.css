@@ -426,6 +426,10 @@ button.chan, button.reply-ref, button.pin-row, button.member {
 .chan .chat-btn.on { color: var(--accent-text); }
 .dm-list .chan { color: var(--fg2); }
 .dm-list .chan.sel, .dm-list .chan:hover { color: var(--fg); }
+.dm-list .dm-home { margin-bottom: var(--s2); }
+.dm-home-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.dm-home-body { flex: 1; min-height: 0; overflow: auto; padding: var(--s4) var(--s5); max-width: 860px; }
+.dm-home-actions { flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s2); }
 .muted-flag { display: inline-grid; place-items: center; }
 .muted-flag .ic { width: 14px; height: 14px; display: block; }
 .slowmode { padding: 0 var(--s1) var(--s1); }

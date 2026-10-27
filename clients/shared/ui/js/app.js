@@ -213,7 +213,9 @@ async function lockNow() {
 // ---------------------------------------------------------------- events from Python
 
 on('profile', (status) => {
+  const renamed = st.status && status.state === 'unlocked' && st.status.display_name !== status.display_name;
   st.status = status;
+  if (renamed && !$('#app').classList.contains('hidden')) render();
   applyAppearance(status.appearance);
   // Only re-render the lock screen when it isn't already showing.
   if (status.state !== 'unlocked' && $('#lock').classList.contains('hidden')) { closeAllModals(); showLock(status); }

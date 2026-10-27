@@ -142,6 +142,14 @@ function changePassphraseDialog() {
 
 async function renderIdentity(sec) {
   const d = settingsUI.data;
+  const display = h('input', { type: 'text', maxlength: 64, value: d.vault.display_name || '', placeholder: t('Optional') });
+  sec.appendChild(formSection(null, settingRow(t('Your name'),
+    t('Shown in direct messages and in your contact code. A community you join starts with this name, and you can use another one there.'),
+    display, async () => {
+      const v = await api('set_setting', 'display_name', display.value);
+      d.vault.display_name = display.value = v.value;
+      if (st.status) { st.status.display_name = v.value; render(); }
+    })));
   const mode = selectEl([['separate', t('A new key for each community (recommended)')], ['reuse', t('Reuse an existing identity')]], d.vault.default_identity);
   sec.appendChild(formSection(null, vaultSetting('default_identity', t('Default when joining'), t("Separate keys mean communities can't tell that two memberships are the same person. You can still choose each time you join."), mode)));
   const list = await api('list_communities');

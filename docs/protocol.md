@@ -301,6 +301,8 @@ relay stream.
 | 2 | server → client | `ServerIdentity{server_key, static_sig, cert?, version, versions}` |
 | 3 | client → server | `ClientIdentity{identity_key, static_sig, device_name}` |
 
+- `device_name` is sent empty: a device's name stays between the user's own
+  devices (§10), and the server doesn't need it.
 - `static_sig` signs the sender's Noise static key with its Ed25519 key. The
   client's static key is its **device key** for that community; the
   signature is computed once and stored, so sessions can reconnect while the
@@ -1584,7 +1586,9 @@ one code path. Code: `clients/desktop/src/openarcanum/dm.py`, `olm.py`, `groups.
 - `DmDeviceList{identity, seq, issued_at, devices}` is signed by the identity
   (`openarcanum/dm-device-list/v2`). Each `DmDevice` carries the device's own
   signature over `identity || curve25519` (`openarcanum/dm-device/v2`), so a list
-  can't claim a device that didn't consent. `seq` only increases: clients pin
+  can't claim a device that didn't consent. Its `name` is left empty: the
+  list goes out in contact cards and contact codes, and device names stay
+  between the user's own devices (§10). `seq` only increases: clients pin
   the highest seq per identity and ignore lower ones (rollback). At most 20
   devices.
 - When two of the user's devices change a list concurrently (same seq), the

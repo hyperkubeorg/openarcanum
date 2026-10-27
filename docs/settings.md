@@ -38,6 +38,7 @@ There are three places settings live:
 | Security | Stay signed in on this device (`remember_device`; shown the other way round as "Ask for my passphrase when OpenArcanum starts" in Settings → Security, which asks for the passphrase to change it). Per device, in `preferences.toml`. The vault's key is kept in the OS keychain, or in `unlock-key` (mode 0600) in the config folder where there is no keychain, and Settings → Security then says anyone who can read the user's files can open the profile. Lock now and the idle lock delete the key until the passphrase is entered again | On for a profile created, restored or linked on this device; off for a `preferences.toml` without the key, until the user accepts the one-time offer after a passphrase unlock |
 | Security | Export backup; backup status | n/a |
 | Identity | Separate key per community, or reuse one identity (`default_identity`: the choice preselected when joining) | Separate key |
+| Identity | Your name (`display_name`, up to 64 characters): shown in direct messages and contact codes; a community you join starts with it | None |
 | Identity | Display name and avatar per community | None |
 | Identity | Nickname, pronouns (up to 40 characters) and about text (up to 190) per community, stored on the community server (Your profile here) | None |
 | Communities | Leave; delete local data | n/a |

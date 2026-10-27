@@ -206,9 +206,10 @@ function userPanel(summary) {
   return h('div', { class: 'user-panel', 'data-connection': connection },
     h('button', { class: 'me-btn', type: 'button', 'aria-haspopup': 'dialog', title: t('Set your status'),
       'aria-label': t('Your status: {status}. Change it', { status: statusSentence(me) }), onclick: () => statusPicker() },
-    withStatus(avatarEl(shown || t('You'), summary ? summary.identity : 'me', 'sm'), me),
-    h('div', { class: 'who' }, h('b', { text: summary ? shown || t('You') : (st.status && st.status.device_name) || t('You') }),
+    withStatus(avatarEl(shown || (st.status && st.status.display_name) || t('You'), summary ? summary.identity : 'me', 'sm'), me),
+    h('div', { class: 'who' }, h('b', { text: summary ? shown || t('You') : (st.status && st.status.display_name) || t('You') }),
       h('span', { class: 'small muted me-status', text: statusLine(me) || connection || statusLabel(me.state) }))),
+    h('button', { class: 'icon-btn', title: t('Your contact code'), 'aria-label': t('Your contact code'), icon: 'id-card', onclick: () => myContactCodeDialog() }),
     h('button', { class: 'icon-btn', title: t('Lock now'), icon: 'lock', onclick: lockNow }),
     h('button', { class: 'icon-btn', title: t('Settings'), icon: 'settings', onclick: () => openSettings() }));
 }

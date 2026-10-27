@@ -192,6 +192,15 @@ def _device_name(x: Any) -> str:
     return x
 
 
+def _display_name(x: Any) -> str:
+    if not isinstance(x, str):
+        raise SettingError(_("must be text"))
+    x = " ".join(x.split())
+    if len(x) > 64 or any(ord(c) < 32 for c in x):
+        raise SettingError(_("must be at most 64 characters"))
+    return x
+
+
 def _data_dir(x: Any) -> str:
     if x in ("", None):
         return ""
@@ -391,6 +400,9 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("status_idle_minutes", 10, _int_range(1, 240, allow_zero=True), "vault"),
     # Devices
     Setting("device_name", "", _device_name, "vault"),
+    # The name in direct messages and contact codes; new memberships start
+    # with it (each community keeps its own after that). Empty: none.
+    Setting("display_name", "", _display_name, "vault"),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

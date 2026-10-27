@@ -64,6 +64,14 @@ const dmUI = {
     else renderMain();
   },
 
+  // The contacts page: the main panel when no conversation is open.
+  home() {
+    this.current = null; this.info = null; this.history = []; this.replyTo = null;
+    leavePage();
+    st.view = 'dms';
+    render();
+  },
+
   async startWith(cid, member) {
     try { const r = await api('dm_open', cid, member.key); await this.open(r.id); }
     catch (e) { toastError(e); }
@@ -84,13 +92,14 @@ function dmCall(...args) {
 function renderDmSidebar(side) {
   side.appendChild(h('div', { class: 'side-head' }, h('span', { class: 'name', text: t('Direct messages') }),
     h('button', { class: 'icon-btn', title: t('New group DM'), 'aria-label': t('New group DM'), icon: 'plus', onclick: (e) => { e.stopPropagation(); newGroupDialog(); } }),
-    h('button', { class: 'icon-btn', title: t('Contacts'), 'aria-label': t('Contacts'), icon: 'users', onclick: (e) => { e.stopPropagation(); contactsDialog(); } }),
     h('button', { class: 'icon-btn', title: t('Check for new messages'), 'aria-label': t('Check for new messages'), icon: 'refresh-cw', onclick: (e) => { e.stopPropagation(); api('dm_poll').then(() => dmUI.refresh(), toastError); } })));
   const body = h('div', { class: 'side-body dm-list' });
+  body.appendChild(h('button', { class: 'chan dm-home' + (dmUI.current ? '' : ' sel'), onclick: () => dmUI.home() },
+    icon('users'), h('span', { class: 'name', text: t('Contacts') })));
   const waiting = dmUI.list.filter((c) => c.status === 'request' || c.status === 'invited');
   const rest = dmUI.list.filter((c) => c.status !== 'request' && c.status !== 'invited');
   if (!dmUI.list.length) body.appendChild(h('div', { class: 'small muted',
-    text: t('No conversations yet. Right-click someone in a community and choose "Message", or start a group with the + button. People need a contact card in that community.') }));
+    text: t('No conversations yet. Message someone from Contacts, or right-click someone in a community and choose "Message".') }));
   if (waiting.length) body.appendChild(h('div', { class: 'cat', text: t('Requests and invitations') }));
   for (const c of waiting) body.appendChild(dmListItem(c));
   if (waiting.length && rest.length) body.appendChild(h('div', { class: 'cat', text: t('Conversations') }));
@@ -151,8 +160,7 @@ function renderDmMain(main) {
   const c = dmUI.list.find((x) => x.id === dmUI.current);
   const info = dmUI.info;
   if (!c || !info) {
-    main.appendChild(h('div', { class: 'empty' }, h('h2', { text: t('Direct messages') }),
-      h('p', { text: t('Direct messages are end-to-end encrypted: only the people in the conversation can read them. No server can.') })));
+    renderDmHome(main);
     return;
   }
   const view = h('div', { id: 'dm-view', class: 'dm-view', 'data-gid': c.id, 'data-status': info.status },
@@ -523,16 +531,28 @@ function memberOptions(e, p, invited) {
   return userMenu(e, { person: p }, { dm: dmUI.info, invited });
 }
 
+// People to start a group with or add to one: from my contacts (no
+// community needed: contact codes), or from a community's members.
 async function pickMembers(title, max, okLabel, withName) {
   const comms = st.communities.filter((c) => c.status === 'active');
-  if (!comms.length) { toast(t('Join a community first: people are found through communities.'), { error: true }); return null; }
   return new Promise((resolve) => {
     let done = false;
-    const sel = selectEl(comms.map((c) => [c.id, c.name]), comms[0].id);
+    const sel = selectEl([['', t('My contacts')], ...comms.map((c) => [c.id, c.name])], '');
     const name = h('input', { type: 'text', placeholder: t('Optional') });
     const list = h('div', { class: 'pick-list', role: 'group', 'aria-label': t('People') });
     const load = async () => {
       clear(list);
+      if (!sel.value) {
+        let contacts = [];
+        try { contacts = await api('dm_contacts'); } catch (e) { toastError(e); }
+        for (const c of contacts.filter((x) => !x.blocked)) {
+          const cb = checkbox(c.name, false);
+          cb.input.value = c.id;
+          list.appendChild(cb);
+        }
+        if (!list.children.length) list.appendChild(h('div', { class: 'small muted', text: t('No contacts yet. Add someone with their contact code first.') }));
+        return;
+      }
       list.appendChild(h('div', { class: 'small muted', text: t('Loading members…') }));
       let members = [];
       try { members = await api('members', sel.value); } catch (e) { toastError(e); }
@@ -551,8 +571,8 @@ async function pickMembers(title, max, okLabel, withName) {
     load();
     modal({
       title,
-      body: h('div', { class: 'stack' }, field(t('Community'), sel), withName ? field(t('Group name'), name) : null,
-        h('div', { class: 'hint', text: t('Up to {max} people. They need a contact card in that community, and their privacy settings decide whether they can be invited.', { max }) }), list),
+      body: h('div', { class: 'stack' }, field(t('People from'), sel), withName ? field(t('Group name'), name) : null,
+        h('div', { class: 'hint', text: t('Up to {max} people. From a community, they need a contact card there. Their privacy settings decide whether they can be invited.', { max }) }), list),
       actions: [
         { label: t('Cancel'), run: () => { done = true; resolve(null); } },
         { label: okLabel, kind: 'primary', run: () => {
@@ -610,16 +630,16 @@ async function safetyDialog(id, name, gid = '') {
 // A contact code lets someone message you without sharing a community: the
 // report form on the website asks for one, so the maintainers can reply.
 function myContactCodeDialog() {
-  const name = h('input', { type: 'text', maxlength: 64, placeholder: t('Optional') });
   const out = h('textarea', { rows: 4, readonly: true, class: 'contact-code' });
   const err = h('div', { class: 'error', role: 'alert' });
   const make = async () => {
     err.textContent = '';
-    try { out.value = await api('dm_contact_code', name.value); } catch (e) { err.textContent = e.message; }
+    try { out.value = await api('dm_contact_code'); } catch (e) { err.textContent = e.message; }
   };
+  const shown = (st.status && st.status.display_name) || '';
   const body = h('div', {},
     h('p', { text: t('Give this code to someone so they can send you a direct message, without sharing a community. It works for about a week; make a new one when you need it again.') }),
-    field(t('Name they see'), name, t('Leave it empty to stay anonymous.')),
+    h('p', { class: 'small muted', text: shown ? t('They see you as “{name}” (Settings → Identity → Your name).', { name: shown }) : t('It carries no name. Set one under Settings → Identity → Your name.') }),
     h('div', { class: 'row' }, h('button', { class: 'btn', text: t('Make a new code'), onclick: make })),
     field(t('Your contact code'), out), err);
   make();
@@ -644,35 +664,46 @@ function addContactCodeDialog() {
   ] });
 }
 
-async function contactsDialog() {
+// Contacts, the main panel of Direct messages: everyone I can message
+// without sharing a community, and how to add more (contact codes).
+async function renderDmHome(main) {
+  const page = h('div', { class: 'dm-home-page' });
+  main.appendChild(page);
+  page.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'title', text: t('Contacts') }), h('div', { class: 'spacer' }),
+    h('span', { class: 'small muted', text: t('End-to-end encrypted') })));
+  const body = h('div', { class: 'dm-home-body' });
+  page.appendChild(body);
+  body.appendChild(h('div', { class: 'row dm-home-actions' },
+    h('button', { class: 'btn primary', text: t('Add a contact code'), onclick: () => addContactCodeDialog() }),
+    h('button', { class: 'btn', text: t('Your contact code'), onclick: () => myContactCodeDialog() }),
+    h('button', { class: 'btn', text: t('New group DM'), onclick: () => newGroupDialog() })));
+  body.appendChild(h('p', { class: 'small muted', text: t("To message someone, add their contact code; to be messaged, give them yours. You don't need to share a community. Direct messages are end-to-end encrypted: only the people in the conversation can read them.") }));
   let contacts = [];
   try { contacts = await api('dm_contacts'); } catch (e) { toastError(e); return; }
-  const body = h('div', { class: 'dm-info' });
-  if (!contacts.length) body.appendChild(emptyNote(t("No contacts yet. Add people from a community's member list, or with a contact code.")));
+  if (!page.isConnected) return;
+  const list = h('div', { class: 'dm-info' });
+  if (!contacts.length) list.appendChild(emptyNote(t('No contacts yet. Add someone with their contact code, or add people from a community\'s member list.')));
+  const again = () => { if (st.view === 'dms' && !dmUI.current) render(); };
   for (const c of contacts) {
-    body.appendChild(h('div', { class: 'member-row', oncontextmenu: (e) => userMenu(e, { contact: c }, { after: () => { m.close(); contactsDialog(); } }) },
+    list.appendChild(h('div', { class: 'member-row', oncontextmenu: (e) => userMenu(e, { contact: c }, { after: again }) },
       withStatus(avatarEl(c.name, c.id, 'sm'), personStatus(c.id)),
       h('span', { class: 'spacer' }, h('span', { text: c.name }), statusTextEl(personStatus(c.id)),
         h('span', { class: 'sr-only', text: statusSentence(personStatus(c.id)) })),
       c.verified ? h('span', { class: 'pill ok', text: t('verified') }) : null,
       c.key_changed ? h('span', { class: 'pill warn', text: t('key changed') }) : null,
       c.blocked ? h('span', { class: 'pill', text: t('blocked') }) : null,
-      c.blocked ? null : h('button', { class: 'btn small', text: t('Message'), onclick: () => { m.close(); dmUI.startWithContact(c.id); } }),
-      h('button', { class: 'btn small', text: t('Safety number'), onclick: () => { m.close(); safetyDialog(c.id, c.name); } }),
-      h('button', { class: 'btn small', text: c.blocked ? t('Unblock') : t('Block'), onclick: () => api('dm_block', c.id, !c.blocked).then(() => { m.close(); contactsDialog(); }, toastError) }),
-      h('button', { class: 'btn small danger', text: t('Remove'), onclick: () => api('dm_remove_contact', c.id).then(() => { m.close(); contactsDialog(); }, toastError) })));
+      c.blocked ? null : h('button', { class: 'btn small primary', text: t('Message'), onclick: () => dmUI.startWithContact(c.id) }),
+      h('button', { class: 'btn small', text: t('Safety number'), onclick: () => safetyDialog(c.id, c.name) }),
+      h('button', { class: 'btn small', text: c.blocked ? t('Unblock') : t('Block'), onclick: () => api('dm_block', c.id, !c.blocked).then(again, toastError) }),
+      h('button', { class: 'btn small danger', text: t('Remove'), onclick: () => api('dm_remove_contact', c.id).then(again, toastError) })));
   }
-  const m = modal({ title: t('Contacts'), body, actions: [
-    { label: t('Your contact code'), run: () => { myContactCodeDialog(); } },
-    { label: t('Add a contact code'), run: () => { addContactCodeDialog(); } },
-    { label: t('Close'), kind: 'primary' },
-  ] });
+  body.appendChild(list);
 }
 
 // ---------------------------------------------------------------- events
 
 on('dm', () => { dmUI.refresh(); if (dmUI.current) dmUI.reload(); });
-on('dm_contacts', () => { if (dmUI.current) dmUI.reload(); });
+on('dm_contacts', () => { if (dmUI.current) dmUI.reload(); else if (st.view === 'dms') render(); });
 on('dm_message', async ({ conv }) => {
   if (st.view === 'dms' && dmUI.current === conv) {
     await dmUI.reload();

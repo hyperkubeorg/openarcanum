@@ -201,7 +201,8 @@ function joinFlow(source, pv) {
   const panel = addUI.el ? $('.add-panel', addUI.el) : null;
   if (!panel) return;
   const back = addUI.tab;
-  const name = h('input', { type: 'text', placeholder: t('How others will see you here') });
+  // Starts as the profile's display name; each community can have its own.
+  const name = h('input', { type: 'text', placeholder: t('How others will see you here'), value: (st.status && st.status.display_name) || '' });
   const choices = h('div', { class: 'stack', role: 'radiogroup', 'aria-label': t('Identity') });
   const newRadio = h('input', { type: 'radio', name: 'ident', value: 'new', checked: pv.default_identity !== 'reuse' || !pv.identities.length });
   choices.appendChild(h('label', { class: 'check' }, newRadio, h('div', null, h('b', { text: t('A new identity (recommended)') }),
@@ -300,7 +301,7 @@ function setupForm(title, intro, submitLabel, submit, opts = {}) {
   const mret = h('input', { type: 'number', min: 0, max: 36500, value: 30 });
   const fret = h('input', { type: 'number', min: 0, max: 36500, value: 7 });
   const fsize = h('input', { type: 'number', min: 1, max: 25, step: 1, value: 10 });
-  const me = h('input', { type: 'text', placeholder: t('Your display name') });
+  const me = h('input', { type: 'text', placeholder: t('Your display name'), value: (st.status && st.status.display_name) || '' });
   const err = h('div', { class: 'error', role: 'alert' });
   const busy = h('div', { class: 'muted small', role: 'status' });
   const go = h('button', { class: 'btn primary', text: submitLabel, disabled: !!opts.disabled, onclick: async () => {

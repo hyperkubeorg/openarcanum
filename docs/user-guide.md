@@ -827,17 +827,28 @@ cards off for the whole community; the option then disappears.
 
 ### Contact codes: DMs without a shared community
 
-A **contact code** lets someone message you without sharing a community,
-for example the team answering a report you sent on the website.
-**Direct messages** → **Contacts** (the people icon) → **Your contact
-code** shows yours: give it a name if you like (or leave it empty), then
-**Copy**. It uses a DM key of its own, not one from any community, so it
-doesn't tell anyone which communities you're in. A code works for about a
-week; **Make a new code** when you need it again.
+You don't need to be in any community to message people. **Direct
+messages** opens on **Contacts**: everyone you can message, with
+**Message**, **Safety number**, **Block** and **Remove** for each.
+
+A **contact code** is how two people connect without a community. Your
+own is one click away: the card button next to your name (bottom left), or
+**Contacts** → **Your contact code** → **Copy**. It uses a DM key of its
+own, not one from any community, so it doesn't tell anyone which
+communities you're in. A code works for about a week; each time you open
+it a new one is made.
 
 To use someone's code: **Contacts** → **Add a contact code**, paste it,
-**Add and message**. They see your first message as a request, as for
-anyone who isn't in their contacts.
+**Add and message**. They see your first message as a request; accepting
+it adds you to their contacts too. **New group DM** (the + at the top of
+the list) can start a group with your contacts or with members of a
+community; a group invitation reaches only people who have you as a
+contact.
+
+The name people see in direct messages and in your code is **Settings →
+Identity → Your name** (it can be empty). A community you join starts with
+that name, and you can use a different one there. Your device's name never
+leaves your own devices.
 
 ### Start a conversation
 

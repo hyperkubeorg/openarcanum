@@ -774,6 +774,14 @@
     "dm.py"
    ]
   },
+  "Ask {name} for a new contact code.": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "Asked {time}": {
    "vars": [
     "time"
@@ -1517,7 +1525,6 @@
   },
   "Community": {
    "used_in": [
-    "ui/js/dm.js",
     "ui/js/settings.js"
    ]
   },
@@ -2280,11 +2287,6 @@
     "core.py",
     "dm.py",
     "ui/js/app.js",
-    "ui/js/dm.js"
-   ]
-  },
-  "Direct messages are end-to-end encrypted: only the people in the conversation can read them. No server can.": {
-   "used_in": [
     "ui/js/dm.js"
    ]
   },
@@ -3096,6 +3098,11 @@
     "ui/js/admin.js"
    ]
   },
+  "It carries no name. Set one under Settings → Identity → Your name.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "It holds your keys and community list (no messages), encrypted with a passphrase you choose.": {
    "used_in": [
     "ui/js/join.js"
@@ -3132,11 +3139,6 @@
    "used_in": [
     "ui/js/dm.js",
     "ui/js/join.js"
-   ]
-  },
-  "Join a community first: people are found through communities.": {
-   "used_in": [
-    "ui/js/dm.js"
    ]
   },
   "Join a community someone invited you to, find a public one, or start your own on a server of yours that stays on.": {
@@ -3424,11 +3426,6 @@
    ]
   },
   "Leave group": {
-   "used_in": [
-    "ui/js/dm.js"
-   ]
-  },
-  "Leave it empty to stay anonymous.": {
    "used_in": [
     "ui/js/dm.js"
    ]
@@ -4226,6 +4223,11 @@
     "ui/js/voice.js"
    ]
   },
+  "My contacts": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Name": {
    "used_in": [
     "ui/js/admin.js",
@@ -4235,23 +4237,10 @@
     "ui/js/moderation.js"
    ]
   },
-  "Name they see": {
-   "used_in": [
-    "ui/js/dm.js"
-   ]
-  },
   "Name this device": {
    "used_in": [
     "ui/js/devices.js",
     "ui/js/lock.js"
-   ]
-  },
-  "Names can be at most {max} characters.": {
-   "vars": [
-    "max"
-   ],
-   "used_in": [
-    "dm.py"
    ]
   },
   "Needs approval": {
@@ -4501,17 +4490,22 @@
     "ui/js/chat.js"
    ]
   },
-  "No contacts yet. Add people from a community's member list, or with a contact code.": {
-   "used_in": [
-    "ui/js/dm.js"
-   ]
-  },
   "No contacts yet. Add people from a community's member list.": {
    "used_in": [
     "ui/js/status.js"
    ]
   },
-  "No conversations yet. Right-click someone in a community and choose \"Message\", or start a group with the + button. People need a contact card in that community.": {
+  "No contacts yet. Add someone with their contact code first.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "No contacts yet. Add someone with their contact code, or add people from a community's member list.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "No conversations yet. Message someone from Contacts, or right-click someone in a community and choose \"Message\".": {
    "used_in": [
     "ui/js/dm.js"
    ]
@@ -5033,7 +5027,8 @@
   },
   "Optional": {
    "used_in": [
-    "ui/js/dm.js"
+    "ui/js/dm.js",
+    "ui/js/settings.js"
    ]
   },
   "Optional: the new device can fetch them from the servers.": {
@@ -5172,6 +5167,11 @@
   "People": {
    "used_in": [
     "ui/js/admin.js",
+    "ui/js/dm.js"
+   ]
+  },
+  "People from": {
+   "used_in": [
     "ui/js/dm.js"
    ]
   },
@@ -6472,6 +6472,11 @@
     "ui/js/admin.js"
    ]
   },
+  "Shown in direct messages and in your contact code. A community you join starts with this name, and you can use another one there.": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
   "Shown in the directory listing (public communities), so anyone who finds the community can join with it even when the join policy is Invite only. Not needed with the Open policy. Replaces any previous public key.": {
    "used_in": [
     "ui/js/admin.js"
@@ -7764,6 +7769,14 @@
     "ui/js/settings.js"
    ]
   },
+  "They see you as “{name}” (Settings → Identity → Your name).": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "This backup was made by a newer version of OpenArcanum. Update OpenArcanum to restore it.": {
    "used_in": [
     "keys.py"
@@ -8075,6 +8088,11 @@
     "ui/js/hosting.js"
    ]
   },
+  "To message someone, add their contact code; to be messaged, give them yours. You don't need to share a community. Direct messages are end-to-end encrypted: only the people in the conversation can read them.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Today": {
    "used_in": [
     "ui/js/dom.js",
@@ -8338,7 +8356,7 @@
     "ui/js/settings.js"
    ]
   },
-  "Up to {max} people. They need a contact card in that community, and their privacy settings decide whether they can be invited.": {
+  "Up to {max} people. From a community, they need a contact card there. Their privacy settings decide whether they can be invited.": {
    "vars": [
     "max"
    ],
@@ -9164,6 +9182,7 @@
   },
   "Your contact code": {
    "used_in": [
+    "ui/js/chat.js",
     "ui/js/dm.js"
    ]
   },
@@ -9200,6 +9219,11 @@
   "Your microphone, in a call.": {
    "used_in": [
     "ui/js/sounds.js"
+   ]
+  },
+  "Your name": {
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "Your name and avatar in each community": {
@@ -9795,6 +9819,11 @@
    ]
   },
   "must be an absolute path": {
+   "used_in": [
+    "settings.py"
+   ]
+  },
+  "must be at most 64 characters": {
    "used_in": [
     "settings.py"
    ]

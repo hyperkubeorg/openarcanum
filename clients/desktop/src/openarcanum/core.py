@@ -368,6 +368,7 @@ class Core:
             "backoff": self.guard.remaining(),
             "backup_current": self.vault.backup_current if self.vault else True,
             "device_name": self.device_name if self.vault else "",
+            "display_name": self.settings.get("display_name", "") if self.vault else "",
             "notice": _(NOTICE),
             # The previous run crashed; the UI says where the log is.
             "crashed_last_time": crashlog.last_run_crashed,
@@ -2947,6 +2948,8 @@ class Core:
             await self._enforce_cache()
         elif key == "device_name":
             await self.devices.renamed()
+        elif key == "display_name":
+            self.emit("profile", self.profile_status())
         elif key in (
             "voice_input",
             "voice_output",
