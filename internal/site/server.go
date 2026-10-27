@@ -240,7 +240,8 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 // checkHost answers only for the site's own names (tls_domains, required
 // with TLS on) when they are configured, so a rebound DNS name can't reach
 // the admin portal and nothing built from the request's Host (security.txt,
-// the https redirect) names another host. With tls_mode off (a TLS proxy in
+// the https redirect) names another host. The other names (www) redirect to
+// the first, the site's one address. With tls_mode off (a TLS proxy in
 // front) set tls_domains too, or Host is whatever the proxy passed on.
 func (s *Server) checkHost(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -249,8 +250,17 @@ func (s *Server) checkHost(next http.Handler) http.Handler {
 			if h, _, err := net.SplitHostPort(host); err == nil {
 				host = h
 			}
-			if !s.hosts[strings.Trim(strings.ToLower(strings.TrimSuffix(host, ".")), "[]")] {
+			host = strings.Trim(strings.ToLower(strings.TrimSuffix(host, ".")), "[]")
+			if !s.hosts[host] {
 				http.Error(w, "unknown host", http.StatusMisdirectedRequest)
+				return
+			}
+			if public := s.cfg.PublicHost(); public != "" && host != strings.Trim(public, "[]") {
+				if r.Method != http.MethodGet && r.Method != http.MethodHead {
+					http.Error(w, "use "+public, http.StatusMisdirectedRequest)
+					return
+				}
+				http.Redirect(w, r, "https://"+public+r.URL.RequestURI(), http.StatusPermanentRedirect)
 				return
 			}
 		}

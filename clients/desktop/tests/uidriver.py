@@ -491,23 +491,69 @@ def _close_windows(pid: int) -> None:
     wm_queryendsession, wm_endsession = 0x0011, 0x0016
     endsession_logoff = 0x80000000
     smto_abortifhung = 0x0002
+    # The app's windows belong to the process tree: a virtual environment's
+    # python.exe is a launcher that runs the interpreter as its child.
+    pids = _process_tree(pid)
     found: list[int] = []
     proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def each(hwnd, _lparam):
         owner = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value == pid:
+        if owner.value in pids:
             found.append(hwnd)
         return True
 
     user32.EnumWindows(proto(each), 0)
     result = ctypes.c_size_t()
+    answered = 0
     for msg, wparam in ((wm_queryendsession, 0), (wm_endsession, 1)):
         for hwnd in found:
-            user32.SendMessageTimeoutW(
+            if user32.SendMessageTimeoutW(
                 hwnd, msg, wparam, endsession_logoff, smto_abortifhung, 5000, ctypes.byref(result)
-            )
+            ):
+                answered += 1
     for hwnd in found:
         if user32.IsWindowVisible(hwnd):
             user32.PostMessageW(hwnd, wm_close, 0, 0)
+    print(f"sign-out: {len(found)} windows in {len(pids)} processes, {answered} answers")
+
+
+def _process_tree(pid: int) -> set[int]:
+    """`pid` and its descendants (Windows)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Entry(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_wchar * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snap = kernel32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    parents: dict[int, int] = {}
+    try:
+        e = Entry()
+        e.dwSize = ctypes.sizeof(Entry)
+        ok = kernel32.Process32FirstW(snap, ctypes.byref(e))
+        while ok:
+            parents[e.th32ProcessID] = e.th32ParentProcessID
+            ok = kernel32.Process32NextW(snap, ctypes.byref(e))
+    finally:
+        kernel32.CloseHandle(snap)
+    tree = {pid}
+    while True:
+        more = {p for p, parent in parents.items() if parent in tree and p not in tree}
+        if not more:
+            return tree
+        tree |= more

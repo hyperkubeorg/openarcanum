@@ -203,6 +203,19 @@ class Proc:
 # This flag makes it use the temp dir instead (tests only: desktops have
 # plenty). Test helpers that set their own engine flags add ENGINE_TEST_FLAGS.
 ENGINE_TEST_FLAGS = "--disable-dev-shm-usage"
+
+
+def fake_media_flags(tone) -> str:
+    """Engine flags for a fake microphone playing the WAV file `tone` (and a
+    fake camera). On macOS the audio service's sandbox can't read the file
+    ("Failed to read ... as input to the fake device"), so the audio runs
+    in the browser process there."""
+    flags = f"--use-fake-device-for-media-stream --use-file-for-fake-audio-capture={tone}"
+    if sys.platform == "darwin":
+        flags += " --disable-features=AudioServiceSandbox,AudioServiceOutOfProcess"
+    return flags
+
+
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(
     f for f in (os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", ""), ENGINE_TEST_FLAGS) if f
 )

@@ -7,7 +7,7 @@ import asyncio
 import sys
 
 import pytest
-from conftest import ENGINE_TEST_FLAGS, network, run
+from conftest import ENGINE_TEST_FLAGS, fake_media_flags, network, run
 from uidriver import App, UIError
 from uiflows import (
     FAKE_SCREEN,
@@ -36,11 +36,7 @@ def tone(tmp_path_factory):
 
 
 def media_env(tone) -> dict:
-    return {
-        "QTWEBENGINE_CHROMIUM_FLAGS": (
-            f"--use-fake-device-for-media-stream --use-file-for-fake-audio-capture={tone} {ENGINE_TEST_FLAGS}"
-        )
-    }
+    return {"QTWEBENGINE_CHROMIUM_FLAGS": (f"{fake_media_flags(tone)} {ENGINE_TEST_FLAGS}")}
 
 
 async def create_voice_channel(app: App, name: str) -> None:

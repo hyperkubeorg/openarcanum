@@ -398,7 +398,16 @@ class Core:
         for s in self.clusters.sets.values():
             for n in s.nodes:
                 self.meta.directory.setdefault(n.url, not n.no_directory)
-        await asyncio.gather(*(self.meta.node_info(u) for u in list(self.meta.urls)), return_exceptions=True)
+        urls = list(self.meta.urls)
+        for attempt in range(3):  # a node that is just starting answers soon
+            results = await asyncio.gather(*(self.meta.node_info(u) for u in urls), return_exceptions=True)
+            failed = [(u, r) for u, r in zip(urls, results, strict=True) if isinstance(r, Exception)]
+            for u, r in failed:
+                log.info("directory check of %s: %s", u, r)
+            urls = [u for u, _r in failed]
+            if not urls or attempt == 2:
+                break
+            await asyncio.sleep(2)
         self._directory_checked = time.monotonic()
         if self.meta.directory_available() != before:
             self.emit("maintainers", self.maintainers_status())

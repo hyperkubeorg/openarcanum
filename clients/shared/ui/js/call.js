@@ -33,6 +33,7 @@ const CALL = {
   // A new key is installed for receiving at once, and used for sending a
   // little later, so everyone has it before frames under it arrive.
   SEND_KEY_DELAY_MS: 250,
+  KEY_WAIT_MS: 3000, // how long a frame waits for the key it was sent under
   // Video loss is judged on samples of at least this many packets.
   LOSS_MIN_PACKETS: 20,
   CAMERA: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
@@ -192,6 +193,9 @@ class Call {
     this.onChange = onChange || (() => {});
     this.sframe = new SFrame.Context();
     this.epochs = []; // [{epoch, key}] newest last, the newest few (frames in flight at a key change arrive late)
+    this.firstEpoch = null; // the first epoch this participant had a key for
+    this.keyWaiters = []; // [{epoch, resolve}] frames held for a key on its way
+    this.keyMissing = new Set(); // epochs (BigInt) whose key never came: later frames aren't held again
     this.pc = null;
     this.tx = {}; // kind -> transceiver
     this.local = {}; // kind -> MediaStreamTrack being sent
@@ -222,7 +226,7 @@ class Call {
     // {receivers, layers}; null until it says (then everything is sent).
     this.watchers = null;
     this.lastListen = '';
-    this.stats = { encrypted: 0, decrypted: 0, failed: 0, why: {}, from: {}, sentFrames: { audio: 0, camera: 0, screen: 0 } };
+    this.stats = { encrypted: 0, decrypted: 0, failed: 0, beforeKey: 0, why: {}, from: {}, sentFrames: { audio: 0, camera: 0, screen: 0 } };
     this.closed = false;
     this.timers = [];
     // The microphone: 'off' (listen only), 'starting', 'ok', or what went
@@ -248,11 +252,14 @@ class Call {
     // Who held which slot in this epoch: a frame must carry the slot its
     // track's participant held in the frame's epoch.
     this.epochs.push({ epoch, key, slots: new Map(this.s.participants.map((p) => [p.participant, p.slot])) });
+    if (this.firstEpoch === null) this.firstEpoch = epoch;
+    this.keyMissing.delete(BigInt(epoch));
     while (this.epochs.length > 4) {
       const old = this.epochs.shift();
       for (const kid of [...this.sframe.recv.keys()]) if (kid >> 8n === BigInt(old.epoch)) this.sframe.dropRecvKey(kid);
     }
     await this.installRecvKeys();
+    this.keyWaiters = this.keyWaiters.filter((w) => { if (w.epoch > BigInt(epoch)) return true; w.resolve(); return false; });
     const first = this.sframe.send === null;
     const apply = async () => {
       if (!this.epochs.some((e) => e.epoch === epoch)) return;
@@ -264,6 +271,18 @@ class Call {
     };
     if (first) await apply();
     else setTimeout(() => { apply().catch((e) => console.error('call: send key', e)); }, CALL.SEND_KEY_DELAY_MS);
+  }
+
+  // Resolves once the key for `epoch` (or a newer one) is installed, or
+  // after CALL.KEY_WAIT_MS: a frame sent under a key that's still on its way
+  // (the sender had it first) is held, not dropped; the frames behind it
+  // queue in order.
+  keyArrival(epoch) {
+    return new Promise((resolve) => {
+      const w = { epoch, resolve };
+      this.keyWaiters.push(w);
+      setTimeout(() => { this.keyWaiters = this.keyWaiters.filter((x) => x !== w); resolve(); }, CALL.KEY_WAIT_MS);
+    });
   }
 
   async installRecvKeys() {
@@ -320,8 +339,21 @@ class Call {
         const n = Math.min(this.clearBytes(frame, kind), data.length);
         try {
           const { kid } = SFrame.decodeHeader(data.subarray(n));
-          const ep = this.epochs.find((e) => BigInt(e.epoch) === kid >> 8n);
-          if (!ep) throw new Error('unknown key id'); // i18n: not shown (drop reason, counted in the call's stats)
+          const epoch = kid >> 8n;
+          let ep = this.epochs.find((e) => BigInt(e.epoch) === epoch);
+          if (!ep && !this.keyMissing.has(epoch) && (!this.epochs.length || epoch > BigInt(this.epochs[this.epochs.length - 1].epoch))) {
+            await this.keyArrival(epoch);
+            ep = this.epochs.find((e) => BigInt(e.epoch) === epoch);
+            if (!ep) this.keyMissing.add(epoch);
+          }
+          if (!ep) {
+            if (this.firstEpoch !== null && epoch < BigInt(this.firstEpoch)) {
+              // From before this participant had a key: not its to read.
+              this.stats.beforeKey++;
+              return;
+            }
+            throw new Error('unknown key id'); // i18n: not shown (drop reason, counted in the call's stats)
+          }
           const slot = ep.slots.get(participant);
           if (slot === undefined || (kid & 0xffn) !== BigInt(slot)) throw new Error('key id of another participant'); // i18n: not shown (drop reason, counted in the call's stats)
           const pt = await this.sframe.unprotect(data.subarray(n), frameMetadata(kind, data.subarray(0, n)));
@@ -1005,6 +1037,10 @@ class Call {
     this.pc = null;
     this.sframe = new SFrame.Context(); // forget the keys
     this.epochs = [];
+    this.firstEpoch = null;
+    for (const w of this.keyWaiters) w.resolve();
+    this.keyWaiters = [];
+    this.keyMissing.clear();
   }
 
   // For tests and the call's connection details panel (no keys).

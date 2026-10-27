@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import ENGINE_TEST_FLAGS, binary, headless, run_relay
+from conftest import ENGINE_TEST_FLAGS, binary, fake_media_flags, headless, run_relay
 
 HARNESS = Path(__file__).parent / "webengine" / "callharness.py"
 
@@ -31,9 +31,8 @@ def tone(tmp_path_factory):
 
 def harness(plan: dict, tone: Path, timeout: float = 240, extra_flags: str = "") -> dict:
     flags = (
-        "--use-fake-device-for-media-stream --use-fake-ui-for-media-stream "
-        "--auto-select-desktop-capture-source=Entire --autoplay-policy=no-user-gesture-required "
-        f"--use-file-for-fake-audio-capture={tone} {extra_flags}"
+        f"{fake_media_flags(tone)} --use-fake-ui-for-media-stream "
+        f"--auto-select-desktop-capture-source=Entire --autoplay-policy=no-user-gesture-required {extra_flags}"
     )
     cmd = headless([sys.executable, str(HARNESS), json.dumps(plan)])
     env = dict(os.environ, QTWEBENGINE_CHROMIUM_FLAGS=f"{flags} {ENGINE_TEST_FLAGS}")

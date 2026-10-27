@@ -2,7 +2,7 @@
   "data_dir": "/data",
   "storage_key_file": "/keys/storage.key",
   "tls_mode": "acme",
-  "tls_domains": ["openarcanum.org"],
+  "tls_domains": ["openarcanum.org", "www.openarcanum.org"],
   "acme_cache_dir": "/acme",
   "source_url": "https://github.com/hyperkubeorg/openarcanum",
   "download_url": "https://github.com/hyperkubeorg/openarcanum/releases",

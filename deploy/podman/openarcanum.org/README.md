@@ -296,9 +296,10 @@ The site gets its certificate from Let's Encrypt by itself (tls-alpn-01 on port
 and the certificates are kept in `/home/openarcanum/site/acme/`, so restarts
 don't ask again. Every answer carries HSTS (two years, without subdomains).
 
-The certificate covers `openarcanum.org` only. To serve `www.openarcanum.org`
-too, create its DNS record first, then add it to `tls_domains` in site.json
-and run setup.sh. The site answers only the names in `tls_domains`.
+The certificates cover `openarcanum.org` and `www.openarcanum.org` (one
+each; both names need DNS records). `www.openarcanum.org` redirects to
+`https://openarcanum.org/`, the first name in `tls_domains`; the site answers
+only the names in `tls_domains`.
 
 See what is served:
 

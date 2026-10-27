@@ -615,6 +615,10 @@ def test_checks_every_24_hours(tmp_path, server, key):
         now[0] += 120
         rig.u.wake()
         await until(2)  # 24 hours later
+        for _ in range(200):  # the check finishes after the server has seen it
+            if rig.u.status()["state"] != "checking":
+                break
+            await asyncio.sleep(0.05)
         task.cancel()
 
     run(scenario())

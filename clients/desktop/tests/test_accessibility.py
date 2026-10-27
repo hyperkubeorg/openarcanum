@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import ENGINE_TEST_FLAGS, network, run
+from conftest import ENGINE_TEST_FLAGS, fake_media_flags, network, run
 from uidriver import App, UIError
 from uiflows import (
     FAKE_SCREEN,
@@ -22,6 +22,7 @@ from uiflows import (
     message_action_on,
     open_members,
     open_settings,
+    publish_card,
     send_message,
     set_maintainers_in_settings,
 )
@@ -346,14 +347,6 @@ async def set_maintainer(app: App, url: str) -> None:
     await set_maintainers_in_settings(app, [url])
 
 
-async def publish_card(app: App) -> None:
-    await app.click(".side-head")
-    await app.click(".menu .mi", "Your profile here")
-    await app.click(".modal input[type=checkbox]", "Publish a contact card here")
-    await app.button("Save")
-    await app.wait_gone(".modal")
-
-
 def test_call_menus_queues_prompts_and_group_dms_pass_axe(tmp_path, tone):
     """The rest of the app's surfaces: the call stage and voice controls,
     the voice and member context menus (opened from the keyboard too), the
@@ -363,11 +356,7 @@ def test_call_menus_queues_prompts_and_group_dms_pass_axe(tmp_path, tone):
         node = community()
 
         async def main():
-            env = {
-                "QTWEBENGINE_CHROMIUM_FLAGS": (
-                    f"--use-fake-device-for-media-stream --use-file-for-fake-audio-capture={tone} {ENGINE_TEST_FLAGS}"
-                )
-            }
+            env = {"QTWEBENGINE_CHROMIUM_FLAGS": (f"{fake_media_flags(tone)} {ENGINE_TEST_FLAGS}")}
             olive = await App(tmp_path / "olive", env=env, name="olive").start()
             alice = await App(tmp_path / "alice", env=env, name="alice").start()
             problems: list[str] = []

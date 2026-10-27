@@ -991,6 +991,24 @@ func TestHostCheck(t *testing.T) {
 	if rec.Code != http.StatusMisdirectedRequest {
 		t.Fatalf("other host: %d", rec.Code)
 	}
+
+	// The other names of the certificate (www) redirect to the first one.
+	ts = newSite(t, func(c *Config) { c.TLSDomains = []string{"openarcanum.example", "www.openarcanum.example"} })
+	hr = httptest.NewRequest("GET", "http://www.openarcanum.example/security?x=1", nil)
+	rec = httptest.NewRecorder()
+	ts.h.ServeHTTP(rec, hr)
+	if rec.Code != http.StatusPermanentRedirect || rec.Header().Get("Location") != "https://openarcanum.example/security?x=1" {
+		t.Fatalf("www: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	hr = httptest.NewRequest("POST", "http://www.openarcanum.example/report/bug", nil)
+	rec = httptest.NewRecorder()
+	ts.h.ServeHTTP(rec, hr)
+	if rec.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("www post: %d", rec.Code)
+	}
+	if ts.do(req{path: "/"}).Code != 200 {
+		t.Fatal("first name refused")
+	}
 }
 
 func TestSecurityTxtAndTheme(t *testing.T) {
