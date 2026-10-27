@@ -216,8 +216,40 @@ ensure_firewall() {
             info "forward $p set"
         fi
     done
+    # Nothing else is reachable: ssh is the only service, and a port this
+    # host doesn't list (TCP_PORTS, UDP_PORTS) is closed again.
+    for p in $(firewall-cmd --permanent --list-services); do
+        if [ "$p" != ssh ]; then
+            firewall-cmd -q --permanent --remove-service="$p"
+            info "service $p closed"
+        fi
+    done
+    firewall-cmd -q --permanent --query-service=ssh || firewall-cmd -q --permanent --add-service=ssh
+    for p in $(firewall-cmd --permanent --list-ports); do
+        case " ${TCP_PORTS:-} ${UDP_PORTS:-} " in
+            *" $p "*) ;;
+            *) firewall-cmd -q --permanent --remove-port="$p"; info "$p closed" ;;
+        esac
+    done
     firewall-cmd -q --reload
-    info "zone $(firewall-cmd --get-default-zone): ports $(firewall-cmd --list-ports)"
+    info "zone $(firewall-cmd --get-default-zone): services $(firewall-cmd --list-services), ports $(firewall-cmd --list-ports)"
+}
+
+# The droplet image starts the Cockpit web console (9090/tcp). Only sshd and
+# the service set up here listen on this machine, so it is stopped and masked.
+disable_extras() {
+    say "Turning off services this machine doesn't need"
+    local u
+    for u in cockpit.socket cockpit.service; do
+        if systemctl list-unit-files -q "$u" 2>/dev/null | grep -q .; then
+            if [ "$(systemctl is-enabled "$u" 2>/dev/null)" != masked ]; then
+                systemctl mask -q --now "$u"
+                info "$u stopped and masked"
+            else
+                info "$u already masked"
+            fi
+        fi
+    done
 }
 
 # make_dir PATH MODE: owned by the user, which is uid 65532 inside the
@@ -339,7 +371,9 @@ verify_image() {
     fi
     as_oa env "${env[@]}" cosign verify --certificate-oidc-issuer "$IMAGE_OIDC_ISSUER" \
         --certificate-identity-regexp "$IMAGE_SIGNER" --output json "$1" 2>/dev/null \
-        | grep -o '"docker-manifest-digest":"sha256:[0-9a-f]*"' | head -n1 | cut -d'"' -f4
+        | grep -o '"docker-manifest-digest":"sha256:[0-9a-f]*"' | head -n1 | cut -d'"' -f4 || true
+    # A failed check prints nothing, so pull_image explains it (with
+    # pipefail and the ERR trap, failing here would only print a line number).
 }
 
 pull_image() {
@@ -472,6 +506,7 @@ setup_main() {
     ensure_user
     ensure_sysctl
     ensure_firewall
+    disable_extras
     ensure_dirs
     install_helpers
     install_files

@@ -4,6 +4,29 @@ This server runs the OpenArcanum maintainer node: the relay registry, DM
 mailboxes, DM file blobs and the public community directory
 (switched off). Keep this file at /root/README.md on the server.
 
+## The machine
+
+| | |
+|---|---|
+| Name | maintainer-01.openarcanum.org (DNS A record) |
+| Provider | DigitalOcean droplet: 1 vCPU, 1.7 GiB memory, 49 GB disk |
+| System | Rocky Linux 10.2, x86_64, SELinux enforcing |
+| Addresses | public 164.90.142.140 on `ens3` (which also has 10.17.0.5, DigitalOcean's internal anchor address); `ens4` 10.132.0.2 is the private network |
+| Login | root over SSH with the deploy key: `ssh -i ~/.ssh/openarcanum_deploy root@maintainer-01.openarcanum.org` |
+| Open to the internet | only 22/tcp (ssh) and 443/tcp (the maintainer node); firewalld zone `public` |
+| Installed by setup.sh | podman 5.8.2, firewalld 2.4.3, chrony and cosign 3.1.4 (cosign's RPM from GitHub, checksum pinned in `lib/common.sh`) |
+
+Only sshd and the service set up here listen to the network (`ss -tulnp`
+lists them; chronyd's 323/udp is on localhost only). setup.sh closes every
+other firewalld service and port, and stops and masks the Cockpit web
+console (`cockpit.socket`, 9090/tcp) that the droplet image starts. To get
+Cockpit back: `systemctl unmask --now cockpit.socket` and
+`firewall-cmd --permanent --add-service=cockpit && firewall-cmd --reload`
+(setup.sh closes it again when it runs).
+
+Operating system updates are not automatic: run `dnf upgrade` and reboot
+now and then, then check the service ("Start, stop, status, logs").
+
 ## What runs here, and as whom
 
 - One container, `openarcanum-maintainer`, from the image
@@ -77,6 +100,8 @@ this, in order:
 4. Writes `/etc/sysctl.d/90-openarcanum.conf` with
    `net.ipv4.ip_unprivileged_port_start = 443` and applies it.
 5. Opens 443/tcp in firewalld (permanent, then reload).
+   Closes every other firewalld service and port (ssh stays), and stops
+   and masks Cockpit.
 6. Creates `/home/openarcanum/maintainer/{config,data,acme}` owned by
    `openarcanum`, mode 0700 for data and acme.
 7. Installs `oa-podman` and `oa-systemctl`.

@@ -1,9 +1,34 @@
 # openarcanum.org
 
 This server runs the OpenArcanum website: the landing page with
-announcements, the bug and security report forms, the security policy, and
-the admin portal at `https://openarcanum.org/admin`. Keep this file at
+announcements, the bug and security report forms, the security policy, the
+admin portal at `https://openarcanum.org/admin`, and the web client (the app
+in a browser) at `https://openarcanum.org/app/`, which is part of the same
+image. Keep this file at
 /root/README.md on the server.
+
+## The machine
+
+| | |
+|---|---|
+| Name | openarcanum.org and www.openarcanum.org (DNS A records) |
+| Provider | DigitalOcean droplet: 1 vCPU, 1.7 GiB memory, 49 GB disk |
+| System | Rocky Linux 10.2, x86_64, SELinux enforcing |
+| Addresses | public 165.227.99.208 on `ens3` (which also has 10.17.0.7, DigitalOcean's internal anchor address); `ens4` 10.132.0.5 is the private network |
+| Login | root over SSH with the deploy key: `ssh -i ~/.ssh/openarcanum_deploy root@openarcanum.org` |
+| Open to the internet | only 22/tcp (ssh), 443/tcp (the website) and 80/tcp (forwarded to 7380, which only redirects to https); firewalld zone `public` |
+| Installed by setup.sh | podman 5.8.2, firewalld 2.4.3, chrony and cosign 3.1.4 (cosign's RPM from GitHub, checksum pinned in `lib/common.sh`) |
+
+Only sshd and the service set up here listen to the network (`ss -tulnp`
+lists them; chronyd's 323/udp is on localhost only). setup.sh closes every
+other firewalld service and port, and stops and masks the Cockpit web
+console (`cockpit.socket`, 9090/tcp) that the droplet image starts. To get
+Cockpit back: `systemctl unmask --now cockpit.socket` and
+`firewall-cmd --permanent --add-service=cockpit && firewall-cmd --reload`
+(setup.sh closes it again when it runs).
+
+Operating system updates are not automatic: run `dnf upgrade` and reboot
+now and then, then check the service ("Start, stop, status, logs").
 
 ## What runs here, and as whom
 
@@ -80,6 +105,8 @@ this, in order:
    `net.ipv4.ip_unprivileged_port_start = 443` and applies it.
 5. Opens 443/tcp in firewalld and forwards port 80 to 7380 (permanent, then
    reload).
+   Closes every other firewalld service and port (ssh stays), and stops
+   and masks Cockpit.
 6. Creates `/home/openarcanum/site/{config,data,keys,acme}` owned by
    `openarcanum`, mode 0700 for data, keys and acme.
 7. Installs `oa-podman` and `oa-systemctl`.
@@ -147,12 +174,12 @@ curl -s http://127.0.0.1:7301/healthz
 
 ## Updating to a new release, and rolling back
 
-The image tag is pinned in the Quadlet file (`Image=...:2026.10.0`). Releases
-are tagged `<version>` (for example `2026.10.1`), `YYYY.MM` and `latest`.
+The image tag is pinned in the Quadlet file (`Image=...:2026.10.1`). Releases
+are tagged `<version>` (for example `2026.10.2`), `YYYY.MM` and `latest`.
 setup.sh takes a tag only with a valid cosign signature made by the
 repository's Containers workflow for a release tag, and pulls the digest that
 signature covers (it prints it). To pin that digest as well, append it to
-the tag: `Image=...:2026.10.0@sha256:<digest>`.
+the tag: `Image=...:2026.10.1@sha256:<digest>`.
 
 To upgrade:
 
@@ -161,7 +188,7 @@ To upgrade:
 oa-podman exec openarcanum-site site backup -out /data/backups -keep 14
 # 2. Change the tag in the kit.
 cd /root/openarcanum-podman/openarcanum.org
-sed -i 's|^Image=.*|Image=ghcr.io/hyperkubeorg/openarcanum-site:2026.10.1|' openarcanum-site.container
+sed -i 's|^Image=.*|Image=ghcr.io/hyperkubeorg/openarcanum-site:2026.10.2|' openarcanum-site.container
 # 3. Pull, restart, check.
 bash setup.sh
 ```
