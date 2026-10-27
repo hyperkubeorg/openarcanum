@@ -166,7 +166,8 @@ def test_devtools_only_when_asked_for(tmp_path, enabled):
         app = await App(tmp_path / "olive", name="olive", env=env).start()
         try:
             await app.wait_js("document.querySelector('#lock')", "the lock screen")
-            await app.wait_js("window.pywebview && window.pywebview.api", "the bridge")
+            bridge = "window.pywebview && window.pywebview.api && typeof pywebview.api.open_devtools === 'function'"
+            await app.wait_js(bridge, "the bridge")
             r = await app.js("window.pywebview.api.open_devtools().then((v) => v.ok, () => false)")
             assert r is True
             # Ctrl+Shift+I, as the page sees it.

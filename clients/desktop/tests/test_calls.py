@@ -41,6 +41,7 @@ def harness(plan: dict, tone: Path, timeout: float = 240, extra_flags: str = "")
     assert line, p.stderr[-3000:]
     out = json.loads(line)
     assert "error" not in out, out["error"]
+    out["_stderr"] = p.stderr[-6000:]  # the engine's own messages, for a run where nothing was heard
     return out
 
 
@@ -109,6 +110,7 @@ def test_nothing_is_sent_that_nobody_takes(tone):
     back = r["unmuted"]
     assert back["audio"] > 100 and back["sending"]["audio"], back
     # The receiver's state when nobody was heard (printed in full: pytest shortens assertion messages).
+    print("engine stderr:", r["_stderr"][-3000:])
     for label in ("before_mute_heard", "before_mute_a", "unmuted_b", "unmuted_a", "unmuted_heard"):
         print(f"\n{label}:", json.dumps(r[label]))
     assert any(s["spoke"] for s in r["unmuted_heard"].values()), r["unmuted_heard"]

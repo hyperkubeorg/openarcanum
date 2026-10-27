@@ -924,6 +924,10 @@ class Call {
     }
     if (this.micAnalyser) {
       this.myLevel = levelDb(this.micAnalyser, this.micBuf);
+      // The loudest the microphone got in the last few seconds: a level
+      // read at one instant says little about a voice (debug()).
+      if (!(now < this.micPeakUntil)) { this.micPeak = -120; this.micPeakUntil = now + 3000; }
+      if (this.myLevel > this.micPeak) this.micPeak = this.myLevel;
       if (this.myLevel > this.s.vadThreshold) { this.vadOpen = true; this.vadUntil = now + CALL.VAD_HANGOVER_MS; } else if (now > this.vadUntil) this.vadOpen = false;
     }
     const tx = this.transmitting();
@@ -1085,6 +1089,9 @@ class Call {
       remote: [...this.remote].map(([id, r]) => ({ id, audio: !!r.audio, camera: !!r.camera, screen: !!r.screen, speaking: r.speaking, level: r.level })),
       layers: [...this.layers].map(([k, v]) => ({ key: k, rid: v.rid || '' })),
       myLevel: this.myLevel,
+      micPeak: this.micPeak ?? -120,
+      micTrack: this.mic ? { state: this.mic.readyState, muted: this.mic.muted, enabled: this.mic.enabled } : null,
+      sentAudio: this.local.audio ? { state: this.local.audio.readyState, muted: this.local.audio.muted, enabled: this.local.audio.enabled } : null,
       audio: this.ctx ? { state: this.ctx.state, time: this.ctx.currentTime, stalls: this.audioStalls || 0 } : null,
       epochs: this.epochs.map((e) => e.epoch),
     };

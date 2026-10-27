@@ -440,9 +440,15 @@ class Harness:
         await a.js(f"call.watch({json.dumps(c.participant.hex())}, 'camera', 100); 0")
         await asyncio.sleep(7)
         self.out["layers"] = {"debug": (await self.debug(a))["layers"], "inbound": await a.js_async("inboundVideo()")}
-        # The server mutes b; a stops hearing b.
+        # The server mutes b; a stops hearing b (once the relay has the
+        # control, which takes a moment on a loaded machine).
         await a.relay._write(_update(self.server.control(muted=[b.participant])))
-        await asyncio.sleep(1)
+        bid = b.participant.hex()
+        for _ in range(40):
+            levels = json.loads(await a.js("JSON.stringify(playedLevels())"))["remote"]
+            if bid in levels and levels[bid]["pre"] == -120:
+                break
+            await asyncio.sleep(0.25)
         self.out["muted"] = await self.speaking_over(a, 4)
         # c leaves; a and b go on, without c.
         await self.leave(c)
@@ -827,24 +833,38 @@ def _update(ctl: cw.SignedCallControl):
 
 
 def tone_bursts(path: Path, seconds: int = 180) -> None:
-    """A 'microphone' for Chromium's fake device: 0.5 s of 440 Hz at half
-    scale, then 0.5 s of silence, repeated. Long enough for the slowest
+    """A 'microphone' for Chromium's fake device: half a second of a
+    voice-like sound (harmonics of a pitch that slides from 120 to 200 Hz,
+    in syllables) for 0.7 s, then 0.3 s of silence, repeated; about half
+    scale while on. A steady tone won't do: the engine's noise suppression
+    learns it as background within seconds and takes it out. On for most
+    of each second, so two pages that joined at different moments are
+    heard together at least 40% of the time. Long enough for the slowest
     test on a loaded runner (the engine is not relied on to loop it)."""
     import math
     import struct
     import wave
 
     rate = 48000
-    frames = bytearray()
-    for i in range(rate * seconds):
-        on = (i // (rate // 2)) % 2 == 0
-        v = int(16000 * math.sin(2 * math.pi * 440 * i / rate)) if on else 0
-        frames += struct.pack("<h", v)
+    harmonics = [(1, 1.0), (2, 0.6), (3, 0.4), (4, 0.25), (5, 0.15)]
+    second = bytearray()
+    phase = 0.0
+    for i in range(rate):
+        t = i / rate
+        if t < 0.7:
+            pitch = 120 + 115 * t  # slides up over the burst
+            phase += 2 * math.pi * pitch / rate
+            syllable = 0.55 + 0.45 * math.sin(2 * math.pi * 4 * t)  # 4 a second
+            v = 0.45 * syllable * sum(a * math.sin(h * phase) for h, a in harmonics) / 1.4
+        else:
+            v = 0.0
+        second += struct.pack("<h", max(-32767, min(32767, int(v * 32767))))
+    frames = bytes(second) * seconds
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(rate)
-        w.writeframes(bytes(frames))
+        w.writeframes(frames)
 
 
 def noise_bed(path: Path, noise_dbfs: float, speech_dbfs: float | None = None, seconds: int = 10) -> None:
