@@ -52,6 +52,31 @@ async def _inline(func, /, *args, **kwargs):
     return func(*args, **kwargs)
 
 
+def _raise_http_errors() -> None:
+    """urllib raises HTTPError for a 4xx or 5xx reply, and the client relies
+    on it (meta.py reads the status, the body and the headers of an
+    error). pyodide_http's urlopen returns those replies like any other, so
+    wrap it to raise as urllib does."""
+    import io
+    import urllib.error
+    import urllib.request
+
+    plain = urllib.request.urlopen
+
+    def urlopen(url, *args, **kwargs):
+        resp = plain(url, *args, **kwargs)
+        status = getattr(resp, "status", None) or getattr(resp, "code", 200)
+        if status >= 400:
+            full = url.full_url if isinstance(url, urllib.request.Request) else str(url)
+            body = resp.read()
+            raise urllib.error.HTTPError(
+                full, status, getattr(resp, "reason", "") or "", resp.headers, io.BytesIO(body)
+            )
+        return resp
+
+    urllib.request.urlopen = urlopen
+
+
 def _scrypt(password: bytes, *, salt: bytes, n: int, r: int, p: int, maxmem: int = 0, dklen: int = 64) -> bytes:
     """hashlib.scrypt, which Pyodide's OpenSSL build leaves out; the same
     function (RFC 7914) from cryptography, so vaults open on either client."""
@@ -209,6 +234,7 @@ def boot(lang: str = "", invite_link: str = "") -> None:
         os.environ.setdefault("LANG", lang.replace("-", "_") + ".UTF-8")
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(levelname)s %(name)s: %(message)s")
     pyodide_http.patch_all()
+    _raise_http_errors()
     asyncio.to_thread = _inline
     if not hasattr(hashlib, "scrypt"):
         hashlib.scrypt = _scrypt
