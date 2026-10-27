@@ -216,10 +216,18 @@ func (s *Server) getContactCard(ctx context.Context, ss *sess, g *wire.GetContac
 	s.mu.RLock()
 	m := s.members[string(g.Member)]
 	var screened int64
-	if string(g.Member) != string(ss.member) {
-		screened = s.screenedUntil(s.members[string(ss.member)])
+	var timedOut int64
+	if me := s.members[string(ss.member)]; string(g.Member) != string(ss.member) && me != nil {
+		// Someone timed out can't start conversations either.
+		if s.timedOut(me) {
+			timedOut = me.TimeoutUntil
+		}
+		screened = s.screenedUntil(me)
 	}
 	s.mu.RUnlock()
+	if timedOut != 0 {
+		return nil, errDenied(fmt.Sprintf("You're timed out until %s, so you can't start direct messages.", fmtUTC(timedOut)))
+	}
 	if screened != 0 {
 		return nil, errDenied(fmt.Sprintf("New members can start direct messages from %s (member screening).", fmtUTC(screened)))
 	}

@@ -287,6 +287,9 @@ func TestTimeout(t *testing.T) {
 	wantErr(t, err, "timed out until")
 	_, err = alice.Call(ctx, &wire.ClientMessage{Body: &wire.ClientMessage_SetProfile{SetProfile: &wire.SetProfile{DisplayName: "Not Alice"}}})
 	wantErr(t, err, "nickname")
+	// Nor start a direct message (another member's contact card).
+	_, err = alice.Call(ctx, &wire.ClientMessage{Body: &wire.ClientMessage_GetContactCard{GetContactCard: &wire.GetContactCard{Member: e.owner.Identity.Public}}})
+	wantErr(t, err, "can't start direct messages")
 	if len(historyMsgs(t, alice, gen)) == 0 {
 		t.Fatal("a timed-out member can't read")
 	}

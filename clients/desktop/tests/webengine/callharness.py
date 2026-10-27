@@ -825,9 +825,10 @@ def _update(ctl: cw.SignedCallControl):
     return rp.RelayFrame(call_update=cw.CallUpdate(control=ctl))
 
 
-def tone_bursts(path: Path, seconds: int = 10) -> None:
+def tone_bursts(path: Path, seconds: int = 180) -> None:
     """A 'microphone' for Chromium's fake device: 0.5 s of 440 Hz at half
-    scale, then 0.5 s of silence, repeated."""
+    scale, then 0.5 s of silence, repeated. Long enough for the slowest
+    test on a loaded runner (the engine is not relied on to loop it)."""
     import math
     import struct
     import wave

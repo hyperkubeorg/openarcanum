@@ -2010,6 +2010,8 @@ receives nothing new; every community refuses its keys and rotates the key
 and topic of every channel the member can see (as when a member is
 removed), so the removed device can't read new channel messages from the
 relays; the member's other devices get the new keys in the next state. A
+revocation for a device key the community never saw is kept too, up to 64
+device records per member (more are refused). A
 removed device
 still holds the identity keys it had (all devices are equals,
 docs/architecture.md §4); see the threat model.

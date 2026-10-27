@@ -497,9 +497,12 @@ function restoreFocus(target, opts = {}) {
 // press on one element and a release on its replacement is no click at
 // all, so a redraw mid-click (a presence update, a list refresh) would
 // swallow it. Redraws wait for the release (or 1.5 s, if the release
-// happens outside the window and never arrives). They run at the release,
-// before the click is dispatched: the click still goes to the element that
-// was pressed (its handler works on ids, not on the node).
+// happens outside the window and never arrives). The click comes after the
+// release, to the element under both: a redraw between the two would take
+// the pressed element away and the click with it, so the redraws run as
+// the click is dispatched (its path is fixed by then: the handler of the
+// element that was pressed still runs), or right after a release that
+// brings no click.
 let pointerHeld = false;
 let pointerTimer = null;
 const deferredRedraws = [];
@@ -513,7 +516,10 @@ document.addEventListener('pointerdown', () => {
   clearTimeout(pointerTimer);
   pointerTimer = setTimeout(flushRedraws, 1500);
 }, true);
-for (const ev of ['pointerup', 'pointercancel']) document.addEventListener(ev, flushRedraws, true);
+document.addEventListener('click', flushRedraws, true);
+for (const ev of ['pointerup', 'pointercancel']) {
+  document.addEventListener(ev, () => { pointerHeld = false; setTimeout(flushRedraws, 0); }, true);
+}
 
 function keepingFocus(container, fn) {
   if (pointerHeld) { deferredRedraws.push(() => keepingFocus(container, fn)); return undefined; }

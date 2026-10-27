@@ -1496,6 +1496,10 @@ func (s *Server) listDevices(ctx context.Context, ss *sess) (*wire.ServerMessage
 
 // revokeDevice refuses a device key from now on (docs/protocol.md §10.4).
 // The revocation must be signed by the member's identity key.
+// maxDeviceRecords bounds a member's device rows (connected or revoked
+// unseen): all of them are read when the member connects.
+const maxDeviceRecords = 64
+
 func (s *Server) revokeDevice(ctx context.Context, ss *sess, sr *wire.SignedDeviceRevocation) (*wire.ServerMessage, error) {
 	var r wire.DeviceRevocation
 	if err := proto.Unmarshal(sr.Revocation, &r); err != nil {
@@ -1527,7 +1531,18 @@ func (s *Server) revokeDevice(ctx context.Context, ss *sess, sr *wire.SignedDevi
 	// them so it can't read anything new from the relays.
 	rotate := d != nil && !d.Revoked
 	if d == nil {
-		// Revoking a device that never connected keeps it out for good.
+		// Revoking a device that never connected keeps it out for good;
+		// a member's record of them stays small (every row is read when
+		// the member connects).
+		var n int
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices WHERE member = ?`, s.kid(ss.member)).Scan(&n); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		if n >= maxDeviceRecords {
+			s.mu.Unlock()
+			return nil, errRateLimited(fmt.Sprintf("you have %d devices on record here; revoke ones that connected, not ones that never did", n))
+		}
 		d = &deviceRec{DeviceKey: r.DeviceKey, Member: ss.member, FirstSeen: r.At, LastSeen: r.At}
 	}
 	d.Revoked = true

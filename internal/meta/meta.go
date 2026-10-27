@@ -289,6 +289,9 @@ func Open(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 		versions:         version.Supported(),
 	}
 	s.http.Transport = version.Transport{}
+	// Peers and relays are reached at the addresses configured for them,
+	// never wherever one of them redirects to.
+	s.http.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	s.peers = newPeerState()
 	if cfg.NodeKeyDir != "" {
 		s.id, err = loadKeysFrom(cfg.NodeKeyDir)
