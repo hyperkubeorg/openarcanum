@@ -86,7 +86,19 @@ async def claim(app: App, claim_code: str, community: str, display_name: str) ->
     await app.button("Cancel")
     await app.wait_js("document.querySelector('#composer-input')", "composer", 30)
     await app.wait_gone("#modal-root .backdrop")
+    await synced(app)
     return invite
+
+
+async def synced(app: App) -> None:
+    """The open community is connected and its permissions are in (the
+    menus depend on them; a slow machine shows the channel view first)."""
+    await app.wait_js(
+        "(() => { const c = st.communities.find((x) => x.id === st.cid);"
+        " return c && c.connection === 'online' && c.can && Object.keys(c.can).length > 0; })()",
+        "the community synced",
+        40,
+    )
 
 
 async def join(app: App, invite: str, display_name: str) -> None:
@@ -97,6 +109,7 @@ async def join(app: App, invite: str, display_name: str) -> None:
     await app.fill('.add-page input[placeholder="How others will see you here"]', display_name)
     await app.button("Join")
     await app.wait_js("document.querySelector('#composer-input')", "joined community", 40)
+    await synced(app)
     # The key backup reminder after joining.
     await app.wait_text(".modal h2", "Back up your keys")
     await app.button("Later")

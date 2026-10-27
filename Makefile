@@ -165,6 +165,15 @@ test-go:
 # server binaries and the UI test, so they need `build` first.
 test-py: build
 	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q
+# The same tests in three parts, so CI can run them side by side: the ones
+# that open no window (`gui` marker absent), the UI flows, and the other
+# windowed tests (calls, the engine probe, the tray, the keychain).
+test-py-core: build
+	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m "not gui"
+test-ui: build
+	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m gui -k "test_ui_"
+test-media: build
+	cd clients/desktop && OPENARCANUM_BIN=$(CURDIR)/$(BIN) $(UV) run pytest -q -m gui -k "not test_ui_"
 
 # The UI's JavaScript unit tests (Node's built-in runner; no npm packages).
 NODE ?= node
@@ -265,9 +274,11 @@ appimage: bundle ## Build the Linux AppImage
 	cd clients/desktop && $(UV) run python packaging/linux/build_appimage.py \
 		--bundle dist/OpenArcanum --out dist/OpenArcanum-x86_64.AppImage --tools build/appimage-tools
 
-check: check-go check-py ## The full gate: every check and test (CI runs the two halves side by side)
+check: check-go check-py check-ui check-media ## The full gate: every check and test (CI runs the four parts side by side)
 check-go: client-sync fmt-check proto-check lint markers version-check strings-check lock-check storage-guard deploy-check test-go fuzz-go ## Static checks, the Go tests and fuzzing
-check-py: build test-py test-js fuzz-py client-smoke ## The Python and JavaScript tests, Python fuzzing, the smoke launch
+check-py: build test-py-core test-js fuzz-py client-smoke ## The Python tests that open no window, the JavaScript tests, Python fuzzing, the smoke launch
+check-ui: build test-ui ## The UI tests (two app windows each)
+check-media: build test-media ## The call, engine and other windowed tests outside test_ui_*
 # Load tests (docs/load-tests.md): each server binary pinned to
 # LOAD_SERVER_CPUS (default 0,1: the 2-vCPU target), the community test's relay on
 # LOAD_RELAY_CPUS (2,3), clients on LOAD_CLIENT_CPUS.

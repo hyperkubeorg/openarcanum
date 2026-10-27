@@ -155,6 +155,11 @@ func FuzzClientFrames(f *testing.F) {
 		defer cancel()
 		c, err := Dial(ctx, relay.url)
 		if err != nil {
+			// Thousands of short connections exhaust the loopback ports on
+			// some systems (macOS keeps them in TIME_WAIT): not a finding.
+			if strings.Contains(err.Error(), "assign requested address") {
+				t.Skip("loopback ports exhausted")
+			}
 			t.Fatal(err)
 		}
 		defer c.Close()
