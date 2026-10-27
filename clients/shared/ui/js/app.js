@@ -286,8 +286,7 @@ on('community_removed', ({ id }) => {
 
 on('message', ({ community, message }) => {
   const pane = community === st.cid && st.view === 'community' ? paneOf(message.channel_id) : null;
-  // Only channels that were loaded keep up; the rest load when opened.
-  if (st.msgs[key(community, message.channel_id)]) upsertMessage(community, message, { onScreen: !!pane });
+  upsertMessage(community, message, { onScreen: !!pane });
   // A message ends its author's typing indicator.
   const typing = chat.typing[key(community, message.channel_id)];
   if (typing) delete typing[message.author];
