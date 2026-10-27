@@ -185,13 +185,33 @@ func TestTwoMembersChat(t *testing.T) {
 	if _, err := alice.Post(ctx, gen.Id, "hi owner"); err != nil {
 		t.Fatal(err)
 	}
-	got := alice.WaitReceived(gen.Id, 2, 5*time.Second)
+	// Alice's own "joined" event can arrive after her watch starts (a slow
+	// machine): only the two posts count.
+	got := posts(alice.WaitReceived(gen.Id, 2, 5*time.Second))
+	if len(got) < 2 {
+		got = posts(alice.WaitReceived(gen.Id, 3, 5*time.Second))
+	}
 	if len(got) != 2 || got[0].Text != "hello alice" || got[1].Text != "hi owner" || got[0].AuthorName != "Owner" {
 		t.Fatalf("alice received %v", got)
 	}
-	if got := e.owner.WaitReceived(gen.Id, 2, 5*time.Second); len(got) != 2 {
-		t.Fatalf("owner received %d", len(got))
+	owner := posts(e.owner.WaitReceived(gen.Id, 2, 5*time.Second))
+	if len(owner) < 2 {
+		owner = posts(e.owner.WaitReceived(gen.Id, 3, 5*time.Second))
 	}
+	if len(owner) != 2 {
+		t.Fatalf("owner received %d", len(owner))
+	}
+}
+
+// posts leaves out system events (joins, leaves).
+func posts(msgs []*wire.Message) []*wire.Message {
+	var out []*wire.Message
+	for _, m := range msgs {
+		if m.GetSystem() == nil {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func TestEnvelopeRejectsForgery(t *testing.T) {
