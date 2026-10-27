@@ -1000,7 +1000,9 @@ async function loadMembers(cid) {
 
 function shownName(m) { return m.nickname || m.display_name; }
 
-function renderMembers() {
+function renderMembers() { return keepingFocus($('#members'), renderMembersNow); }
+
+function renderMembersNow() {
   const panel = $('#members');
   if (voiceChat.shown()) { voiceChat.render(); return; }
   voiceChat.leavePanel(panel);

@@ -493,7 +493,30 @@ function restoreFocus(target, opts = {}) {
 
 // Redraws part of the page with fn; if the keyboard focus was in it, it
 // lands on the same row's control again instead of falling to the page.
+// While a pointer button is held, the part under it is not redrawn: a
+// press on one element and a release on its replacement is no click at
+// all, so a redraw mid-click (a presence update, a list refresh) would
+// swallow it. Redraws wait for the release (or 1.5 s, if the release
+// happens outside the window and never arrives). They run at the release,
+// before the click is dispatched: the click still goes to the element that
+// was pressed (its handler works on ids, not on the node).
+let pointerHeld = false;
+let pointerTimer = null;
+const deferredRedraws = [];
+function flushRedraws() {
+  pointerHeld = false;
+  clearTimeout(pointerTimer);
+  for (const fn of deferredRedraws.splice(0)) fn();
+}
+document.addEventListener('pointerdown', () => {
+  pointerHeld = true;
+  clearTimeout(pointerTimer);
+  pointerTimer = setTimeout(flushRedraws, 1500);
+}, true);
+for (const ev of ['pointerup', 'pointercancel']) document.addEventListener(ev, flushRedraws, true);
+
 function keepingFocus(container, fn) {
+  if (pointerHeld) { deferredRedraws.push(() => keepingFocus(container, fn)); return undefined; }
   const was = document.activeElement;
   const target = container && was && was !== document.body && container.contains(was) ? focusTarget(was) : null;
   const r = fn();

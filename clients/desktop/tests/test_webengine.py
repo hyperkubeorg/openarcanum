@@ -10,7 +10,13 @@ from pathlib import Path
 import pytest
 from conftest import ENGINE_TEST_FLAGS, headless
 
-FLAGS = "--use-fake-device-for-media-stream --use-fake-ui-for-media-stream --auto-select-desktop-capture-source=Entire"
+# Raw host addresses as ICE candidates: the engine hides them behind mDNS
+# names by default, which the loopback connection on a runner without
+# multicast can't resolve.
+FLAGS = (
+    "--use-fake-device-for-media-stream --use-fake-ui-for-media-stream --auto-select-desktop-capture-source=Entire"
+    " --disable-features=WebRtcHideLocalIpsWithMdns"
+)
 
 
 @pytest.mark.gui

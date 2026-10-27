@@ -169,7 +169,7 @@ test-py: build
 # The UI's JavaScript unit tests (Node's built-in runner; no npm packages).
 NODE ?= node
 test-js:
-	$(NODE) --test clients/desktop/tests/js/
+	$(NODE) --test 'clients/desktop/tests/js/*.test.js' 'clients/desktop/tests/js/*.test.mjs'
 
 # Bounded fuzzing: every Go native fuzz target for FUZZTIME each, plus the
 # Hypothesis decoder tests. Crashing Go inputs land in testdata/fuzz/.
@@ -265,7 +265,9 @@ appimage: bundle ## Build the Linux AppImage
 	cd clients/desktop && $(UV) run python packaging/linux/build_appimage.py \
 		--bundle dist/OpenArcanum --out dist/OpenArcanum-x86_64.AppImage --tools build/appimage-tools
 
-check: client-sync fmt-check proto-check lint markers version-check strings-check lock-check storage-guard deploy-check test fuzz-short client-smoke ## The full gate: every check and test (CI runs this)
+check: check-go check-py ## The full gate: every check and test (CI runs the two halves side by side)
+check-go: client-sync fmt-check proto-check lint markers version-check strings-check lock-check storage-guard deploy-check test-go fuzz-go ## Static checks, the Go tests and fuzzing
+check-py: build test-py test-js fuzz-py client-smoke ## The Python and JavaScript tests, Python fuzzing, the smoke launch
 # Load tests (docs/load-tests.md): each server binary pinned to
 # LOAD_SERVER_CPUS (default 0,1: the 2-vCPU target), the community test's relay on
 # LOAD_RELAY_CPUS (2,3), clients on LOAD_CLIENT_CPUS.

@@ -57,14 +57,15 @@ env:
 
 jobs:
   check:
-    name: make check (${{ matrix.os }})
+    name: make check-${{ matrix.part }} (${{ matrix.os }})
     if: github.event_name != 'schedule'
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        part: [go, py]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 75
     defaults:
       run:
         shell: bash
@@ -137,30 +138,30 @@ jobs:
       # have; they run in a local `make check`.
       # pytest splits PYTEST_ADDOPTS like a POSIX shell, so a Windows path
       # with backslashes needs forward slashes (cygpath -m).
-      - name: make check
+      - name: make check-${{ matrix.part }}
         if: runner.os != 'Linux'
         run: |
           temp=$(cygpath -m "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")
           export PYTEST_ADDOPTS="--basetemp=$temp/pytest -k 'not fifty and not twenty_five'"
-          make check
+          make check-${{ matrix.part }}
 
       # On Linux the keychain tests need a Secret Service: an unlocked GNOME
       # Keyring on the session bus (Windows and macOS have theirs built in).
-      - name: make check (Linux, with a keyring)
+      - name: make check-${{ matrix.part }} (Linux, with a keyring)
         if: runner.os == 'Linux'
         env:
           PYTEST_ADDOPTS: --basetemp=${{ runner.temp }}/pytest -k "not fifty and not twenty_five"
         run: |
           dbus-run-session -- bash -ec '
             echo -n ci-keyring | gnome-keyring-daemon --unlock --components=secrets >/dev/null
-            make check'
+            make check-${{ matrix.part }}'
 
       # uidriver.py saves a screenshot of the window when a UI step fails.
       - name: Keep UI failure screenshots
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: ui-failures-${{ matrix.os }}
+          name: ui-failures-${{ matrix.os }}-${{ matrix.part }}
           path: |
             ${{ runner.temp }}/pytest/**/*-failure.png
             ${{ runner.temp }}/pytest/**/*-stderr.log
@@ -171,7 +172,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: fuzz-crashers-${{ matrix.os }}
+          name: fuzz-crashers-${{ matrix.os }}-${{ matrix.part }}
           path: |
             internal/**/testdata/fuzz/**
             clients/desktop/.hypothesis/**

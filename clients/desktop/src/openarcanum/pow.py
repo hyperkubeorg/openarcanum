@@ -56,15 +56,14 @@ def solve(challenge: bytes, bits: int, deadline: float | None = None, cancel: th
     mask = 0xFF << (8 - rest) & 0xFF
     i = 0
     while True:
-        if i & 0xFF == 0:
-            # The loop holds the interpreter lock between hashes: hand it to
-            # the other threads (the event loop behind the UI) every so often,
-            # or they starve while this solves.
-            time.sleep(0)
-            if i & 0xFFF == 0 and (
-                (deadline is not None and time.monotonic() > deadline) or (cancel is not None and cancel.is_set())
-            ):
+        if i & 0xFFF == 0:
+            if (deadline is not None and time.monotonic() > deadline) or (cancel is not None and cancel.is_set()):
                 raise PowError("proof-of-work not finished in time")
+            # The loop holds the interpreter lock between hashes, and merely
+            # offering it (sleep(0)) isn't enough on every system: a short
+            # real sleep lets the event loop behind the UI run. It adds about
+            # a quarter to the solve time.
+            time.sleep(0.001)
         counter = i.to_bytes(8, "big")
         h = prefix.copy()
         h.update(counter)
