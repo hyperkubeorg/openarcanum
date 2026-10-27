@@ -469,10 +469,11 @@ class Harness:
         a = await self.add("a", {"priority": True})
         b = await self.add("b", {})
         c = await self.add("c", {})
-        await asyncio.sleep(5)
+        await asyncio.sleep(8)
         ids = {"a": a.participant.hex(), "b": b.participant.hex()}
         self.out["ids"] = ids
-        self.out["with_priority"] = await self.played_over(c, 6)
+        self.out["with_priority"] = await self.played_over(c, 12)
+        self.out["priority_c"] = await self.debug(c)
         # a mutes itself: nobody is ducked once a stops being heard.
         await a.js_async("call.setSelfMute(true)")
         await asyncio.sleep(1.5)

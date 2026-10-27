@@ -4,6 +4,7 @@ the local stack relies on: one relay URL that clients and the community
 server both use, the node's network with cluster DNS, the call media port,
 the community server's start-up and hardened containers."""
 
+import asyncio
 import os
 import re
 import shutil
@@ -237,6 +238,7 @@ def test_servers_accept_what_the_kind_values_render(tmp_path):
     from test_e2e_community import WIZARD, general
 
     from openarcanum.core import Core
+    from openarcanum.errors import UserError
     from openarcanum.paths import Paths
 
     rp, mp = free_port(), free_port()
@@ -284,7 +286,16 @@ def test_servers_accept_what_the_kind_values_render(tmp_path):
             core = Core(Paths.under(tmp_path / "olive"), emit=Events())
             await core.create_profile(PASS, "olive")
             await core.set_setting("maintainers", [meta_url])
-            cid = (await core.claim(claim, WIZARD, "Olive"))["community"]
+            # The community server registers its endpoint with the relay as
+            # it starts; until then the relay refuses the stream.
+            for attempt in range(60):
+                try:
+                    cid = (await core.claim(claim, WIZARD, "Olive"))["community"]
+                    break
+                except UserError as e:
+                    if "no_endpoint" not in str(e) or attempt == 59:
+                        raise
+                    await asyncio.sleep(0.5)
             ch = await general(core, cid)
             await core.send(cid, ch, "hello from the kind values")
             texts = [m["text"] for m in (await core.history(cid, ch))["messages"]]

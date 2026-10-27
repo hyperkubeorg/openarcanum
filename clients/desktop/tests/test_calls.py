@@ -226,8 +226,9 @@ def test_priority_speaker_turns_others_down(tone):
     with run_relay() as relay:
         r = harness({"scenario": "priority", "relay": relay}, tone)
     a, b = r["ids"]["a"], r["ids"]["b"]
+    print("priority_c:", json.dumps(r["priority_c"]))  # the listener's state, for a run where too little was heard
     ducked = _gaps(r["with_priority"], b, a, True)
-    assert len(ducked) >= 5, r["with_priority"][:5]
+    assert len(ducked) >= 5, r["with_priority"][:12]
     assert -13 < _median(ducked) < -8, ducked
     # The volume call.js set on b while a speaks.
     gains = [s["remote"][b]["gain"] for s in r["with_priority"] if b in s["remote"] and s["remote"][a]["speaking"]]
