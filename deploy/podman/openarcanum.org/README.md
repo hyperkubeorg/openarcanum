@@ -174,12 +174,12 @@ curl -s http://127.0.0.1:7301/healthz
 
 ## Updating to a new release, and rolling back
 
-The image tag is pinned in the Quadlet file (`Image=...:2026.10.2`). Releases
-are tagged `<version>` (for example `2026.10.3`), `YYYY.MM` and `latest`.
+The image tag is pinned in the Quadlet file (`Image=...:2026.10.3`). Releases
+are tagged `<version>` (for example `2026.10.4`), `YYYY.MM` and `latest`.
 setup.sh takes a tag only with a valid cosign signature made by the
 repository's Containers workflow for a release tag, and pulls the digest that
 signature covers (it prints it). To pin that digest as well, append it to
-the tag: `Image=...:2026.10.2@sha256:<digest>`.
+the tag: `Image=...:2026.10.3@sha256:<digest>`.
 
 To upgrade:
 
@@ -188,7 +188,7 @@ To upgrade:
 oa-podman exec openarcanum-site site backup -out /data/backups -keep 14
 # 2. Change the tag in the kit.
 cd /root/openarcanum-podman/openarcanum.org
-sed -i 's|^Image=.*|Image=ghcr.io/hyperkubeorg/openarcanum-site:2026.10.3|' openarcanum-site.container
+sed -i 's|^Image=.*|Image=ghcr.io/hyperkubeorg/openarcanum-site:2026.10.4|' openarcanum-site.container
 # 3. Pull, restart, check.
 bash setup.sh
 ```
