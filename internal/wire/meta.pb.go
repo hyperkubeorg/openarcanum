@@ -1420,6 +1420,160 @@ func (x *MailboxDelete) GetGids() [][]byte {
 	return nil
 }
 
+// A permanent contact code names a card kept here: its address is
+// SHA-256("openarcanum/contact-card/v1" || 0x00 || token). Whoever holds the
+// token replaces or deletes the card; anyone with the address reads it. The
+// card is the owner's SignedContactCard, checked by the reader against the
+// identity in the code (the node doesn't parse it).
+type ContactCardPut struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	Card          []byte                 `protobuf:"bytes,2,opt,name=card,proto3" json:"card,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContactCardPut) Reset() {
+	*x = ContactCardPut{}
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContactCardPut) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContactCardPut) ProtoMessage() {}
+
+func (x *ContactCardPut) ProtoReflect() protoreflect.Message {
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContactCardPut.ProtoReflect.Descriptor instead.
+func (*ContactCardPut) Descriptor() ([]byte, []int) {
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ContactCardPut) GetToken() []byte {
+	if x != nil {
+		return x.Token
+	}
+	return nil
+}
+
+func (x *ContactCardPut) GetCard() []byte {
+	if x != nil {
+		return x.Card
+	}
+	return nil
+}
+
+type ContactCardDelete struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         []byte                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContactCardDelete) Reset() {
+	*x = ContactCardDelete{}
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContactCardDelete) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContactCardDelete) ProtoMessage() {}
+
+func (x *ContactCardDelete) ProtoReflect() protoreflect.Message {
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContactCardDelete.ProtoReflect.Descriptor instead.
+func (*ContactCardDelete) Descriptor() ([]byte, []int) {
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ContactCardDelete) GetToken() []byte {
+	if x != nil {
+		return x.Token
+	}
+	return nil
+}
+
+// GET /v1/cards/{address}.
+type ContactCardFetched struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Card          []byte                 `protobuf:"bytes,1,opt,name=card,proto3" json:"card,omitempty"`
+	UpdatedAt     int64                  `protobuf:"varint,2,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContactCardFetched) Reset() {
+	*x = ContactCardFetched{}
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContactCardFetched) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContactCardFetched) ProtoMessage() {}
+
+func (x *ContactCardFetched) ProtoReflect() protoreflect.Message {
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContactCardFetched.ProtoReflect.Descriptor instead.
+func (*ContactCardFetched) Descriptor() ([]byte, []int) {
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ContactCardFetched) GetCard() []byte {
+	if x != nil {
+		return x.Card
+	}
+	return nil
+}
+
+func (x *ContactCardFetched) GetUpdatedAt() int64 {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return 0
+}
+
 type NameplateRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The relay both devices will meet on.
@@ -1430,7 +1584,7 @@ type NameplateRequest struct {
 
 func (x *NameplateRequest) Reset() {
 	*x = NameplateRequest{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[18]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1442,7 +1596,7 @@ func (x *NameplateRequest) String() string {
 func (*NameplateRequest) ProtoMessage() {}
 
 func (x *NameplateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[18]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1455,7 +1609,7 @@ func (x *NameplateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NameplateRequest.ProtoReflect.Descriptor instead.
 func (*NameplateRequest) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{18}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *NameplateRequest) GetRelay() string {
@@ -1477,7 +1631,7 @@ type Nameplate struct {
 
 func (x *Nameplate) Reset() {
 	*x = Nameplate{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[19]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1489,7 +1643,7 @@ func (x *Nameplate) String() string {
 func (*Nameplate) ProtoMessage() {}
 
 func (x *Nameplate) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[19]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1502,7 +1656,7 @@ func (x *Nameplate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Nameplate.ProtoReflect.Descriptor instead.
 func (*Nameplate) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{19}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Nameplate) GetNumber() uint32 {
@@ -1542,7 +1696,7 @@ type NameplateClaim struct {
 
 func (x *NameplateClaim) Reset() {
 	*x = NameplateClaim{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[20]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1554,7 +1708,7 @@ func (x *NameplateClaim) String() string {
 func (*NameplateClaim) ProtoMessage() {}
 
 func (x *NameplateClaim) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[20]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1567,7 +1721,7 @@ func (x *NameplateClaim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NameplateClaim.ProtoReflect.Descriptor instead.
 func (*NameplateClaim) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{20}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *NameplateClaim) GetNumber() uint32 {
@@ -1593,7 +1747,7 @@ type BlobCreate struct {
 
 func (x *BlobCreate) Reset() {
 	*x = BlobCreate{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[21]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1605,7 +1759,7 @@ func (x *BlobCreate) String() string {
 func (*BlobCreate) ProtoMessage() {}
 
 func (x *BlobCreate) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[21]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1618,7 +1772,7 @@ func (x *BlobCreate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobCreate.ProtoReflect.Descriptor instead.
 func (*BlobCreate) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{21}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *BlobCreate) GetHash() []byte {
@@ -1657,7 +1811,7 @@ type BlobChunk struct {
 
 func (x *BlobChunk) Reset() {
 	*x = BlobChunk{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[22]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1669,7 +1823,7 @@ func (x *BlobChunk) String() string {
 func (*BlobChunk) ProtoMessage() {}
 
 func (x *BlobChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[22]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1682,7 +1836,7 @@ func (x *BlobChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobChunk.ProtoReflect.Descriptor instead.
 func (*BlobChunk) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{22}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *BlobChunk) GetHash() []byte {
@@ -1732,7 +1886,7 @@ type BlobUploadStatus struct {
 
 func (x *BlobUploadStatus) Reset() {
 	*x = BlobUploadStatus{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[23]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1744,7 +1898,7 @@ func (x *BlobUploadStatus) String() string {
 func (*BlobUploadStatus) ProtoMessage() {}
 
 func (x *BlobUploadStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[23]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1757,7 +1911,7 @@ func (x *BlobUploadStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobUploadStatus.ProtoReflect.Descriptor instead.
 func (*BlobUploadStatus) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{23}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *BlobUploadStatus) GetHash() []byte {
@@ -1821,7 +1975,7 @@ type BlobFetch struct {
 
 func (x *BlobFetch) Reset() {
 	*x = BlobFetch{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[24]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1833,7 +1987,7 @@ func (x *BlobFetch) String() string {
 func (*BlobFetch) ProtoMessage() {}
 
 func (x *BlobFetch) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[24]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1846,7 +2000,7 @@ func (x *BlobFetch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobFetch.ProtoReflect.Descriptor instead.
 func (*BlobFetch) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{24}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *BlobFetch) GetHash() []byte {
@@ -1883,7 +2037,7 @@ type BlobChunkData struct {
 
 func (x *BlobChunkData) Reset() {
 	*x = BlobChunkData{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[25]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1895,7 +2049,7 @@ func (x *BlobChunkData) String() string {
 func (*BlobChunkData) ProtoMessage() {}
 
 func (x *BlobChunkData) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[25]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1908,7 +2062,7 @@ func (x *BlobChunkData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobChunkData.ProtoReflect.Descriptor instead.
 func (*BlobChunkData) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{25}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *BlobChunkData) GetSize() uint64 {
@@ -1957,7 +2111,7 @@ type BlobAck struct {
 
 func (x *BlobAck) Reset() {
 	*x = BlobAck{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[26]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1969,7 +2123,7 @@ func (x *BlobAck) String() string {
 func (*BlobAck) ProtoMessage() {}
 
 func (x *BlobAck) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[26]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1982,7 +2136,7 @@ func (x *BlobAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobAck.ProtoReflect.Descriptor instead.
 func (*BlobAck) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{26}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *BlobAck) GetHash() []byte {
@@ -2020,7 +2174,7 @@ type ReplicationBatch struct {
 
 func (x *ReplicationBatch) Reset() {
 	*x = ReplicationBatch{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[27]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2032,7 +2186,7 @@ func (x *ReplicationBatch) String() string {
 func (*ReplicationBatch) ProtoMessage() {}
 
 func (x *ReplicationBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[27]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2045,7 +2199,7 @@ func (x *ReplicationBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplicationBatch.ProtoReflect.Descriptor instead.
 func (*ReplicationBatch) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{27}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ReplicationBatch) GetListings() []*SignedListing {
@@ -2116,7 +2270,7 @@ type MaintainerNode struct {
 
 func (x *MaintainerNode) Reset() {
 	*x = MaintainerNode{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[28]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2128,7 +2282,7 @@ func (x *MaintainerNode) String() string {
 func (*MaintainerNode) ProtoMessage() {}
 
 func (x *MaintainerNode) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[28]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2141,7 +2295,7 @@ func (x *MaintainerNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerNode.ProtoReflect.Descriptor instead.
 func (*MaintainerNode) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{28}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *MaintainerNode) GetUrl() string {
@@ -2196,7 +2350,7 @@ type MaintainerSet struct {
 
 func (x *MaintainerSet) Reset() {
 	*x = MaintainerSet{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[29]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2208,7 +2362,7 @@ func (x *MaintainerSet) String() string {
 func (*MaintainerSet) ProtoMessage() {}
 
 func (x *MaintainerSet) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[29]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2221,7 +2375,7 @@ func (x *MaintainerSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerSet.ProtoReflect.Descriptor instead.
 func (*MaintainerSet) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{29}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *MaintainerSet) GetOperatorKey() []byte {
@@ -2271,7 +2425,7 @@ type SignedMaintainerSet struct {
 
 func (x *SignedMaintainerSet) Reset() {
 	*x = SignedMaintainerSet{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[30]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2283,7 +2437,7 @@ func (x *SignedMaintainerSet) String() string {
 func (*SignedMaintainerSet) ProtoMessage() {}
 
 func (x *SignedMaintainerSet) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[30]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2296,7 +2450,7 @@ func (x *SignedMaintainerSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedMaintainerSet.ProtoReflect.Descriptor instead.
 func (*SignedMaintainerSet) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{30}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SignedMaintainerSet) GetSet() []byte {
@@ -2330,7 +2484,7 @@ type NodeInfo struct {
 
 func (x *NodeInfo) Reset() {
 	*x = NodeInfo{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[31]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2342,7 +2496,7 @@ func (x *NodeInfo) String() string {
 func (*NodeInfo) ProtoMessage() {}
 
 func (x *NodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[31]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2355,7 +2509,7 @@ func (x *NodeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeInfo.ProtoReflect.Descriptor instead.
 func (*NodeInfo) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{31}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *NodeInfo) GetNodeKey() []byte {
@@ -2402,7 +2556,7 @@ type PeerMessage struct {
 
 func (x *PeerMessage) Reset() {
 	*x = PeerMessage{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[32]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2414,7 +2568,7 @@ func (x *PeerMessage) String() string {
 func (*PeerMessage) ProtoMessage() {}
 
 func (x *PeerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[32]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2427,7 +2581,7 @@ func (x *PeerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerMessage.ProtoReflect.Descriptor instead.
 func (*PeerMessage) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{32}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *PeerMessage) GetId() uint64 {
@@ -2550,7 +2704,7 @@ type PeerBlobChunkRequest struct {
 
 func (x *PeerBlobChunkRequest) Reset() {
 	*x = PeerBlobChunkRequest{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[33]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2562,7 +2716,7 @@ func (x *PeerBlobChunkRequest) String() string {
 func (*PeerBlobChunkRequest) ProtoMessage() {}
 
 func (x *PeerBlobChunkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[33]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2575,7 +2729,7 @@ func (x *PeerBlobChunkRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerBlobChunkRequest.ProtoReflect.Descriptor instead.
 func (*PeerBlobChunkRequest) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{33}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *PeerBlobChunkRequest) GetUploadId() []byte {
@@ -2603,7 +2757,7 @@ type PeerBlobChunk struct {
 
 func (x *PeerBlobChunk) Reset() {
 	*x = PeerBlobChunk{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[34]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2615,7 +2769,7 @@ func (x *PeerBlobChunk) String() string {
 func (*PeerBlobChunk) ProtoMessage() {}
 
 func (x *PeerBlobChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[34]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2628,7 +2782,7 @@ func (x *PeerBlobChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerBlobChunk.ProtoReflect.Descriptor instead.
 func (*PeerBlobChunk) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{34}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *PeerBlobChunk) GetUploadId() []byte {
@@ -2664,7 +2818,7 @@ type PeerPull struct {
 
 func (x *PeerPull) Reset() {
 	*x = PeerPull{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[35]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2676,7 +2830,7 @@ func (x *PeerPull) String() string {
 func (*PeerPull) ProtoMessage() {}
 
 func (x *PeerPull) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[35]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2689,7 +2843,7 @@ func (x *PeerPull) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerPull.ProtoReflect.Descriptor instead.
 func (*PeerPull) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{35}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *PeerPull) GetCursor() uint64 {
@@ -2724,7 +2878,7 @@ type PeerBatch struct {
 
 func (x *PeerBatch) Reset() {
 	*x = PeerBatch{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[36]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2736,7 +2890,7 @@ func (x *PeerBatch) String() string {
 func (*PeerBatch) ProtoMessage() {}
 
 func (x *PeerBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[36]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2749,7 +2903,7 @@ func (x *PeerBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerBatch.ProtoReflect.Descriptor instead.
 func (*PeerBatch) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{36}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *PeerBatch) GetEpoch() uint64 {
@@ -2807,7 +2961,7 @@ type PeerEntry struct {
 
 func (x *PeerEntry) Reset() {
 	*x = PeerEntry{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[37]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2819,7 +2973,7 @@ func (x *PeerEntry) String() string {
 func (*PeerEntry) ProtoMessage() {}
 
 func (x *PeerEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[37]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2832,7 +2986,7 @@ func (x *PeerEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerEntry.ProtoReflect.Descriptor instead.
 func (*PeerEntry) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{37}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *PeerEntry) GetMrev() uint64 {
@@ -2959,7 +3113,7 @@ type PeerCommunityTombstone struct {
 
 func (x *PeerCommunityTombstone) Reset() {
 	*x = PeerCommunityTombstone{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[38]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2971,7 +3125,7 @@ func (x *PeerCommunityTombstone) String() string {
 func (*PeerCommunityTombstone) ProtoMessage() {}
 
 func (x *PeerCommunityTombstone) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[38]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2984,7 +3138,7 @@ func (x *PeerCommunityTombstone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerCommunityTombstone.ProtoReflect.Descriptor instead.
 func (*PeerCommunityTombstone) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{38}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *PeerCommunityTombstone) GetRouteId() []byte {
@@ -3044,7 +3198,7 @@ type PeerDecision struct {
 
 func (x *PeerDecision) Reset() {
 	*x = PeerDecision{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[39]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3056,7 +3210,7 @@ func (x *PeerDecision) String() string {
 func (*PeerDecision) ProtoMessage() {}
 
 func (x *PeerDecision) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[39]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3069,7 +3223,7 @@ func (x *PeerDecision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerDecision.ProtoReflect.Descriptor instead.
 func (*PeerDecision) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{39}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *PeerDecision) GetOrigin() []byte {
@@ -3130,7 +3284,7 @@ type PeerBlobMeta struct {
 
 func (x *PeerBlobMeta) Reset() {
 	*x = PeerBlobMeta{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[40]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3142,7 +3296,7 @@ func (x *PeerBlobMeta) String() string {
 func (*PeerBlobMeta) ProtoMessage() {}
 
 func (x *PeerBlobMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[40]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3155,7 +3309,7 @@ func (x *PeerBlobMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerBlobMeta.ProtoReflect.Descriptor instead.
 func (*PeerBlobMeta) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{40}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *PeerBlobMeta) GetUploadId() []byte {
@@ -3206,7 +3360,7 @@ type PeerBlobRelease struct {
 
 func (x *PeerBlobRelease) Reset() {
 	*x = PeerBlobRelease{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[41]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3218,7 +3372,7 @@ func (x *PeerBlobRelease) String() string {
 func (*PeerBlobRelease) ProtoMessage() {}
 
 func (x *PeerBlobRelease) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[41]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3231,7 +3385,7 @@ func (x *PeerBlobRelease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerBlobRelease.ProtoReflect.Descriptor instead.
 func (*PeerBlobRelease) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{41}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *PeerBlobRelease) GetUploadId() []byte {
@@ -3270,7 +3424,7 @@ type PeerMailboxItem struct {
 
 func (x *PeerMailboxItem) Reset() {
 	*x = PeerMailboxItem{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[42]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3282,7 +3436,7 @@ func (x *PeerMailboxItem) String() string {
 func (*PeerMailboxItem) ProtoMessage() {}
 
 func (x *PeerMailboxItem) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[42]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3295,7 +3449,7 @@ func (x *PeerMailboxItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerMailboxItem.ProtoReflect.Descriptor instead.
 func (*PeerMailboxItem) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{42}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *PeerMailboxItem) GetInbox() []byte {
@@ -3339,7 +3493,7 @@ type PeerMailboxTombstone struct {
 
 func (x *PeerMailboxTombstone) Reset() {
 	*x = PeerMailboxTombstone{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[43]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3351,7 +3505,7 @@ func (x *PeerMailboxTombstone) String() string {
 func (*PeerMailboxTombstone) ProtoMessage() {}
 
 func (x *PeerMailboxTombstone) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[43]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3364,7 +3518,7 @@ func (x *PeerMailboxTombstone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerMailboxTombstone.ProtoReflect.Descriptor instead.
 func (*PeerMailboxTombstone) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{43}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *PeerMailboxTombstone) GetGid() []byte {
@@ -3397,7 +3551,7 @@ type PeerPoke struct {
 
 func (x *PeerPoke) Reset() {
 	*x = PeerPoke{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[44]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3409,7 +3563,7 @@ func (x *PeerPoke) String() string {
 func (*PeerPoke) ProtoMessage() {}
 
 func (x *PeerPoke) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[44]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3422,7 +3576,7 @@ func (x *PeerPoke) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerPoke.ProtoReflect.Descriptor instead.
 func (*PeerPoke) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{44}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{47}
 }
 
 // A request the peer couldn't serve.
@@ -3435,7 +3589,7 @@ type PeerError struct {
 
 func (x *PeerError) Reset() {
 	*x = PeerError{}
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[45]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3447,7 +3601,7 @@ func (x *PeerError) String() string {
 func (*PeerError) ProtoMessage() {}
 
 func (x *PeerError) ProtoReflect() protoreflect.Message {
-	mi := &file_openarcanum_v1_meta_proto_msgTypes[45]
+	mi := &file_openarcanum_v1_meta_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3460,7 +3614,7 @@ func (x *PeerError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerError.ProtoReflect.Descriptor instead.
 func (*PeerError) Descriptor() ([]byte, []int) {
-	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{45}
+	return file_openarcanum_v1_meta_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *PeerError) GetMessage() string {
@@ -3581,7 +3735,16 @@ const file_openarcanum_v1_meta_proto_rawDesc = "" +
 	"\rMailboxDelete\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\fR\x05token\x12\x10\n" +
 	"\x03ids\x18\x02 \x03(\x03R\x03ids\x12\x12\n" +
-	"\x04gids\x18\x03 \x03(\fR\x04gids\"(\n" +
+	"\x04gids\x18\x03 \x03(\fR\x04gids\":\n" +
+	"\x0eContactCardPut\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token\x12\x12\n" +
+	"\x04card\x18\x02 \x01(\fR\x04card\")\n" +
+	"\x11ContactCardDelete\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token\"G\n" +
+	"\x12ContactCardFetched\x12\x12\n" +
+	"\x04card\x18\x01 \x01(\fR\x04card\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\x02 \x01(\x03R\tupdatedAt\"(\n" +
 	"\x10NameplateRequest\x12\x14\n" +
 	"\x05relay\x18\x01 \x01(\tR\x05relay\"n\n" +
 	"\tNameplate\x12\x16\n" +
@@ -3753,7 +3916,7 @@ func file_openarcanum_v1_meta_proto_rawDescGZIP() []byte {
 }
 
 var file_openarcanum_v1_meta_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_openarcanum_v1_meta_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
+var file_openarcanum_v1_meta_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_openarcanum_v1_meta_proto_goTypes = []any{
 	(CommunityState)(0),              // 0: openarcanum.v1.CommunityState
 	(*Route)(nil),                    // 1: openarcanum.v1.Route
@@ -3774,41 +3937,44 @@ var file_openarcanum_v1_meta_proto_goTypes = []any{
 	(*MailboxItem)(nil),              // 16: openarcanum.v1.MailboxItem
 	(*MailboxItems)(nil),             // 17: openarcanum.v1.MailboxItems
 	(*MailboxDelete)(nil),            // 18: openarcanum.v1.MailboxDelete
-	(*NameplateRequest)(nil),         // 19: openarcanum.v1.NameplateRequest
-	(*Nameplate)(nil),                // 20: openarcanum.v1.Nameplate
-	(*NameplateClaim)(nil),           // 21: openarcanum.v1.NameplateClaim
-	(*BlobCreate)(nil),               // 22: openarcanum.v1.BlobCreate
-	(*BlobChunk)(nil),                // 23: openarcanum.v1.BlobChunk
-	(*BlobUploadStatus)(nil),         // 24: openarcanum.v1.BlobUploadStatus
-	(*BlobFetch)(nil),                // 25: openarcanum.v1.BlobFetch
-	(*BlobChunkData)(nil),            // 26: openarcanum.v1.BlobChunkData
-	(*BlobAck)(nil),                  // 27: openarcanum.v1.BlobAck
-	(*ReplicationBatch)(nil),         // 28: openarcanum.v1.ReplicationBatch
-	(*MaintainerNode)(nil),           // 29: openarcanum.v1.MaintainerNode
-	(*MaintainerSet)(nil),            // 30: openarcanum.v1.MaintainerSet
-	(*SignedMaintainerSet)(nil),      // 31: openarcanum.v1.SignedMaintainerSet
-	(*NodeInfo)(nil),                 // 32: openarcanum.v1.NodeInfo
-	(*PeerMessage)(nil),              // 33: openarcanum.v1.PeerMessage
-	(*PeerBlobChunkRequest)(nil),     // 34: openarcanum.v1.PeerBlobChunkRequest
-	(*PeerBlobChunk)(nil),            // 35: openarcanum.v1.PeerBlobChunk
-	(*PeerPull)(nil),                 // 36: openarcanum.v1.PeerPull
-	(*PeerBatch)(nil),                // 37: openarcanum.v1.PeerBatch
-	(*PeerEntry)(nil),                // 38: openarcanum.v1.PeerEntry
-	(*PeerCommunityTombstone)(nil),   // 39: openarcanum.v1.PeerCommunityTombstone
-	(*PeerDecision)(nil),             // 40: openarcanum.v1.PeerDecision
-	(*PeerBlobMeta)(nil),             // 41: openarcanum.v1.PeerBlobMeta
-	(*PeerBlobRelease)(nil),          // 42: openarcanum.v1.PeerBlobRelease
-	(*PeerMailboxItem)(nil),          // 43: openarcanum.v1.PeerMailboxItem
-	(*PeerMailboxTombstone)(nil),     // 44: openarcanum.v1.PeerMailboxTombstone
-	(*PeerPoke)(nil),                 // 45: openarcanum.v1.PeerPoke
-	(*PeerError)(nil),                // 46: openarcanum.v1.PeerError
-	(*SignedServerCert)(nil),         // 47: openarcanum.v1.SignedServerCert
-	(JoinPolicy)(0),                  // 48: openarcanum.v1.JoinPolicy
+	(*ContactCardPut)(nil),           // 19: openarcanum.v1.ContactCardPut
+	(*ContactCardDelete)(nil),        // 20: openarcanum.v1.ContactCardDelete
+	(*ContactCardFetched)(nil),       // 21: openarcanum.v1.ContactCardFetched
+	(*NameplateRequest)(nil),         // 22: openarcanum.v1.NameplateRequest
+	(*Nameplate)(nil),                // 23: openarcanum.v1.Nameplate
+	(*NameplateClaim)(nil),           // 24: openarcanum.v1.NameplateClaim
+	(*BlobCreate)(nil),               // 25: openarcanum.v1.BlobCreate
+	(*BlobChunk)(nil),                // 26: openarcanum.v1.BlobChunk
+	(*BlobUploadStatus)(nil),         // 27: openarcanum.v1.BlobUploadStatus
+	(*BlobFetch)(nil),                // 28: openarcanum.v1.BlobFetch
+	(*BlobChunkData)(nil),            // 29: openarcanum.v1.BlobChunkData
+	(*BlobAck)(nil),                  // 30: openarcanum.v1.BlobAck
+	(*ReplicationBatch)(nil),         // 31: openarcanum.v1.ReplicationBatch
+	(*MaintainerNode)(nil),           // 32: openarcanum.v1.MaintainerNode
+	(*MaintainerSet)(nil),            // 33: openarcanum.v1.MaintainerSet
+	(*SignedMaintainerSet)(nil),      // 34: openarcanum.v1.SignedMaintainerSet
+	(*NodeInfo)(nil),                 // 35: openarcanum.v1.NodeInfo
+	(*PeerMessage)(nil),              // 36: openarcanum.v1.PeerMessage
+	(*PeerBlobChunkRequest)(nil),     // 37: openarcanum.v1.PeerBlobChunkRequest
+	(*PeerBlobChunk)(nil),            // 38: openarcanum.v1.PeerBlobChunk
+	(*PeerPull)(nil),                 // 39: openarcanum.v1.PeerPull
+	(*PeerBatch)(nil),                // 40: openarcanum.v1.PeerBatch
+	(*PeerEntry)(nil),                // 41: openarcanum.v1.PeerEntry
+	(*PeerCommunityTombstone)(nil),   // 42: openarcanum.v1.PeerCommunityTombstone
+	(*PeerDecision)(nil),             // 43: openarcanum.v1.PeerDecision
+	(*PeerBlobMeta)(nil),             // 44: openarcanum.v1.PeerBlobMeta
+	(*PeerBlobRelease)(nil),          // 45: openarcanum.v1.PeerBlobRelease
+	(*PeerMailboxItem)(nil),          // 46: openarcanum.v1.PeerMailboxItem
+	(*PeerMailboxTombstone)(nil),     // 47: openarcanum.v1.PeerMailboxTombstone
+	(*PeerPoke)(nil),                 // 48: openarcanum.v1.PeerPoke
+	(*PeerError)(nil),                // 49: openarcanum.v1.PeerError
+	(*SignedServerCert)(nil),         // 50: openarcanum.v1.SignedServerCert
+	(JoinPolicy)(0),                  // 51: openarcanum.v1.JoinPolicy
 }
 var file_openarcanum_v1_meta_proto_depIdxs = []int32{
-	47, // 0: openarcanum.v1.SignedRoute.cert:type_name -> openarcanum.v1.SignedServerCert
-	48, // 1: openarcanum.v1.Listing.join_policy:type_name -> openarcanum.v1.JoinPolicy
-	47, // 2: openarcanum.v1.SignedListing.cert:type_name -> openarcanum.v1.SignedServerCert
+	50, // 0: openarcanum.v1.SignedRoute.cert:type_name -> openarcanum.v1.SignedServerCert
+	51, // 1: openarcanum.v1.Listing.join_policy:type_name -> openarcanum.v1.JoinPolicy
+	50, // 2: openarcanum.v1.SignedListing.cert:type_name -> openarcanum.v1.SignedServerCert
 	4,  // 3: openarcanum.v1.SearchResponse.listings:type_name -> openarcanum.v1.SignedListing
 	13, // 4: openarcanum.v1.SearchResponse.statuses:type_name -> openarcanum.v1.CommunityStatus
 	4,  // 5: openarcanum.v1.DirectorySnapshot.listings:type_name -> openarcanum.v1.SignedListing
@@ -3820,21 +3986,21 @@ var file_openarcanum_v1_meta_proto_depIdxs = []int32{
 	2,  // 11: openarcanum.v1.ReplicationBatch.routes:type_name -> openarcanum.v1.SignedRoute
 	8,  // 12: openarcanum.v1.ReplicationBatch.heartbeats:type_name -> openarcanum.v1.SignedHeartbeat
 	12, // 13: openarcanum.v1.ReplicationBatch.community_heartbeats:type_name -> openarcanum.v1.SignedCommunityHeartbeat
-	31, // 14: openarcanum.v1.ReplicationBatch.maintainer_sets:type_name -> openarcanum.v1.SignedMaintainerSet
-	29, // 15: openarcanum.v1.MaintainerSet.nodes:type_name -> openarcanum.v1.MaintainerNode
-	36, // 16: openarcanum.v1.PeerMessage.pull:type_name -> openarcanum.v1.PeerPull
-	37, // 17: openarcanum.v1.PeerMessage.batch:type_name -> openarcanum.v1.PeerBatch
-	45, // 18: openarcanum.v1.PeerMessage.poke:type_name -> openarcanum.v1.PeerPoke
-	46, // 19: openarcanum.v1.PeerMessage.error:type_name -> openarcanum.v1.PeerError
-	34, // 20: openarcanum.v1.PeerMessage.blob_chunk_request:type_name -> openarcanum.v1.PeerBlobChunkRequest
-	35, // 21: openarcanum.v1.PeerMessage.blob_chunk:type_name -> openarcanum.v1.PeerBlobChunk
-	38, // 22: openarcanum.v1.PeerBatch.entries:type_name -> openarcanum.v1.PeerEntry
-	43, // 23: openarcanum.v1.PeerEntry.item:type_name -> openarcanum.v1.PeerMailboxItem
-	44, // 24: openarcanum.v1.PeerEntry.tombstone:type_name -> openarcanum.v1.PeerMailboxTombstone
-	41, // 25: openarcanum.v1.PeerEntry.blob_meta:type_name -> openarcanum.v1.PeerBlobMeta
-	42, // 26: openarcanum.v1.PeerEntry.blob_release:type_name -> openarcanum.v1.PeerBlobRelease
-	40, // 27: openarcanum.v1.PeerEntry.decision:type_name -> openarcanum.v1.PeerDecision
-	39, // 28: openarcanum.v1.PeerEntry.community_tombstone:type_name -> openarcanum.v1.PeerCommunityTombstone
+	34, // 14: openarcanum.v1.ReplicationBatch.maintainer_sets:type_name -> openarcanum.v1.SignedMaintainerSet
+	32, // 15: openarcanum.v1.MaintainerSet.nodes:type_name -> openarcanum.v1.MaintainerNode
+	39, // 16: openarcanum.v1.PeerMessage.pull:type_name -> openarcanum.v1.PeerPull
+	40, // 17: openarcanum.v1.PeerMessage.batch:type_name -> openarcanum.v1.PeerBatch
+	48, // 18: openarcanum.v1.PeerMessage.poke:type_name -> openarcanum.v1.PeerPoke
+	49, // 19: openarcanum.v1.PeerMessage.error:type_name -> openarcanum.v1.PeerError
+	37, // 20: openarcanum.v1.PeerMessage.blob_chunk_request:type_name -> openarcanum.v1.PeerBlobChunkRequest
+	38, // 21: openarcanum.v1.PeerMessage.blob_chunk:type_name -> openarcanum.v1.PeerBlobChunk
+	41, // 22: openarcanum.v1.PeerBatch.entries:type_name -> openarcanum.v1.PeerEntry
+	46, // 23: openarcanum.v1.PeerEntry.item:type_name -> openarcanum.v1.PeerMailboxItem
+	47, // 24: openarcanum.v1.PeerEntry.tombstone:type_name -> openarcanum.v1.PeerMailboxTombstone
+	44, // 25: openarcanum.v1.PeerEntry.blob_meta:type_name -> openarcanum.v1.PeerBlobMeta
+	45, // 26: openarcanum.v1.PeerEntry.blob_release:type_name -> openarcanum.v1.PeerBlobRelease
+	43, // 27: openarcanum.v1.PeerEntry.decision:type_name -> openarcanum.v1.PeerDecision
+	42, // 28: openarcanum.v1.PeerEntry.community_tombstone:type_name -> openarcanum.v1.PeerCommunityTombstone
 	29, // [29:29] is the sub-list for method output_type
 	29, // [29:29] is the sub-list for method input_type
 	29, // [29:29] is the sub-list for extension type_name
@@ -3849,7 +4015,7 @@ func file_openarcanum_v1_meta_proto_init() {
 	}
 	file_openarcanum_v1_community_proto_init()
 	file_openarcanum_v1_session_proto_init()
-	file_openarcanum_v1_meta_proto_msgTypes[32].OneofWrappers = []any{
+	file_openarcanum_v1_meta_proto_msgTypes[35].OneofWrappers = []any{
 		(*PeerMessage_Pull)(nil),
 		(*PeerMessage_Batch)(nil),
 		(*PeerMessage_Poke)(nil),
@@ -3857,7 +4023,7 @@ func file_openarcanum_v1_meta_proto_init() {
 		(*PeerMessage_BlobChunkRequest)(nil),
 		(*PeerMessage_BlobChunk)(nil),
 	}
-	file_openarcanum_v1_meta_proto_msgTypes[37].OneofWrappers = []any{
+	file_openarcanum_v1_meta_proto_msgTypes[40].OneofWrappers = []any{
 		(*PeerEntry_Item)(nil),
 		(*PeerEntry_Tombstone)(nil),
 		(*PeerEntry_BlobMeta)(nil),
@@ -3871,7 +4037,7 @@ func file_openarcanum_v1_meta_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openarcanum_v1_meta_proto_rawDesc), len(file_openarcanum_v1_meta_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   46,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

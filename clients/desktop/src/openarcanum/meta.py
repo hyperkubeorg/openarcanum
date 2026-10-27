@@ -70,6 +70,11 @@ def inbox_address(token: bytes) -> bytes:
     return hashlib.sha256(b"openarcanum/inbox/v1\x00" + token).digest()
 
 
+def contact_card_address(token: bytes) -> bytes:
+    """Where a permanent contact code's card is kept (docs/protocol.md §9.2)."""
+    return hashlib.sha256(b"openarcanum/contact-card/v1\x00" + token).digest()
+
+
 def mailbox_gid(inbox: bytes, blob: bytes) -> bytes:
     """A mailbox item's global id, the same on every node of a maintainer
     cluster (docs/protocol.md §7.5). Computed here, never taken from a node."""
@@ -500,6 +505,31 @@ class MetaClient:
             }
             for r in rl.relays
         ]
+
+    # ---------------------------------------------------------------- contact cards
+
+    async def card_put(self, base: str, token: bytes, card: bytes) -> None:
+        body = mp.ContactCardPut(token=token, card=card).SerializeToString()
+        await asyncio.to_thread(self._request, base, "POST", "/v1/cards/put", body)
+
+    async def card_delete(self, base: str, token: bytes) -> None:
+        body = mp.ContactCardDelete(token=token).SerializeToString()
+        await asyncio.to_thread(self._request, base, "POST", "/v1/cards/delete", body)
+
+    async def card_get(self, urls: list[str], address: bytes) -> bytes | None:
+        """The card kept at `address` by the first of `urls` that has it;
+        None if none does."""
+        last: MetaError | None = None
+        for base in urls:
+            try:
+                raw = await asyncio.to_thread(self._request, base, "GET", f"/v1/cards/{keys.encode(address)}", None)
+            except MetaError as e:
+                last = e
+                continue
+            return mp.ContactCardFetched.FromString(raw).card
+        if last is not None and last.status not in (0, 404) and last.status < 500:
+            raise last
+        return None
 
     # ---------------------------------------------------------------- mailboxes
 

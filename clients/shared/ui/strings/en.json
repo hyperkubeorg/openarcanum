@@ -330,6 +330,11 @@
     "ui/js/settings.js"
    ]
   },
+  "A permanent code needs a maintainer node with https.": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "A pinned list": {
    "used_in": [
     "ui/js/admin.js"
@@ -688,6 +693,16 @@
     "ui/js/admin.js"
    ]
   },
+  "Anyone who hasn't used it yet can't reach you with it anymore.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "Anyone who hasn't used it yet can't reach you with it anymore. You get a new code to give out.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "App": {
    "used_in": [
     "ui/js/settings.js"
@@ -767,11 +782,6 @@
   "Ask for your passphrase": {
    "used_in": [
     "ui/js/settings.js"
-   ]
-  },
-  "Ask them for a new contact code.": {
-   "used_in": [
-    "dm.py"
    ]
   },
   "Ask {name} for a new contact code.": {
@@ -2718,6 +2728,11 @@
     "ui/js/join.js"
    ]
   },
+  "For someone who'll write soon: it starts a conversation for about a week, then expires by itself. A new one each time.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Forgot your passphrase?": {
    "used_in": [
     "ui/js/lock.js"
@@ -2748,14 +2763,14 @@
     "ui/js/devices.js"
    ]
   },
+  "Give someone a code so they can message you without sharing a community. Once you've talked, you can keep messaging each other whatever happens to the code.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Give the community a name.": {
    "used_in": [
     "core.py"
-   ]
-  },
-  "Give this code to someone so they can send you a direct message, without sharing a community. It works for about a week; make a new one when you need it again.": {
-   "used_in": [
-    "ui/js/dm.js"
    ]
   },
   "Grants": {
@@ -3273,6 +3288,16 @@
     "ui/js/admin.js"
    ]
   },
+  "Keeps working until you revoke it. Give it to friends, or put it somewhere they can find it.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "Keeps working until you revoke it. Revoking stops new people from using it; people you already talk with aren't affected.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Kept in the audit log": {
    "used_in": [
     "ui/js/moderation.js"
@@ -3658,6 +3683,11 @@
    ]
   },
   "Make a new code": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "Make a permanent code": {
    "used_in": [
     "ui/js/dm.js"
    ]
@@ -4397,6 +4427,11 @@
     "ui/js/lock.js"
    ]
   },
+  "New permanent code made.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "New report": {
    "used_in": [
     "moderation.py"
@@ -4846,6 +4881,11 @@
     "ui/js/admin.js"
    ]
   },
+  "One-week code": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Online": {
    "used_in": [
     "ui/js/chat.js",
@@ -5178,6 +5218,21 @@
   "People using this key land in the approval queue.": {
    "used_in": [
     "ui/js/admin.js"
+   ]
+  },
+  "Permanent code": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "Permanent code copied.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "Permanent code revoked.": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Permission override": {
@@ -5912,7 +5967,13 @@
   },
   "Revoke": {
    "used_in": [
-    "ui/js/admin.js"
+    "ui/js/admin.js",
+    "ui/js/dm.js"
+   ]
+  },
+  "Revoke and make a new one": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Revoke and remove": {
@@ -5923,6 +5984,11 @@
   "Revoke invite": {
    "used_in": [
     "ui/js/admin.js"
+   ]
+  },
+  "Revoke your permanent code?": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Revoke {label}": {
@@ -7064,6 +7130,16 @@
     "core.py"
    ]
   },
+  "That permanent contact code is damaged. Copy it again.": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "That permanent contact code was revoked, or its maintainer nodes can't be reached.": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "That person isn't in your contacts.": {
    "used_in": [
     "dm.py"
@@ -7123,6 +7199,11 @@
   "The camera couldn't be started.": {
    "used_in": [
     "ui/js/call.js"
+   ]
+  },
+  "The card behind that permanent contact code couldn't be verified.": {
+   "used_in": [
+    "dm.py"
    ]
   },
   "The claim code is incomplete.": {
@@ -7195,6 +7276,14 @@
    ],
    "used_in": [
     "hosting.py"
+   ]
+  },
+  "The contact code from {name} is more than a week old. Ask them for a new one.": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
    ]
   },
   "The current passphrase is wrong.": {
@@ -9216,6 +9305,11 @@
     "ui/js/devices.js"
    ]
   },
+  "Your maintainer nodes can't be reached right now. Try again in a moment.": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "Your microphone, in a call.": {
    "used_in": [
     "ui/js/sounds.js"
@@ -10383,6 +10477,7 @@
   },
   "them": {
    "used_in": [
+    "dm.py",
     "ui/js/voice.js"
    ]
   },

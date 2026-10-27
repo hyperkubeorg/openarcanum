@@ -44,7 +44,7 @@ from openarcanum.errors import UserError
 from openarcanum.groups import Group, GroupError
 from openarcanum.i18n import _
 from openarcanum.keys import SigningKey
-from openarcanum.meta import MetaError, inbox_address, mailbox_gid
+from openarcanum.meta import MetaError, contact_card_address, inbox_address, mailbox_gid
 from openarcanum.olm import OlmError, OlmStore
 from openarcanum.paths import atomic_write
 from openarcanum.relay import Relay, RelayError
@@ -234,8 +234,60 @@ def open_card(signed: dm.SignedContactCard) -> Card:
 
 
 CONTACT_CODE_PREFIX = "openarcanum-contact:"
+# A one-week code's fallback key is replaced 7 days after it was made at the
+# latest (the previous one is kept until the next replacement): a first
+# message from a card older than this might go to a key that's gone.
+CODE_FIRST_CONTACT_SECONDS = 7 * 24 * 3600
 # A contact card is at most 64 KiB (docs/protocol.md §9.2).
 MAX_CONTACT_CODE = len(CONTACT_CODE_PREFIX) + (64 << 10) * 4 // 3 + 4
+
+
+PERMANENT_CODE_PREFIX = "openarcanum-id:"
+PERMANENT_CODE_VERSION = 1
+MAX_CODE_NODES = 4
+MAX_PERMANENT_CODE = len(PERMANENT_CODE_PREFIX) + 1024
+# The permanent code's card is put on its nodes again at least this often
+# (each node deletes a card not replaced for 60 days).
+PERMANENT_REFRESH_SECONDS = 24 * 3600
+
+
+@dataclass
+class PermanentCode:
+    """What a permanent contact code says: whose it is (the DM identity),
+    where its card is kept (the address of the owner's token) and on which
+    maintainer nodes."""
+
+    identity: bytes
+    address: bytes
+    urls: list[str]
+
+
+def encode_permanent_code(c: PermanentCode) -> str:
+    """version (1) || identity (32) || address (32) || node URLs, one per
+    line || the first 4 bytes of SHA-256 of what precedes (a damaged or
+    cut-off code is refused rather than read as other URLs)."""
+    raw = bytes([PERMANENT_CODE_VERSION]) + c.identity + c.address + "\n".join(c.urls).encode()
+    return PERMANENT_CODE_PREFIX + keys.encode(raw + hashlib.sha256(raw).digest()[:4])
+
+
+def parse_permanent_code(code: str) -> PermanentCode:
+    code = "".join((code or "").split())
+    bad = UserError(_("That permanent contact code is damaged. Copy it again."))
+    if not code.startswith(PERMANENT_CODE_PREFIX) or len(code) > MAX_PERMANENT_CODE:
+        raise bad
+    try:
+        raw = unb64(code[len(PERMANENT_CODE_PREFIX) :])
+        raw, check = raw[:-4], raw[-4:]
+        if len(raw) < 66 or hashlib.sha256(raw).digest()[:4] != check:
+            raise ValueError("damaged")
+        urls = raw[65:].decode().split("\n")
+    except Exception:
+        raise bad from None
+    if len(raw) < 65 or raw[0] != PERMANENT_CODE_VERSION or not 1 <= len(urls) <= MAX_CODE_NODES:
+        raise bad
+    if not all(u.startswith("https://") and len(u) <= 200 for u in urls):
+        raise bad
+    return PermanentCode(raw[1:33], raw[33:65], urls)
 
 
 def parse_contact_code(code: str) -> Card:
@@ -772,6 +824,8 @@ class DMManager:
         ]
 
     async def _republish(self, pub: str) -> None:
+        if pub == self.d.get("contact_identity") and self.d.get("permanent_code"):
+            self.core.spawn(self._publish_permanent())
         for cid in self._cards_for(pub):
             with contextlib.suppress(UserError):
                 await self._publish_card(cid)
@@ -1014,10 +1068,102 @@ class DMManager:
         signed, _curves = self._build_card(pub, "")
         return CONTACT_CODE_PREFIX + b64(signed.SerializeToString())
 
-    async def add_contact_code(self, code: str) -> dict:
-        """Add whoever made a contact code to my contacts."""
+    # ---------------------------------------------------------------- permanent contact codes
+
+    def permanent_code_info(self) -> dict | None:
+        p = self.d.get("permanent_code")
+        if not p:
+            return None
+        pub = self.d.get("contact_identity", "")
+        token = unb64(p["token"])
+        code = encode_permanent_code(PermanentCode(unb64(pub), contact_card_address(token), p["urls"]))
+        return {"code": code, "created": p.get("created", 0), "published_at": p.get("published_at", 0)}
+
+    async def permanent_code(self) -> dict:
+        """My permanent contact code, made the first time: it keeps working
+        until I revoke it. Its card (the identity of my contact codes) is kept
+        on my maintainer nodes, replaced whenever it changes, and the code
+        says where; the nodes can't change it (it's signed)."""
         self.core.require_unlocked()
-        card = parse_contact_code(code)
+        if not self.d.get("permanent_code"):
+            urls = [u for u in self.core.meta.urls if u.startswith("https://")][:MAX_CODE_NODES]
+            if not urls:
+                raise UserError(_("A permanent code needs a maintainer node with https."))
+            self._ident("", create=True)
+            self.d["permanent_code"] = {"token": b64(os.urandom(32)), "urls": urls, "created": int(time.time())}
+            self.core.save_vault()
+        await self._publish_permanent(required=True)
+        return self.permanent_code_info()
+
+    async def revoke_permanent_code(self) -> dict:
+        """Delete the card from its nodes: the code stops working for anyone
+        who hasn't used it yet. People I already talk with aren't affected."""
+        self.core.require_unlocked()
+        p = self.d.pop("permanent_code", None)
+        self.core.save_vault()
+        if p:
+            token = unb64(p["token"])
+            for url in p["urls"]:
+                try:
+                    await self.core.meta.card_delete(url, token)
+                except MetaError as e:
+                    log.warning("permanent code not deleted from %s: %s", url, e)
+        return {"ok": True}
+
+    async def _publish_permanent(self, required: bool = False) -> None:
+        p = self.d.get("permanent_code")
+        pub = self.d.get("contact_identity")
+        if not p or not pub or pub not in self.d["ids"] or not self.core.unlocked:
+            return
+        await self._ensure_listed(pub)
+        signed, _curves = self._build_card(pub, "")
+        raw, token, done = signed.SerializeToString(), unb64(p["token"]), 0
+        for url in p["urls"]:
+            try:
+                await self.core.meta.card_put(url, token, raw)
+                done += 1
+            except MetaError as e:
+                log.warning("permanent code's card not put on %s: %s", url, e)
+        if done:
+            p["published_at"] = int(time.time())
+            self.core.save_vault()
+        elif required:
+            raise UserError(_("Your maintainer nodes can't be reached right now. Try again in a moment."))
+
+    async def _refresh_permanent(self) -> None:
+        p = self.d.get("permanent_code")
+        if p and time.time() - p.get("published_at", 0) >= PERMANENT_REFRESH_SECONDS:
+            await self._publish_permanent()
+
+    async def _fetch_code_card(self, ref: dict, expect: bytes) -> Card:
+        try:
+            raw = await self.core.meta.card_get(ref["urls"], unb64(ref["address"]))
+        except MetaError as e:
+            raise UserError(str(e)) from None
+        if raw is None:
+            raise UserError(_("That permanent contact code was revoked, or its maintainer nodes can't be reached."))
+        try:
+            card = open_card(dm.SignedContactCard.FromString(raw))
+        except UserError:
+            raise UserError(_("The card behind that permanent contact code couldn't be verified.")) from None
+        if card.card.identity != expect or card.card.member or not card.card.inboxes:
+            raise UserError(_("The card behind that permanent contact code couldn't be verified."))
+        self._remember_card(card)
+        return card
+
+    async def add_contact_code(self, code: str) -> dict:
+        """Add whoever made a contact code (one-week or permanent) to my
+        contacts."""
+        self.core.require_unlocked()
+        ref = None
+        if "".join((code or "").split()).startswith(PERMANENT_CODE_PREFIX):
+            pc = parse_permanent_code(code)
+            ref = {"address": b64(pc.address), "urls": pc.urls}
+            if b64(pc.identity) in self.d["ids"]:
+                raise UserError(_("That's your own contact code."))
+            card = await self._fetch_code_card(ref, pc.identity)
+        else:
+            card = parse_contact_code(code)
         ident = b64(card.card.identity)
         if ident in self.d["ids"]:
             raise UserError(_("That's your own contact code."))
@@ -1031,6 +1177,8 @@ class DMManager:
             "member": (known or {}).get("member", ""),
             "added_at": (known or {}).get("added_at", int(time.time())),
         }
+        if ref or (known or {}).get("code"):
+            self.d["contacts"][ident]["code"] = ref or known["code"]
         self.core.save_vault()
         await self.core.devices.broadcast("contact_added", {"id": ident, "contact": self.d["contacts"][ident]})
         self.core.emit("dm_contacts", {})
@@ -1046,15 +1194,12 @@ class DMManager:
             raise UserError(_("That person isn't in your contacts."))
         if c.get("community") and c.get("member"):
             return await self.open_with_member(c["community"], c["member"])
-        raw = self.d["peers"].get(ident, {}).get("card")
-        if not raw:
-            raise UserError(_("Ask them for a new contact code."))
-        card = open_card(dm.SignedContactCard.FromString(unb64(raw)))
-        if self._blocked(card.card.identity):
-            raise UserError(_("You blocked this person. Unblock them first."))
         existing = self._direct_with(ident)
         if existing:
             return {"id": existing}
+        card = await self._fresh_card(ident)
+        if self._blocked(card.card.identity):
+            raise UserError(_("You blocked this person. Unblock them first."))
         return await self._create("", [(card, "", b"", {})], name="", direct=True)
 
     async def _contact_invitee(self, ident: str) -> tuple[Card, str, bytes, dict]:
@@ -1071,10 +1216,36 @@ class DMManager:
         if member and rec.get("status") == "active":
             card, otks = await self._fetch_card(cid, unb64(member))
             return card, cid, unb64(member), otks
-        raw = self.d["peers"].get(ident, {}).get("card")
-        if not raw:
-            raise UserError(_("Ask {name} for a new contact code.").format(name=c.get("name") or "them"))
-        return open_card(dm.SignedContactCard.FromString(unb64(raw))), "", b"", {}
+        return await self._fresh_card(ident), "", b"", {}
+
+    async def _fresh_card(self, ident: str) -> Card:
+        """A contact's card to start a conversation with: fetched again
+        when they gave me a permanent code (so it's current), else the one
+        held (a one-week code: refused when too old)."""
+        ref = self.d["contacts"].get(ident, {}).get("code")
+        if ref:
+            try:
+                return await self._fetch_code_card(ref, unb64(ident))
+            except UserError:
+                # Revoked or unreachable: what's held still works while it's fresh.
+                pass
+        return self._held_card(ident)
+
+    def _held_card(self, ident: str) -> Card:
+        """The card held for a contact without a community: refused when
+        it's too old to start a conversation with (a one-week code), since
+        the first message would go to a key their devices no longer have.
+        Cards come again with every conversation, so people I talk with
+        stay current."""
+        peer = self.d["peers"].get(ident, {})
+        name = self.d["contacts"].get(ident, {}).get("name") or _("them")
+        if not peer.get("card"):
+            raise UserError(_("Ask {name} for a new contact code.").format(name=name))
+        if time.time() - peer.get("card_at", 0) > CODE_FIRST_CONTACT_SECONDS:
+            raise UserError(
+                _("The contact code from {name} is more than a week old. Ask them for a new one.").format(name=name)
+            )
+        return open_card(dm.SignedContactCard.FromString(unb64(peer["card"])))
 
     def _direct_with(self, them: str) -> str | None:
         for gid, g in self.d["groups"].items():
@@ -2075,6 +2246,8 @@ class DMManager:
             try:
                 await self.poll_once()
                 self._sweep()
+                if self.core.unlocked:
+                    await self._refresh_permanent()
             except asyncio.CancelledError:
                 raise
             except Exception:

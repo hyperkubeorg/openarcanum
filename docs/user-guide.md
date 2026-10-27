@@ -831,12 +831,20 @@ You don't need to be in any community to message people. **Direct
 messages** opens on **Contacts**: everyone you can message, with
 **Message**, **Safety number**, **Block** and **Remove** for each.
 
-A **contact code** is how two people connect without a community. Your
-own is one click away: the card button next to your name (bottom left), or
-**Contacts** → **Your contact code** → **Copy**. It uses a DM key of its
-own, not one from any community, so it doesn't tell anyone which
-communities you're in. A code works for about a week; each time you open
-it a new one is made.
+A **contact code** is how two people connect without a community. Yours
+are one click away: the card button next to your name (bottom left), or
+**Contacts** → **Your contact code**. There are two kinds:
+
+- **Permanent code** (`openarcanum-id:`): keeps working until you
+  **Revoke** it (or **Revoke and make a new one**). Give it to friends.
+  Revoking stops new people from using it; people you already talk with
+  aren't affected.
+- **One-week code** (`openarcanum-contact:`): for someone who'll write
+  soon; it starts a conversation for about a week, then expires by itself.
+
+Both use a DM key of their own, not one from any community, so they don't
+tell anyone which communities you're in. Once you've talked with someone,
+you keep messaging each other whatever happens to the code.
 
 To use someone's code: **Contacts** → **Add a contact code**, paste it,
 **Add and message**. They see your first message as a request; accepting

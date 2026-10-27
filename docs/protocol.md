@@ -1653,6 +1653,22 @@ So:
   that key is replaced twice (about a week). The person who adds a code
   keeps the card as for any contact; their first message reaches the
   code's owner as a request.
+- **Permanent contact codes:** `openarcanum-id:` followed by, in unpadded
+  base64url, `0x01 || identity (32) || address (32) || node URLs (https,
+  1 to 4, one per line) || SHA-256(all before)[:4]`. The owner keeps its
+  current card (the same identity as its one-week codes) on those maintainer
+  nodes: `POST /v1/cards/put {token, card}`, where `address =
+  SHA-256("openarcanum/contact-card/v1" || 0x00 || token)`; it puts it again
+  whenever the card changes (a new fallback key, devices) and at least daily.
+  Whoever adds the code reads `GET /v1/cards/{address}` and accepts the card
+  only if its identity is the code's, its `member` empty and it lists an
+  inbox, then fetches it again before starting each new conversation, so the
+  first message never goes to a replaced fallback key. Nodes store the card
+  as given (at most 64 KiB, deleted when not replaced for 60 days) and can
+  withhold it but not change it. **Revoking** (`POST /v1/cards/delete
+  {token}`) deletes it: the code adds nobody new; conversations already
+  started are unaffected. One-week codes refuse to start a conversation from
+  a card more than 7 days old, for the same reason.
 - **One-time keys** (`OneTimeKey`, signed by the device: `openarcanum/dm-otk/v2`)
   are uploaded per device (`AddKeyPackages` with `KeyPackage{device,
   package}`); the server hands out one per device per `GetContactCard` and

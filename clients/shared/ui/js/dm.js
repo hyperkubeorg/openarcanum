@@ -629,28 +629,60 @@ async function safetyDialog(id, name, gid = '') {
 
 // A contact code lets someone message you without sharing a community: the
 // report form on the website asks for one, so the maintainers can reply.
+// Your contact codes: how someone messages you without sharing a
+// community. The permanent one works until you revoke it; a one-week code
+// is for someone who'll write soon.
 function myContactCodeDialog() {
-  const out = h('textarea', { rows: 4, readonly: true, class: 'contact-code' });
+  const copyBtn = (area, msg) => h('button', { class: 'btn small', text: t('Copy'), onclick: () => {
+    if (area.value) api('copy_text', area.value).then(() => toast(msg), toastError);
+  } });
+  // Permanent
+  const permBox = h('div');
+  const showPermanent = (info) => {
+    clear(permBox);
+    if (!info) {
+      permBox.append(
+        h('p', { class: 'small', text: t('Keeps working until you revoke it. Give it to friends, or put it somewhere they can find it.') }),
+        h('button', { class: 'btn primary', text: t('Make a permanent code'), onclick: () => api('dm_permanent_code').then(showPermanent, toastError) }));
+      return;
+    }
+    const area = h('textarea', { rows: 3, readonly: true, class: 'contact-code', value: info.code });
+    permBox.append(
+      h('p', { class: 'small', text: t('Keeps working until you revoke it. Revoking stops new people from using it; people you already talk with aren\'t affected.') }),
+      area,
+      h('div', { class: 'row' }, copyBtn(area, t('Permanent code copied.')),
+        h('button', { class: 'btn small', text: t('Revoke and make a new one'), onclick: async () => {
+          if (!(await confirmModal(t('Revoke your permanent code?'), t('Anyone who hasn\'t used it yet can\'t reach you with it anymore. You get a new code to give out.'), t('Revoke'), true))) return;
+          try { await api('dm_revoke_permanent_code'); showPermanent(await api('dm_permanent_code')); toast(t('New permanent code made.')); } catch (e) { toastError(e); }
+        } }),
+        h('button', { class: 'btn small danger', text: t('Revoke'), onclick: async () => {
+          if (!(await confirmModal(t('Revoke your permanent code?'), t('Anyone who hasn\'t used it yet can\'t reach you with it anymore.'), t('Revoke'), true))) return;
+          try { await api('dm_revoke_permanent_code'); showPermanent(null); toast(t('Permanent code revoked.')); } catch (e) { toastError(e); }
+        } })));
+  };
+  api('dm_permanent_code_info').then(showPermanent, toastError);
+  // One week
+  const week = h('textarea', { rows: 3, readonly: true, class: 'contact-code' });
   const err = h('div', { class: 'error', role: 'alert' });
   const make = async () => {
     err.textContent = '';
-    try { out.value = await api('dm_contact_code'); } catch (e) { err.textContent = e.message; }
+    try { week.value = await api('dm_contact_code'); } catch (e) { err.textContent = e.message; }
   };
-  const shown = (st.status && st.status.display_name) || '';
-  const body = h('div', {},
-    h('p', { text: t('Give this code to someone so they can send you a direct message, without sharing a community. It works for about a week; make a new one when you need it again.') }),
-    h('p', { class: 'small muted', text: shown ? t('They see you as “{name}” (Settings → Identity → Your name).', { name: shown }) : t('It carries no name. Set one under Settings → Identity → Your name.') }),
-    h('div', { class: 'row' }, h('button', { class: 'btn', text: t('Make a new code'), onclick: make })),
-    field(t('Your contact code'), out), err);
   make();
-  modal({ title: t('Your contact code'), body, actions: [
-    { label: t('Copy'), kind: 'primary', run: async () => { if (!out.value) return false; await api('copy_text', out.value); toast(t('Contact code copied.')); } },
-    { label: t('Close') },
-  ] });
+  const shown = (st.status && st.status.display_name) || '';
+  const body = h('div', { class: 'stack' },
+    h('p', { text: t('Give someone a code so they can message you without sharing a community. Once you\'ve talked, you can keep messaging each other whatever happens to the code.') }),
+    h('p', { class: 'small muted', text: shown ? t('They see you as “{name}” (Settings → Identity → Your name).', { name: shown }) : t('It carries no name. Set one under Settings → Identity → Your name.') }),
+    formSection(t('Permanent code'), permBox),
+    formSection(t('One-week code'), [
+      h('p', { class: 'small', text: t('For someone who\'ll write soon: it starts a conversation for about a week, then expires by itself. A new one each time.') }),
+      week, err,
+      h('div', { class: 'row' }, copyBtn(week, t('Contact code copied.')), h('button', { class: 'btn small', text: t('Make a new code'), onclick: make }))]));
+  modal({ title: t('Your contact code'), body, actions: [{ label: t('Close'), kind: 'primary' }] });
 }
 
 function addContactCodeDialog() {
-  const code = h('textarea', { rows: 4, placeholder: 'openarcanum-contact:…' }); // i18n: not shown (the code's literal prefix)
+  const code = h('textarea', { rows: 4, placeholder: 'openarcanum-id:… / openarcanum-contact:…' }); // i18n: not shown (the codes' literal prefixes)
   const body = h('div', {},
     h('p', { text: t('Paste the contact code someone gave you. They are added to your contacts, and you can message them.') }),
     field(t('Contact code'), code));

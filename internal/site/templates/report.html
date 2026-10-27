@@ -70,7 +70,7 @@
     <label for="contact_code">Your contact code</label>
     <textarea id="contact_code" name="contact_code" class="mono" rows="4" maxlength="{{maxContactCode}}" required
               autocomplete="off" spellcheck="false" aria-describedby="contact_code-hint{{with $f.Errors}}{{with .contact_code}} contact_code-err{{end}}{{end}}"{{with $f.Errors}}{{with .contact_code}} aria-invalid="true"{{end}}{{end}}>{{$f.ContactCode}}</textarea>
-    <p class="hint" id="contact_code-hint">In the {{.Product}} app{{if .WebApp}} (desktop or <a href="/app/">in your browser</a>){{end}}, open <strong>Direct messages → Contacts → Your contact code</strong> and copy it. It lets us message you without sharing a community, and works for about a week. A name in it is optional.</p>
+    <p class="hint" id="contact_code-hint">In the {{.Product}} app{{if .WebApp}} (desktop or <a href="/app/">in your browser</a>){{end}}, click the card button next to your name (or <strong>Direct messages → Contacts → Your contact code</strong>) and copy your <strong>permanent code</strong>. It lets us message you without sharing a community. A one-week code works too if you're around to answer soon.</p>
     {{with $f.Errors}}{{with .contact_code}}<p class="error" id="contact_code-err">{{.}}</p>{{end}}{{end}}
   </div>
 

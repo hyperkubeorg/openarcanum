@@ -87,7 +87,7 @@ CREATE TABLE nameplates (
 CREATE TABLE counters (k TEXT PRIMARY KEY, v INTEGER NOT NULL);
 `, blobSchema, blobSchemaUploads, mailboxIDsNeverReused, searchIndexes, delistedSchema,
 ), append([]store.Migration{{Go: canonicalRelayURLs}}, append(sqlSteps(communityStatusSchema, peerSchema, maintainerSetSchema), store.Migration{Go: mailboxGlobalIDs}, store.Migration{SQL: blobReplSchema}, store.Migration{SQL: decisionsSchema},
-	store.Migration{SQL: decisionsSignedSchema})...)...)
+	store.Migration{SQL: decisionsSignedSchema}, store.Migration{SQL: contactCardSchema})...)...)
 
 func sqlSteps(sql ...string) []store.Migration {
 	out := make([]store.Migration, len(sql))
@@ -400,6 +400,9 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /v1/mailbox/drop", s.writeLimit(int(min(s.cfg.MailboxMaxItem, maxBody))+smallBody, s.mailboxDrop))
 	mux.HandleFunc("POST /v1/mailbox/fetch", s.writeLimit(smallBody, s.mailboxFetch))
 	mux.HandleFunc("POST /v1/mailbox/delete", s.writeLimit(mailboxDeleteMaxBody, s.mailboxDelete))
+	mux.HandleFunc("POST /v1/cards/put", s.writeLimit(MaxContactCard+smallBody, s.contactCardPut))
+	mux.HandleFunc("POST /v1/cards/delete", s.writeLimit(smallBody, s.contactCardDelete))
+	mux.HandleFunc("GET /v1/cards/{address}", s.readLimit(s.contactCardGet))
 	mux.HandleFunc("POST /v1/blobs/create", s.writeLimit(blobCreateMaxBody, s.blobCreate))
 	mux.HandleFunc("POST /v1/blobs/chunk", s.writeLimit(blobChunkMaxBody, s.blobChunk))
 	mux.HandleFunc("POST /v1/blobs/fetch", s.writeLimit(blobSmallMaxBody, s.blobFetch))
@@ -1457,6 +1460,9 @@ func (s *Server) Expire(ctx context.Context) {
 	now := s.now().UnixMilli()
 	s.mu.Lock()
 	if err := s.deleteMail(ctx, `DELETE FROM mailbox WHERE expires_at <= ?`, now); err != nil {
+		s.log.Error("expiry", "err", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM contact_cards WHERE expires_at <= ?`, now); err != nil {
 		s.log.Error("expiry", "err", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM nameplates WHERE expires_at <= ?`, now); err != nil {

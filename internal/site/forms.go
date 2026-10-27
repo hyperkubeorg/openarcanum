@@ -35,11 +35,22 @@ const ContactCodePrefix = "openarcanum-contact:"
 // characters; a card can list up to 20 devices.
 const MaxContactCode = 16 << 10
 
-// ValidContactCode reports whether s looks like a contact code: the prefix
-// and a card that decodes.
+// PermanentCodePrefix starts a permanent contact code (the app's "Permanent
+// code"): it names where the owner's current card is kept, so it keeps
+// working after a week.
+const PermanentCodePrefix = "openarcanum-id:"
+
+// ValidContactCode reports whether s looks like a contact code, one-week or
+// permanent: the prefix and a body that decodes.
 func ValidContactCode(s string) bool {
+	if len(s) > MaxContactCode {
+		return false
+	}
 	body, ok := strings.CutPrefix(s, ContactCodePrefix)
-	if !ok || len(s) > MaxContactCode || len(body) < 64 {
+	if !ok {
+		body, ok = strings.CutPrefix(s, PermanentCodePrefix)
+	}
+	if !ok || len(body) < 64 {
 		return false
 	}
 	_, err := base64.RawURLEncoding.Strict().DecodeString(body)
@@ -120,7 +131,7 @@ func parseReport(kind string, v url.Values) *reportForm {
 	if f.ContactCode == "" {
 		f.fail("contact_code", "Your contact code is required: we reply by direct message.")
 	} else if !ValidContactCode(f.ContactCode) {
-		f.fail("contact_code", "That isn't a contact code. In the app, open Direct messages → Contacts → Your contact code and copy it; it starts with "+ContactCodePrefix)
+		f.fail("contact_code", "That isn't a contact code. In the app, click the card button next to your name and copy your permanent code; it starts with "+PermanentCodePrefix)
 		if len(f.ContactCode) > MaxContactCode {
 			f.ContactCode = f.ContactCode[:MaxContactCode]
 		}

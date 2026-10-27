@@ -252,6 +252,28 @@ class MailboxDelete(_message.Message):
     gids: _containers.RepeatedScalarFieldContainer[bytes]
     def __init__(self, token: _Optional[bytes] = ..., ids: _Optional[_Iterable[int]] = ..., gids: _Optional[_Iterable[bytes]] = ...) -> None: ...
 
+class ContactCardPut(_message.Message):
+    __slots__ = ("token", "card")
+    TOKEN_FIELD_NUMBER: _ClassVar[int]
+    CARD_FIELD_NUMBER: _ClassVar[int]
+    token: bytes
+    card: bytes
+    def __init__(self, token: _Optional[bytes] = ..., card: _Optional[bytes] = ...) -> None: ...
+
+class ContactCardDelete(_message.Message):
+    __slots__ = ("token",)
+    TOKEN_FIELD_NUMBER: _ClassVar[int]
+    token: bytes
+    def __init__(self, token: _Optional[bytes] = ...) -> None: ...
+
+class ContactCardFetched(_message.Message):
+    __slots__ = ("card", "updated_at")
+    CARD_FIELD_NUMBER: _ClassVar[int]
+    UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
+    card: bytes
+    updated_at: int
+    def __init__(self, card: _Optional[bytes] = ..., updated_at: _Optional[int] = ...) -> None: ...
+
 class NameplateRequest(_message.Message):
     __slots__ = ("relay",)
     RELAY_FIELD_NUMBER: _ClassVar[int]

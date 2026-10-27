@@ -731,6 +731,9 @@ func TestValidContactCode(t *testing.T) {
 	if !ValidContactCode(goodContactCode) {
 		t.Fatal("rejected a good code")
 	}
+	if !ValidContactCode(PermanentCodePrefix + strings.TrimPrefix(goodContactCode, ContactCodePrefix)) {
+		t.Fatal("rejected a permanent code")
+	}
 	body := strings.TrimPrefix(goodContactCode, ContactCodePrefix)
 	for _, bad := range []string{"", body, ContactCodePrefix, ContactCodePrefix + "abc", goodContactCode + "=",
 		strings.Replace(goodContactCode, "C", "+", 1), "openarcanum-invite:" + body,

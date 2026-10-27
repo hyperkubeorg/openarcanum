@@ -810,6 +810,17 @@ class JsApi:
         should be able to message me without sharing a community."""
         return self._a(lambda: self._core.dms.contact_code(str(name or "")))
 
+    def dm_permanent_code_info(self) -> dict:
+        """My permanent contact code, if I made one (None otherwise)."""
+        return self._s(self._core.dms.permanent_code_info)
+
+    def dm_permanent_code(self) -> dict:
+        """My permanent contact code, made the first time it's asked for."""
+        return self._a(self._core.dms.permanent_code)
+
+    def dm_revoke_permanent_code(self) -> dict:
+        return self._a(self._core.dms.revoke_permanent_code)
+
     def dm_add_contact_code(self, code: str) -> dict:
         return self._a(lambda: self._core.dms.add_contact_code(str(code or "")))
 
