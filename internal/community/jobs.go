@@ -543,7 +543,7 @@ const maxClaimRelays = 8
 func registryRelays(ctx context.Context, maintainers []string) ([]string, error) {
 	c := newHTTPClient()
 	var out []string
-	var lastErr error = errors.New("no maintainer node lists a relay")
+	lastErr := errors.New("no maintainer node lists a relay")
 	for _, m := range maintainers {
 		var list wire.RelayList
 		if err := c.get(ctx, strings.TrimRight(m, "/")+"/v1/relays", &list); err != nil {

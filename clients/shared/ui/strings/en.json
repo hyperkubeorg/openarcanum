@@ -1631,6 +1631,11 @@
     "ui/js/settings.js"
    ]
   },
+  "Contact": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "Contact cards": {
    "used_in": [
     "ui/js/settings.js"
@@ -3961,6 +3966,11 @@
     "permissions.py"
    ]
   },
+  "Mention someone": {
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
   "Mention spam": {
    "used_in": [
     "ui/js/moderation.js"
@@ -4284,10 +4294,26 @@
     "ui/js/moderation.js"
    ]
   },
+  "Name for {name}": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Name this device": {
    "used_in": [
     "ui/js/devices.js",
     "ui/js/lock.js"
+   ]
+  },
+  "Names can be at most {max} characters.": {
+   "vars": [
+    "max"
+   ],
+   "used_in": [
+    "dm.py"
    ]
   },
   "Needs approval": {
@@ -4958,6 +4984,11 @@
   "Only this node": {
    "used_in": [
     "ui/js/lock.js"
+   ]
+  },
+  "Only you see this name, on all your devices. Leave it empty to use the name they set.": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Open": {
@@ -5790,6 +5821,11 @@
   "Rename category": {
    "used_in": [
     "ui/js/admin.js"
+   ]
+  },
+  "Rename contact": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Rename device": {
@@ -7825,6 +7861,11 @@
   "Their messages from this period are deleted for everyone, and from search.": {
    "used_in": [
     "ui/js/moderation.js"
+   ]
+  },
+  "Their name": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Their network address is blocked.": {
@@ -10263,7 +10304,8 @@
   },
   "role": {
    "used_in": [
-    "ui/js/admin.js"
+    "ui/js/admin.js",
+    "ui/js/chat.js"
    ]
   },
   "second": {

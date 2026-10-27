@@ -829,6 +829,8 @@ function composer(c, summary, pane = 'main') {
   const label = c.kind === 'voice' ? t('Message {channel}', { channel: c.name }) : t('Message #{channel}', { channel: c.name });
   const input = h('textarea', { id: p.input, rows: 1, placeholder: label, 'aria-label': label, value: chat.drafts[key(st.cid, c.id)] || '' });
   const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, window.innerHeight * 0.4) + 'px'; };
+  // Before the Enter-to-send handler: while the list is open, Enter picks.
+  box.appendChild(mentionPicker(input, st.cid));
   input.addEventListener('input', () => {
     autosize();
     saveDraft(st.cid, c.id, input.value);
@@ -860,6 +862,82 @@ function composer(c, summary, pane = 'main') {
     input, emojiPicker(c, input)));
   setTimeout(() => { autosize(); renderComposerReply(); }, 0);
   return box;
+}
+
+// Typing @ in a message box lists the members (and roles) whose name starts
+// with what follows: arrows and Enter (or Tab), or a click, put in "@Name ",
+// which Python turns into a mention when sending (messaging.encode_mentions).
+function mentionPicker(input, cid) {
+  const pop = h('div', { class: 'mention-pop hidden', role: 'listbox', 'aria-label': t('Mention someone') });
+  let items = [];
+  let sel = 0;
+  let start = -1;
+  const close = () => { pop.classList.add('hidden'); items = []; input.removeAttribute('aria-activedescendant'); };
+  const pick = (it) => {
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(input.selectionStart);
+    input.value = `${before}@${it.name} ${after}`;
+    const at = before.length + it.name.length + 2;
+    input.setSelectionRange(at, at);
+    close();
+    input.dispatchEvent(new Event('input'));
+    input.focus();
+  };
+  const draw = () => {
+    clear(pop);
+    items.forEach((it, i) => pop.appendChild(h('div', { class: 'mention-opt' + (i === sel ? ' sel' : ''), role: 'option', id: `mention-opt-${i}`,
+      'aria-selected': String(i === sel), onmousedown: (e) => { e.preventDefault(); pick(it); } },
+    it.role ? h('span', { class: 'muted', text: '@' }) : avatarEl(it.name, it.key, 'xs'),
+    h('span', { text: it.name }), it.other ? h('span', { class: 'small muted', text: it.other }) : null)));
+    input.setAttribute('aria-activedescendant', `mention-opt-${sel}`);
+  };
+  const update = () => {
+    const upto = input.value.slice(0, input.selectionStart);
+    const m = /(^|[\s(])@([^\s@<>]{0,32})$/.exec(upto);
+    if (!m) { close(); return; }
+    start = upto.length - m[2].length - 1;
+    const q = m[2].toLowerCase();
+    const members = st.members[cid];
+    if (!members) { loadMembers(cid).then(() => { if (document.activeElement === input) update(); }).catch(() => {}); }
+    const s = st.states[cid];
+    const seen = new Set();
+    const found = [];
+    for (const mm of members || []) {
+      const name = mm.nickname || mm.display_name;
+      if (!name || seen.has(name.toLowerCase())) continue;
+      const other = mm.nickname && mm.display_name !== mm.nickname ? mm.display_name : '';
+      if (name.toLowerCase().startsWith(q) || (other && other.toLowerCase().startsWith(q))) { seen.add(name.toLowerCase()); found.push({ name, key: mm.key, other }); }
+    }
+    for (const r of (s && s.roles) || []) {
+      if (r.name && r.name !== '@everyone' && r.name.toLowerCase().startsWith(q)) found.push({ name: r.name, role: true, other: t('role') });
+    }
+    for (const word of ['everyone', 'here']) if (word.startsWith(q)) found.push({ name: word, role: true });
+    items = found.slice(0, 8);
+    sel = 0;
+    if (!items.length) { close(); return; }
+    pop.classList.remove('hidden');
+    draw();
+  };
+  input.addEventListener('input', update);
+  input.addEventListener('click', update);
+  input.addEventListener('blur', () => setTimeout(close, 150));
+  input.addEventListener('keydown', (e) => {
+    if (!items.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      sel = (sel + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+      draw();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      pick(items[sel]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      close();
+    }
+  });
+  return pop;
 }
 
 function fmtSeconds(n) {

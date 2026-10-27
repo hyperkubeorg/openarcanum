@@ -147,6 +147,12 @@ function b64bytes(s) {
   return out;
 }
 
+// How frames are encrypted: in the page through createEncodedStreams where
+// the engine has it, else in a worker (call-worker.js) through the standard
+// RTCRtpScriptTransform (Firefox, Safari).
+const SCRIPT_TRANSFORM = typeof RTCRtpSender !== 'undefined' && !('createEncodedStreams' in RTCRtpSender.prototype)
+  && typeof RTCRtpScriptTransform !== 'undefined';
+
 function kidFor(epoch, slot) { return (BigInt(epoch) << 8n) | BigInt(slot); }
 
 // The SFrame metadata of a frame: its kind's tag, then the bytes left in the
@@ -194,6 +200,8 @@ class Call {
     this.signal = signal;
     this.onChange = onChange || (() => {});
     this.sframe = new SFrame.Context();
+    this.worker = SCRIPT_TRANSFORM ? this.startWorker() : null;
+    this.workerIds = 0;
     this.epochs = []; // [{epoch, key}] newest last, the newest few (frames in flight at a key change arrive late)
     this.firstEpoch = null; // the first epoch this participant had a key for
     this.keyWaiters = []; // [{epoch, resolve}] frames held for a key on its way
@@ -273,7 +281,7 @@ class Call {
       if (!this.epochs.some((e) => e.epoch === epoch)) return;
       const kid = kidFor(epoch, slot);
       const tag = await sendKeyTag(kid, key);
-      if (usedSendKids.has(tag)) { this.sframe.send = null; console.error('call: key id already used with this key; not sending until the key changes'); return; }
+      if (usedSendKids.has(tag)) { this.sframe.send = null; if (this.worker) this.worker.postMessage({ type: 'sendOff' }); console.error('call: key id already used with this key; not sending until the key changes'); return; }
       usedSendKids.add(tag);
       while (usedSendKids.size > USED_SEND_KIDS_KEPT) usedSendKids.delete(usedSendKids.values().next().value);
       await this.sframe.setSendKey(kid, key);
@@ -304,9 +312,57 @@ class Call {
         if (!this.sframe.recv.has(kid)) await this.sframe.setRecvKey(kid, key);
       }
     }
+    this.syncEpochs();
   }
 
   // ---------------------------------------------------------------- transforms
+
+  // The worker for RTCRtpScriptTransform: every key this page installs or
+  // drops reaches it too (the page keeps its own copy for its checks), and
+  // its counters come back into this.stats.
+  startWorker() {
+    const w = new Worker('js/call-worker.js');
+    w.postMessage({ type: 'init', consts: { kindTags: CALL.KIND_TAGS, clearKey: CALL.VP8_CLEAR_KEY, clearDelta: CALL.VP8_CLEAR_DELTA, keyWait: CALL.KEY_WAIT_MS } });
+    w.onmessage = (e) => {
+      if (!e.data || e.data.type !== 'stats') return;
+      const d = e.data.stats;
+      for (const k of ['encrypted', 'decrypted', 'failed', 'beforeKey']) this.stats[k] += d[k];
+      for (const [k, v] of Object.entries(d.why)) this.stats.why[k] = (this.stats.why[k] || 0) + v;
+      for (const [k, v] of Object.entries(d.from)) this.stats.from[k] = (this.stats.from[k] || 0) + v;
+      for (const [k, v] of Object.entries(d.sentFrames)) this.stats.sentFrames[k] = (this.stats.sentFrames[k] || 0) + v;
+    };
+    const ctx = this.sframe;
+    const plain = { send: ctx.setSendKey.bind(ctx), recv: ctx.setRecvKey.bind(ctx), drop: ctx.dropRecvKey.bind(ctx) };
+    ctx.setSendKey = async (kid, key) => { await plain.send(kid, key); w.postMessage({ type: 'sendKey', kid: String(kid), key: new Uint8Array(key) }); };
+    ctx.setRecvKey = async (kid, key) => { await plain.recv(kid, key); w.postMessage({ type: 'recvKey', kid: String(kid), key: new Uint8Array(key) }); };
+    ctx.dropRecvKey = (kid) => { plain.drop(kid); w.postMessage({ type: 'dropRecv', kid: String(kid) }); };
+    return w;
+  }
+
+  syncEpochs() {
+    if (!this.worker) return;
+    this.worker.postMessage({ type: 'epochs', firstEpoch: this.firstEpoch === null ? null : String(this.firstEpoch),
+      epochs: this.epochs.map((e) => ({ epoch: String(e.epoch), slots: [...e.slots] })) });
+  }
+
+  attachSender(tr, kind) {
+    if (this.worker) {
+      tr.sender.transform = new RTCRtpScriptTransform(this.worker, { side: 'send', kind });
+      return;
+    }
+    const { readable, writable } = tr.sender.createEncodedStreams();
+    readable.pipeThrough(this.senderTransform(kind)).pipeTo(writable).catch(() => {});
+  }
+
+  attachReceiver(receiver, bind) {
+    if (this.worker) {
+      bind.id = ++this.workerIds;
+      receiver.transform = new RTCRtpScriptTransform(this.worker, { side: 'recv', id: bind.id, kind: bind.kind, participant: bind.participant });
+      return;
+    }
+    const { readable, writable } = receiver.createEncodedStreams();
+    readable.pipeThrough(this.receiverTransform(bind)).pipeTo(writable).catch(() => {});
+  }
 
   clearBytes(frame, kind) {
     if (kind === 'audio' || kind === 'screen-audio') return 0;
@@ -391,18 +447,25 @@ class Call {
     this.master.gain.value = this.outputVolume;
     this.master.connect(this.ctx.destination);
     // Started from the click on Join; resume in case the engine
-    // created it suspended anyway.
-    await this.ctx.resume().catch(() => {});
+    // created it suspended anyway. Some browsers (Firefox) keep resume()
+    // pending until their autoplay rules allow sound: the call connects
+    // meanwhile, and the next click anywhere lets the sound start.
+    const resumed = this.ctx.resume().catch(() => {});
+    await Promise.race([resumed, new Promise((r) => setTimeout(r, 500))]);
+    if (this.ctx.state !== 'running' && typeof document !== 'undefined') {
+      const again = () => { if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); };
+      document.addEventListener('pointerdown', again, { once: true, capture: true });
+      document.addEventListener('keydown', again, { once: true, capture: true });
+    }
     if (this.s.speaker && this.ctx.setSinkId) await this.ctx.setSinkId(this.s.speaker).catch(() => {});
     await this.setKeys(this.s.epoch, this.s.key, this.s.slot);
-    this.pc = new RTCPeerConnection({ encodedInsertableStreams: true, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+    this.pc = new RTCPeerConnection({ ...(this.worker ? {} : { encodedInsertableStreams: true }), bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
     // Every transceiver this device might use, up front, so only the relay
     // renegotiates afterwards.
     const kinds = {};
     const add = (kind, media, encodings) => {
       const tr = this.pc.addTransceiver(media, { direction: 'sendonly', sendEncodings: encodings });
-      const { readable, writable } = tr.sender.createEncodedStreams();
-      readable.pipeThrough(this.senderTransform(kind)).pipeTo(writable).catch(() => {});
+      this.attachSender(tr, kind);
       this.tx[kind] = tr;
     };
     add('audio', 'audio');
@@ -486,11 +549,26 @@ class Call {
     return this.negotiation;
   }
 
+  // The relay names each track it sends `participant kind` (a=msid). Some
+  // engines keep that as the track's id; others (Firefox) give the track an
+  // id of their own, so the kind is read from the transceiver's m-section.
+  trackKind(e) {
+    if (CALL.KIND_TAGS[e.track.id]) return e.track.id;
+    const mid = e.transceiver && e.transceiver.mid;
+    const sdp = this.pc && this.pc.remoteDescription ? this.pc.remoteDescription.sdp : '';
+    for (const section of sdp.split(/\r?\nm=/).slice(1)) {
+      if (!new RegExp(`\\r?\\na=mid:${mid}\\r?(\\n|$)`).test('\n' + section.slice(section.indexOf('\n')))) continue;
+      const m = /\r?\na=msid:\S+ (\S+)/.exec(section);
+      if (m) return m[1];
+    }
+    return e.track.id;
+  }
+
   onTrack(e) {
     const stream = e.streams[0];
     if (!stream) return;
     const participant = stream.id;
-    const kind = e.track.id;
+    const kind = this.trackKind(e);
     // A renegotiation can deliver a receiver again (when the call's grants
     // change, say). Its encoded streams can be created only once, so the
     // first decryption pipe stays and follows the new binding.
@@ -498,11 +576,11 @@ class Call {
     if (bind) {
       if (bind.participant !== participant || bind.kind !== kind) this.releaseMedia(bind.participant, bind.kind, e.track);
       Object.assign(bind, { kind, participant });
+      if (this.worker) this.worker.postMessage({ type: 'bind', id: bind.id, kind, participant });
     } else {
       const fresh = { kind, participant };
       this.bound.set(e.receiver, fresh);
-      const { readable, writable } = e.receiver.createEncodedStreams();
-      readable.pipeThrough(this.receiverTransform(fresh)).pipeTo(writable).catch(() => {});
+      this.attachReceiver(e.receiver, fresh);
     }
     const r = this.remoteOf(participant);
     const had = r[kind];
@@ -1054,6 +1132,7 @@ class Call {
   close() {
     if (this.closed) return;
     this.closed = true;
+    if (this.worker) this.worker.terminate();
     for (const timer of this.timers) { clearInterval(timer); clearTimeout(timer); }
     if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) navigator.mediaDevices.removeEventListener('devicechange', this.onDevices);
     for (const track of Object.values(this.local)) track.stop();

@@ -67,9 +67,14 @@ MAX_ASSEMBLING = 20
 
 
 def make_thumbnail(data: bytes, size: int = THUMB_SIZE) -> tuple[bytes, int, int]:
-    """A small JPEG and the image size, or (b"", 0, 0) if it isn't an image."""
-    from qtpy.QtCore import QBuffer, QIODevice, Qt
-    from qtpy.QtGui import QImage
+    """A small JPEG and the image size, or (b"", 0, 0) if it isn't an image
+    or this client can't decode images (the web client has no Qt: the file
+    goes without a preview)."""
+    try:
+        from qtpy.QtCore import QBuffer, QIODevice, Qt
+        from qtpy.QtGui import QImage
+    except ImportError:
+        return b"", 0, 0
 
     img = QImage.fromData(data)
     if img.isNull():

@@ -706,6 +706,20 @@ function addContactCodeDialog() {
   ] });
 }
 
+// A name of your own for a contact, seen only on your devices; empty goes
+// back to the name they give themselves.
+function renameContactDialog(c) {
+  const input = h('input', { type: 'text', maxlength: 64, value: c.nickname || '', placeholder: c.card_name || t('Their name') });
+  const body = h('div', {},
+    field(t('Name for {name}', { name: c.card_name || c.name }), input,
+      t('Only you see this name, on all your devices. Leave it empty to use the name they set.')));
+  modal({ title: t('Rename contact'), body, actions: [
+    { label: t('Save'), kind: 'primary', run: async () => { await api('dm_rename_contact', c.id, input.value); } },
+    { label: t('Cancel') },
+  ] });
+  setTimeout(() => input.focus(), 30);
+}
+
 // Contacts, the main panel of Direct messages: everyone I can message
 // without sharing a community, and how to add more (contact codes).
 async function renderDmHome(main) {
@@ -735,6 +749,7 @@ async function renderDmHome(main) {
       c.key_changed ? h('span', { class: 'pill warn', text: t('key changed') }) : null,
       c.blocked ? h('span', { class: 'pill', text: t('blocked') }) : null,
       c.blocked ? null : h('button', { class: 'btn small primary', text: t('Message'), onclick: () => dmUI.startWithContact(c.id) }),
+      h('button', { class: 'btn small', text: t('Rename'), onclick: () => renameContactDialog(c) }),
       h('button', { class: 'btn small', text: t('Safety number'), onclick: () => safetyDialog(c.id, c.name) }),
       h('button', { class: 'btn small', text: c.blocked ? t('Unblock') : t('Block'), onclick: () => api('dm_block', c.id, !c.blocked).then(again, toastError) }),
       h('button', { class: 'btn small danger', text: t('Remove'), onclick: () => api('dm_remove_contact', c.id).then(again, toastError) })));

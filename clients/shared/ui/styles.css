@@ -874,3 +874,10 @@ img.emoji-big { width: 32px; height: 32px; object-fit: contain; }
 .ic.inline { width: 1em; height: 1em; vertical-align: -0.15em; margin-right: .3em; }
 .admin-icon { display: inline-grid; place-items: center; }
 .admin-icon .ic { width: 18px; height: 18px; display: block; }
+
+/* The @ mention list above a message box (chat.js mentionPicker). */
+.composer { position: relative; }
+.mention-pop { position: absolute; left: var(--s4); right: var(--s4); bottom: 100%; z-index: 30; max-height: 280px; overflow: auto; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 6px 20px rgba(0,0,0,.25); padding: var(--s1); }
+.mention-opt { display: flex; align-items: center; gap: var(--s2); padding: var(--s1) var(--s2); border-radius: var(--r-sm, 4px); cursor: pointer; }
+.mention-opt.sel, .mention-opt:hover { background: var(--accent-soft); }
+

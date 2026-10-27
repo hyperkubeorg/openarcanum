@@ -1026,7 +1026,9 @@ class DMManager:
             out.append(
                 {
                     "id": ident,
-                    "name": c.get("name", "Contact"),
+                    "name": self._contact_name(ident),
+                    "nickname": c.get("nickname", ""),
+                    "card_name": self.d["peers"].get(ident, {}).get("name", ""),
                     "community": c.get("community", ""),
                     "member": c.get("member", ""),
                     "verified": ident in self._verified(),
@@ -1036,6 +1038,32 @@ class DMManager:
             )
         out.sort(key=lambda c: c["name"].lower())
         return out
+
+    def _contact_name(self, ident: str) -> str:
+        """How a contact is shown: my nickname for them, else the name on
+        their newest card, else the name they had when added."""
+        c = self.d["contacts"].get(ident, {})
+        return c.get("nickname") or self.d["peers"].get(ident, {}).get("name") or c.get("name") or _("Contact")
+
+    async def rename_contact(self, ident: str, nickname: str) -> dict:
+        """A name of my own for a contact (empty: their own name again). It
+        stays on my devices: nobody else sees it."""
+        self.core.require_unlocked()
+        c = self.d["contacts"].get(ident)
+        if c is None:
+            raise UserError(_("That person isn't in your contacts."))
+        nickname = " ".join((nickname or "").split())
+        if len(nickname) > 64:
+            raise UserError(_("Names can be at most {max} characters.").format(max=64))
+        if nickname:
+            c["nickname"] = nickname
+        else:
+            c.pop("nickname", None)
+        self.core.save_vault()
+        await self.core.devices.broadcast("contact_added", {"id": ident, "contact": c})
+        self.core.emit("dm_contacts", {})
+        self.core.emit("dm", {})
+        return {"ok": True}
 
     async def add_contact(self, cid: str, member: str) -> dict:
         card, _member = await self._fetch_card(cid, unb64(member), claim=False)
@@ -2932,8 +2960,9 @@ class DMManager:
         st = self._group(gid).state
         for m in [*st.members, *st.invited]:
             if m.identity == ident:
-                c = self.d["contacts"].get(b64(ident))
-                return (c or {}).get("name") or m.name or "Someone"
+                if b64(ident) in self.d["contacts"]:
+                    return self._contact_name(b64(ident))
+                return m.name or self.d["peers"].get(b64(ident), {}).get("name") or _("Someone")
         return "Someone"
 
     def _notify(self, gid: str, entry: dict) -> None:

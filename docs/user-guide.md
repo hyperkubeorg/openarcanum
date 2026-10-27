@@ -592,7 +592,9 @@ from showing a preview of it.
 Type `@` and the person's name (their nickname here, or display name):
 `@Alice`. OpenArcanum turns it into a mention when you send. You can also
 mention a role (`@Moderators`), `@everyone` or `@here` (everyone who's online
-right now).
+right now). As you type, a list shows the members and roles whose name
+starts with what you typed: the arrow keys and Enter (or Tab), or a click,
+put the name in.
 
 - A mention shows highlighted; a message that mentions you gets a yellow
   bar, a red **@ badge** on the channel and a number on the community icon.
@@ -852,6 +854,9 @@ it adds you to their contacts too. **New group DM** (the + at the top of
 the list) can start a group with your contacts or with members of a
 community; a group invitation reaches only people who have you as a
 contact.
+
+**Rename** (on Contacts) gives a contact a name of your own, seen only on
+your devices; empty goes back to the name they set.
 
 The name people see in direct messages and in your code is **Settings →
 Identity → Your name** (it can be empty). A community you join starts with

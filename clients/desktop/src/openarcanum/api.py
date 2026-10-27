@@ -829,6 +829,9 @@ class JsApi:
         """The calls going on in my conversations (who is in each)."""
         return self._s(self._core.dmcalls.all)
 
+    def dm_rename_contact(self, ident: str, nickname: str) -> dict:
+        return self._a(lambda: self._core.dms.rename_contact(str(ident), str(nickname or "")))
+
     def dm_add_contact_code(self, code: str) -> dict:
         return self._a(lambda: self._core.dms.add_contact_code(str(code or "")))
 
