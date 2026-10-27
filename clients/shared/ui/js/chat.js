@@ -635,8 +635,19 @@ function fileEl(f) {
 
 async function showPreview(f, wrap, btn) {
   btn.disabled = true;
-  try { chat.previews[f.file_id] = await api('file_preview', st.cid, f); wrap.appendChild(h('div', { class: 'file-preview' }, h('img', { src: chat.previews[f.file_id], alt: f.name }))); btn.remove(); }
+  try { const uri = await api('file_preview', st.cid, f); rememberPreview(f.file_id, uri); wrap.appendChild(h('div', { class: 'file-preview' }, h('img', { src: uri, alt: f.name }))); btn.remove(); }
   catch (e) { toastError(e); btn.disabled = false; }
+}
+
+// Previews are data URIs of up to a few MB: the newest few stay for the
+// session. A failed fetch isn't tried again for a minute (''), and one in
+// flight isn't asked for twice (null).
+const PREVIEWS_KEPT = 50;
+function rememberPreview(id, uri) {
+  delete chat.previews[id];
+  chat.previews[id] = uri;
+  const ids = Object.keys(chat.previews);
+  for (const old of ids.slice(0, Math.max(0, ids.length - PREVIEWS_KEPT))) delete chat.previews[old];
 }
 
 // A link preview the community server fetched; its image comes from the
@@ -652,8 +663,15 @@ function previewEl(p) {
     const holder = h('div', { class: 'lp-image' });
     card.appendChild(holder);
     const show = (uri) => { if (uri) holder.appendChild(h('img', { src: uri, alt: p.title ? t('Preview image for {title}', { title: p.title }) : t('Preview image') })); };
-    if (chat.previews[img.file_id]) show(chat.previews[img.file_id]);
-    else api('file_preview', st.cid, img).then((uri) => { chat.previews[img.file_id] = uri; show(uri); }).catch(() => {});
+    const have = chat.previews[img.file_id];
+    if (have) show(have);
+    else if (have === undefined) {
+      chat.previews[img.file_id] = null;
+      api('file_preview', st.cid, img).then((uri) => { rememberPreview(img.file_id, uri); show(uri); }).catch(() => {
+        chat.previews[img.file_id] = '';
+        setTimeout(() => { if (chat.previews[img.file_id] === '') delete chat.previews[img.file_id]; }, 60000);
+      });
+    }
   }
   return card;
 }
@@ -681,7 +699,9 @@ async function deleteMessage(m) {
   try { await api('delete_message', st.cid, m.channel_id, m.id); } catch (e) { toastError(e); }
 }
 
-function upsertMessage(cid, m) {
+const MSGS_KEPT_OFF_SCREEN = 500; // a channel not on screen keeps its newest messages only
+
+function upsertMessage(cid, m, { onScreen = true } = {}) {
   const k = key(cid, m.channel_id);
   const arr = st.msgs[k] || (st.msgs[k] = []);
   const i = arr.findIndex((x) => x.id === m.id);
@@ -691,6 +711,13 @@ function upsertMessage(cid, m) {
     while (j > 0 && arr[j - 1].id > m.id) j--;
     arr.splice(j, 0, m);
   }
+  if (!onScreen && arr.length > 2 * MSGS_KEPT_OFF_SCREEN) arr.splice(0, arr.length - MSGS_KEPT_OFF_SCREEN);
+}
+
+// A community that is gone takes its messages and typing state with it.
+function forgetCommunityMessages(cid) {
+  for (const k of Object.keys(st.msgs)) if (k.startsWith(cid + ':')) delete st.msgs[k];
+  for (const k of Object.keys(chat.typing)) if (k.startsWith(cid + ':')) delete chat.typing[k];
 }
 
 // ---------------------------------------------------------------- jump to message, unread
@@ -812,11 +839,12 @@ function composer(c, summary, pane = 'main') {
       const text = input.value;
       if (!text.trim()) return;
       input.disabled = true;
+      const cid = st.cid; // the rail stays clickable while the answer is on its way
       try {
         const replyTo = st.replyTo && st.replyTo.channel_id === c.id ? st.replyTo.id : 0;
-        const m = await api('send', st.cid, c.id, text, replyTo, []);
-        upsertMessage(st.cid, m);
-        input.value = ''; saveDraft(st.cid, c.id, ''); if (replyTo) st.replyTo = null; renderComposerReply();
+        const m = await api('send', cid, c.id, text, replyTo, []);
+        upsertMessage(cid, m);
+        input.value = ''; saveDraft(cid, c.id, ''); if (replyTo) st.replyTo = null; renderComposerReply();
         chat.typingSent = 0;
         chat[p.scrolled] = false; renderMessages(false, pane);
       } catch (err) { toastError(err); }
@@ -898,12 +926,13 @@ function channelAttachDialog(c, pane = 'main') {
         const prog = document.getElementById(p.progress);
         if (prog) prog.textContent = chat.uploading;
         const replyTo = st.replyTo && st.replyTo.channel_id === c.id ? st.replyTo.id : 0;
+        const cid = st.cid;
         try {
           const files = await confirmOpenAll(chosen);
           if (!files.length) return false;
-          const m = await api('send', st.cid, c.id, caption, replyTo, files);
-          upsertMessage(st.cid, m);
-          if (input) { input.value = ''; saveDraft(st.cid, c.id, ''); }
+          const m = await api('send', cid, c.id, caption, replyTo, files);
+          upsertMessage(cid, m);
+          if (input) { input.value = ''; saveDraft(cid, c.id, ''); }
           if (replyTo) st.replyTo = null;
         } finally { chat.uploading = null; }
         chat[p.scrolled] = false;

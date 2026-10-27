@@ -26,6 +26,34 @@ func (e *env) adminAs(m *testutil.Member, a *wire.AdminAction) (*wire.AdminResul
 	return m.Admin(testutil.Ctx(e.t), e.id(), a)
 }
 
+// An action that is mostly padding (a huge nonce, or unknown fields) isn't
+// applied, and so never reaches the audit log that keeps actions verbatim.
+func TestOversizedAdminActionRefused(t *testing.T) {
+	e := setup(t, nil)
+	owner := e.owner
+	ctx := testutil.Ctx(t)
+	send := func(a *wire.AdminAction, extra []byte) error {
+		a.Community, a.Actor, a.At = e.id(), owner.Identity.Public, time.Now().UnixMilli()
+		b, _ := proto.Marshal(a)
+		b = append(b, extra...)
+		_, err := owner.Call(ctx, &wire.ClientMessage{Body: &wire.ClientMessage_Admin{Admin: &wire.SignedAction{
+			Action: b, Signature: owner.Identity.Sign(identity.CtxAdminAction, b),
+		}}})
+		return err
+	}
+	nick := func(n int) *wire.AdminAction {
+		return &wire.AdminAction{Nonce: make([]byte, n), Op: &wire.AdminAction_SetNickname{SetNickname: &wire.SetNickname{Member: owner.Identity.Public, Nickname: "O"}}}
+	}
+	wantErr(t, send(nick(65), nil), "16 to 64")
+	wantErr(t, send(nick(16), []byte{0xf8, 0x7f, 0x01}), "too large") // an unknown varint field (2047)
+	big := nick(16)
+	big.Op.(*wire.AdminAction_SetNickname).SetNickname.Nickname = strings.Repeat("x", 600<<10)
+	wantErr(t, send(big, nil), "too large")
+	if err := send(nick(64), nil); err != nil {
+		t.Fatalf("a plain action: %v", err)
+	}
+}
+
 func (e *env) mustAdmin(m *testutil.Member, a *wire.AdminAction) *wire.AdminResult {
 	e.t.Helper()
 	r, err := e.adminAs(m, a)

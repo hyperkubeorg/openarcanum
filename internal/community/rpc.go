@@ -1256,7 +1256,9 @@ func (s *Server) rotateForNewMember(ctx context.Context, m *memberRec) (bool, er
 		if perms&PermViewChannel == 0 || perms&PermManageMessages != 0 {
 			continue
 		}
+		s.lpmu.Lock()
 		last := s.lastPublish[id]
+		s.lpmu.Unlock()
 		if last.Before(s.startedAt) {
 			last = s.startedAt
 		}

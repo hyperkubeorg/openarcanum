@@ -136,7 +136,6 @@ def setup_logging(paths: Paths, verbose: bool) -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
     if paths.log_file.exists():
         os.chmod(paths.log_file, 0o600)
-    crashlog.install(paths.log)
 
 
 class Gui(GuiHooks):
@@ -676,6 +675,9 @@ def main(argv: list[str] | None = None) -> None:
     # own window). Logging is up first: what the hand-off refuses is logged.
     if not args.smoke and instance.hand_off(instance.server_name(paths.config), link):
         sys.exit(0)
+    # Only now: a launch that handed its link over must not touch the
+    # running app's crash marker.
+    crashlog.install(paths.log)
     if args.link and not link:
         log.warning("ignored a launch argument that is not an invite link")
     try:

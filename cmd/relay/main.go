@@ -85,7 +85,9 @@ func run() error {
 		srv.SetSFU(media)
 		log.Info("relay media", "udp", media.Addr().String())
 	}
-	hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	// WebSocket connections are hijacked and keep their own limits; the
+	// idle timeout is for plain HTTP keep-alives (healthz).
+	hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 
 	if cfg.MetricsListen != "" {
 		reg := ops.NewRegistry()

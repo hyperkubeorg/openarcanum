@@ -43,6 +43,10 @@ const (
 	// allowance: voiceJoinBurst at once, then one more every voiceJoinEvery.
 	voiceJoinBurst = 5
 	voiceJoinEvery = 3 * time.Second
+	// A participant's own state (mute, camera...): a change goes to every
+	// session of the community, so the same shape of allowance.
+	voiceStateBurst = 5
+	voiceStateEvery = time.Second
 )
 
 // GrantClockMargin is taken off the longest grant lifetime when a grant is
@@ -94,13 +98,14 @@ type call struct {
 }
 
 type voiceState struct {
-	mu       sync.Mutex
-	calls    map[int64]*call
-	lastJoin map[*sess]joinAllowance // forgotten when the session ends
+	mu        sync.Mutex
+	calls     map[int64]*call
+	lastJoin  map[*sess]joinAllowance // forgotten when the session ends
+	lastState map[*sess]joinAllowance
 }
 
 func newVoiceState() *voiceState {
-	return &voiceState{calls: map[int64]*call{}, lastJoin: map[*sess]joinAllowance{}}
+	return &voiceState{calls: map[int64]*call{}, lastJoin: map[*sess]joinAllowance{}, lastState: map[*sess]joinAllowance{}}
 }
 
 // callPermsFor works out m's call permissions in c (callers hold s.mu).
@@ -248,20 +253,24 @@ func (s *Server) voiceJoin(ss *sess, j *wire.VoiceJoin) (*wire.ServerMessage, er
 // joinTooSoonLocked reports whether this session has used up its join
 // allowance, and otherwise takes one join from it (v.mu held).
 func (s *Server) joinTooSoonLocked(p *participant) bool {
-	now := s.now()
-	v := s.voice
-	a, ok := v.lastJoin[p.sess]
+	return tooSoon(s.voice.lastJoin, p.sess, s.now(), voiceJoinBurst, voiceJoinEvery)
+}
+
+// tooSoon takes one from the session's allowance in `last` (burst at
+// once, then one more every `every`), or says it ran out.
+func tooSoon(last map[*sess]joinAllowance, ss *sess, now time.Time, burst int, every time.Duration) bool {
+	a, ok := last[ss]
 	if !ok {
-		a = joinAllowance{left: voiceJoinBurst, at: now}
+		a = joinAllowance{left: float64(burst), at: now}
 	}
-	a.left = min(float64(voiceJoinBurst), a.left+now.Sub(a.at).Seconds()/voiceJoinEvery.Seconds())
+	a.left = min(float64(burst), a.left+now.Sub(a.at).Seconds()/every.Seconds())
 	a.at = now
 	if a.left < 1 {
-		v.lastJoin[p.sess] = a
+		last[ss] = a
 		return true
 	}
 	a.left--
-	v.lastJoin[p.sess] = a
+	last[ss] = a
 	return false
 }
 
@@ -357,9 +366,16 @@ func (s *Server) voiceSetState(ss *sess, st *wire.VoiceState) (*wire.ServerMessa
 		v.mu.Unlock()
 		return nil, errNotFound("you're not in this call")
 	}
-	p.selfMute, p.selfDeaf = st.SelfMute || st.SelfDeaf, st.SelfDeaf
-	p.camera, p.screen = st.Camera && p.perms.video, st.Screen && p.perms.screen
-	p.priorityOn = st.Priority
+	want := [5]bool{st.SelfMute || st.SelfDeaf, st.SelfDeaf, st.Camera && p.perms.video, st.Screen && p.perms.screen, st.Priority}
+	if want == [5]bool{p.selfMute, p.selfDeaf, p.camera, p.screen, p.priorityOn} {
+		v.mu.Unlock()
+		return okBody(), nil // nothing changed, nothing to tell anyone
+	}
+	if tooSoon(v.lastState, ss, s.now(), voiceStateBurst, voiceStateEvery) {
+		v.mu.Unlock()
+		return nil, errRateLimited("state changes are limited to a few per second")
+	}
+	p.selfMute, p.selfDeaf, p.camera, p.screen, p.priorityOn = want[0], want[1], want[2], want[3], want[4]
 	updates := s.snapshotsLocked(cl)
 	v.mu.Unlock()
 	s.sendVoiceUpdates(updates, nil)
@@ -381,6 +397,7 @@ func (s *Server) voiceDisconnect(ss *sess) {
 		}
 	}
 	delete(v.lastJoin, ss)
+	delete(v.lastState, ss)
 	v.mu.Unlock()
 	s.afterVoiceChange(changed...)
 }

@@ -140,3 +140,37 @@ func TestReplicationPullFailuresAreLogged(t *testing.T) {
 // apiClient announces this build's protocol versions (the maintainer API
 // refuses requests without them).
 var apiClient = &http.Client{Transport: version.Transport{}}
+
+// A member that can't be reached for a chunk goes into backoff like one
+// whose pull failed, and isn't dialled again for every chunk until the
+// backoff has passed.
+func TestChunkFetchHonoursPeerBackoff(t *testing.T) {
+	s := openTestNode(t, nil, slog.New(slog.DiscardHandler))
+	key := bytes.Repeat([]byte{9}, 32)
+	l := s.peers.link(TrustedPeer{Key: key, URL: "http://127.0.0.1:1", Source: "config"})
+	upload := bytes.Repeat([]byte{1}, 32)
+	ctx := context.Background()
+	state := func() (int, time.Time) {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return l.failures, l.nextTry
+	}
+	if s.chunkFromPeers(ctx, upload, 0) != nil {
+		t.Fatal("a chunk from nowhere")
+	}
+	failures, next := state()
+	if failures != 1 || !next.After(time.Now()) {
+		t.Fatalf("unreachable member not in backoff: %d failures, next try %v", failures, next)
+	}
+	s.chunkFromPeers(ctx, upload, 1)
+	if failures, _ := state(); failures != 1 {
+		t.Fatalf("member in backoff dialled again: %d failures", failures)
+	}
+	l.mu.Lock()
+	l.nextTry = time.Time{}
+	l.mu.Unlock()
+	s.chunkFromPeers(ctx, upload, 1)
+	if failures, _ := state(); failures != 2 {
+		t.Fatalf("member past its backoff not dialled: %d failures", failures)
+	}
+}

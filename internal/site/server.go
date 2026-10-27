@@ -532,7 +532,9 @@ func (s *Server) reportSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := parseReport(kind, r.PostForm)
-	if err := s.pow.check(r.PostForm.Get("pow_challenge"), r.PostForm.Get("pow_counter")); err != nil {
+	challenge := r.PostForm.Get("pow_challenge")
+	issued, err := s.pow.verify(challenge, r.PostForm.Get("pow_counter"))
+	if err != nil {
 		f.fail("form", err.Error())
 	}
 	if len(f.Errors) > 0 {
@@ -540,9 +542,15 @@ func (s *Server) reportSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Counted atomically here (concurrent posts can't all pass the check
-	// above); invalid forms don't use up the allowance.
+	// above); invalid forms use up neither the allowance nor the solved
+	// challenge, so solving challenges for invalid forms fills nothing.
 	if !s.reportsPerIP.take(nk) {
 		s.renderError(w, r, http.StatusTooManyRequests, "You've sent several reports in the last hour. Please wait a while before sending another.")
+		return
+	}
+	if err := s.pow.consume(challenge, issued); err != nil {
+		f.fail("form", err.Error())
+		s.render(w, r, http.StatusUnprocessableEntity, "report.html", page{Title: reportTitle(kind), Section: "report-" + kind, Data: s.reportPage(f)})
 		return
 	}
 	sent := reportPage{Form: f}

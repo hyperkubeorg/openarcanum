@@ -6836,6 +6836,11 @@
     "dm.py"
    ]
   },
+  "That folder already holds OpenArcanum data. Choose an empty folder.": {
+   "used_in": [
+    "core.py"
+   ]
+  },
   "That folder doesn't exist yet.": {
    "used_in": [
     "core.py"
@@ -6879,6 +6884,11 @@
   "That is a claim code. Use \"Host on your own server\".": {
    "used_in": [
     "ui/js/join.js"
+   ]
+  },
+  "That isn't a backup file (it's far too large).": {
+   "used_in": [
+    "core.py"
    ]
   },
   "That isn't a member key.": {
@@ -6968,6 +6978,11 @@
   "The app window stores nothing itself: keys, settings and history live in encrypted files in the folders above (Data & storage lists every path). Developer tools (Ctrl+Shift+I) work only when OpenArcanum was started with --debug.": {
    "used_in": [
     "ui/js/settings.js"
+   ]
+  },
+  "The app's folder isn't writable, so this copy can't update itself.": {
+   "used_in": [
+    "updates.py"
    ]
   },
   "The call's server refused the call: {error}": {
@@ -7061,6 +7076,14 @@
    ]
   },
   "The current passphrase is wrong.": {
+   "used_in": [
+    "core.py"
+   ]
+  },
+  "The data folder {folder} isn't available; this device's default location is used.": {
+   "vars": [
+    "folder"
+   ],
    "used_in": [
     "core.py"
    ]

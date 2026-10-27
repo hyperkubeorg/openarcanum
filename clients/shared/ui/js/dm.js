@@ -28,19 +28,26 @@ const dmUI = {
     }
   },
 
+  // Loads `id` into info/history, unless another conversation was opened
+  // while its answers were on the way (then those are for that one).
   async load(id) {
     try {
-      this.info = await api('dm_info', id);
-      this.history = await api('dm_history', id);
-    } catch (e) { this.info = null; this.history = []; toastError(e); }
+      const info = await api('dm_info', id);
+      if (this.current !== id) return;
+      const history = await api('dm_history', id);
+      if (this.current !== id) return;
+      this.info = info;
+      this.history = history;
+    } catch (e) { if (this.current !== id) return; this.info = null; this.history = []; toastError(e); }
   },
 
   async open(id) {
-    if (this.current !== id) this.replyTo = null;
+    if (this.current !== id) { this.replyTo = null; this.info = null; this.history = []; }
     this.current = id;
     leavePage();
     st.view = 'dms';
     await this.load(id);
+    if (this.current !== id) return;
     // The "New" marker stays where it was when the conversation was opened,
     // though opening it marks everything read (as in channels).
     this.newSince = this.info ? this.info.read_at : null;
@@ -49,9 +56,10 @@ const dmUI = {
   },
 
   async reload() {
-    if (!this.current) return;
-    await this.load(this.current);
-    if (st.view !== 'dms') return;
+    const id = this.current;
+    if (!id) return;
+    await this.load(id);
+    if (st.view !== 'dms' || this.current !== id) return;
     if (dmViewMatches()) fillDmView();
     else renderMain();
   },

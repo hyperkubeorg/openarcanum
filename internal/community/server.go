@@ -148,6 +148,7 @@ type Server struct {
 	// channel with none since startedAt counts from startedAt), for
 	// rotateForNewMember. Guarded by mu.
 	lastPublish map[int64]time.Time
+	lpmu        sync.Mutex // lastPublish alone: typing publishes under the read lock
 	startedAt   time.Time
 
 	// reapMu serialises recording that a maintainer reaped the community
@@ -988,7 +989,9 @@ func (s *Server) publishEvent(ch *channelRec, ev *wire.ChannelEvent) {
 	})
 	signed, _ := proto.Marshal(&wire.SignedEnvelope{Envelope: env, Signature: s.key.Sign(identity.CtxChannelEnvelope, env)})
 	if s.lastPublish != nil {
+		s.lpmu.Lock()
 		s.lastPublish[ch.ID] = s.now()
+		s.lpmu.Unlock()
 	}
 	select {
 	case s.pubq <- pubItem{topic: ch.Topic, data: signed}:

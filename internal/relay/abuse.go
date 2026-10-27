@@ -100,6 +100,7 @@ func (c *conn) start(m *wire.Start) bool {
 	if startTimer != nil {
 		startTimer.Stop()
 	}
+	c.ws.SetReadLimit(int64(c.srv.cfg.MaxChunk) + 4096)
 	go c.pinger()
 	c.ack(m.Req)
 	return true
@@ -227,9 +228,13 @@ type chunkCache struct {
 	perConn  uint64
 	ttl      time.Duration
 	size     uint64
-	topics   map[string]*topicCache
-	conns    map[uint64]*topicCache // per publishing connection
-	order    *list.List             // *cacheEntry, oldest first, across topics
+	// pending is what every connection's unfinished cacheable messages
+	// hold together (cachePending): their chunks sit in memory next to the
+	// cache, so cache and pending together stay within max.
+	pending uint64
+	topics  map[string]*topicCache
+	conns   map[uint64]*topicCache // per publishing connection
+	order   *list.List             // *cacheEntry, oldest first, across topics
 }
 
 const (
@@ -390,13 +395,51 @@ func (cc *chunkCache) entries() int {
 	return cc.order.Len()
 }
 
+// reserve charges n bytes of an unfinished message to the pending total,
+// refusing what cache and pending together couldn't hold within max.
+func (cc *chunkCache) reserve(n uint64) bool {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if cc.size+cc.pending+n > cc.max {
+		return false
+	}
+	cc.pending += n
+	return true
+}
+
+// release gives back bytes reserve charged.
+func (cc *chunkCache) release(n uint64) {
+	if n == 0 {
+		return
+	}
+	cc.mu.Lock()
+	cc.pending -= min(n, cc.pending)
+	cc.mu.Unlock()
+}
+
+// pendingBytes is what unfinished cacheable messages hold on every
+// connection together (tests and stats).
+func (cc *chunkCache) pendingBytes() uint64 {
+	if cc == nil {
+		return 0
+	}
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	return cc.pending
+}
+
 // CacheBytes reports the chunk cache's current size.
 func (s *Server) CacheBytes() uint64 { return s.cache.Bytes() }
 
+// CachePendingBytes reports what unfinished cacheable messages hold.
+func (s *Server) CachePendingBytes() uint64 { return s.cache.pendingBytes() }
+
 // cachePending accumulates the chunks of a cacheable message until its final
-// chunk; a message that grows past chunk_cache_max_message, or past what
-// the connection's pending messages may hold together (its share of the
-// cache), isn't cached. One left unfinished for the cache's TTL is dropped.
+// chunk; a message that grows past chunk_cache_max_message, past what the
+// connection's pending messages may hold together (its share of the cache)
+// or past what the cache has room for isn't cached. One left unfinished for
+// the cache's TTL is dropped, whether or not its connection sends anything
+// else (the pinger sweeps). The connection's pmu guards pendingCache.
 type cachePending struct {
 	chunks []*wire.Deliver
 	size   uint64
@@ -410,13 +453,11 @@ func (c *conn) cacheChunk(m *wire.Publish, d *wire.Deliver) {
 		return
 	}
 	now := time.Now()
+	c.pmu.Lock()
+	defer c.pmu.Unlock()
 	p := c.pendingCache[m.MessageId]
 	if p == nil {
-		for id, q := range c.pendingCache {
-			if now.Sub(q.at) >= s.cache.ttl {
-				delete(c.pendingCache, id)
-			}
-		}
+		c.expirePendingLocked(now)
 		if len(c.pendingCache) >= s.cfg.MaxPartial {
 			return
 		}
@@ -424,15 +465,18 @@ func (c *conn) cacheChunk(m *wire.Publish, d *wire.Deliver) {
 		c.pendingCache[m.MessageId] = p
 	}
 	if !p.over {
-		p.size += uint64(len(d.Data))
-		if p.size > s.cfg.ChunkCacheMaxMessage || c.pendingBytes() > s.cache.perConn {
-			p.over, p.chunks = true, nil
+		n := uint64(len(d.Data))
+		if p.size+n > s.cfg.ChunkCacheMaxMessage || c.pendingBytesLocked()+n > s.cache.perConn || !s.cache.reserve(n) {
+			s.cache.release(p.size)
+			p.over, p.chunks, p.size = true, nil, 0
 		} else {
+			p.size += n
 			p.chunks = append(p.chunks, d)
 		}
 	}
 	if m.Final {
 		delete(c.pendingCache, m.MessageId)
+		s.cache.release(p.size)
 		if !p.over {
 			s.cache.put(string(m.Topic), c.id, p.chunks, p.size, now)
 		}
@@ -441,13 +485,56 @@ func (c *conn) cacheChunk(m *wire.Publish, d *wire.Deliver) {
 
 // pendingBytes is what the connection's unfinished cacheable messages hold.
 func (c *conn) pendingBytes() uint64 {
+	c.pmu.Lock()
+	defer c.pmu.Unlock()
+	return c.pendingBytesLocked()
+}
+
+func (c *conn) pendingBytesLocked() uint64 {
 	var n uint64
 	for _, p := range c.pendingCache {
-		if !p.over {
-			n += p.size
-		}
+		n += p.size
 	}
 	return n
+}
+
+// expirePendingLocked drops unfinished cacheable messages older than the
+// cache's TTL (c.pmu held).
+func (c *conn) expirePendingLocked(now time.Time) {
+	for id, p := range c.pendingCache {
+		if now.Sub(p.at) >= c.srv.cache.ttl {
+			c.srv.cache.release(p.size)
+			delete(c.pendingCache, id)
+		}
+	}
+}
+
+// expirePending is expirePendingLocked for the pinger, so an idle
+// connection's unfinished messages don't outlive the TTL.
+func (c *conn) expirePending(now time.Time) {
+	if c.srv.cache == nil {
+		return
+	}
+	c.pmu.Lock()
+	c.expirePendingLocked(now)
+	c.pmu.Unlock()
+}
+
+// dropPending forgets one unfinished cacheable message (refused, or its
+// chunks stopped coming); id 0 with all set forgets them all (the
+// connection closed).
+func (c *conn) dropPending(id uint64, all bool) {
+	if c.srv.cache == nil {
+		return
+	}
+	c.pmu.Lock()
+	defer c.pmu.Unlock()
+	for pid, p := range c.pendingCache {
+		if all || pid == id {
+			c.srv.cache.release(p.size)
+			delete(c.pendingCache, pid)
+		}
+	}
 }
 
 // ---------------------------------------------------------------- endpoint hosts

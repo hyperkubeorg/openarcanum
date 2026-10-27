@@ -181,9 +181,12 @@ ON CONFLICT (route_id) DO UPDATE SET heartbeat = excluded.heartbeat, at = exclud
 }
 
 // tombstoned reports whether a tombstone exists with column = key.
+// tombstoned says whether a reaped community's tombstone is held for the
+// key. One that names no community (community_repl.go: a cluster member
+// reaped a route this node never held) binds nothing and doesn't count.
 func tombstoned(ctx context.Context, q querier, column string, key []byte) (bool, error) {
 	var n int
-	err := q.QueryRowContext(ctx, `SELECT 1 FROM community_tombstones WHERE `+column+` = ? LIMIT 1`, key).Scan(&n)
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM community_tombstones WHERE `+column+` = ? AND length(community) > 0 LIMIT 1`, key).Scan(&n)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -209,7 +212,12 @@ func (s *Server) routeTombstone(ctx context.Context, tx *sql.Tx, rt *wire.Route,
 	if err != nil {
 		return err
 	}
-	if len(owner) > 0 && !bytes.Equal(owner, community) {
+	if len(owner) == 0 {
+		// Bound to nothing: the route is posted as new.
+		_, err = tx.ExecContext(ctx, `DELETE FROM community_tombstones WHERE route_id = ?`, rt.RouteId)
+		return err
+	}
+	if !bytes.Equal(owner, community) {
 		return forbidden("this route id belongs to another community")
 	}
 	if rt.ReregisteredAt <= lastSeen {
@@ -249,7 +257,7 @@ func (s *Server) communityStatus(ctx context.Context, routeID []byte) (*wire.Com
 	var routeSeen int64
 	err := s.db.QueryRowContext(ctx, `SELECT `+routeSeenSQL+` FROM routes r WHERE r.route_id = ?`, routeID).Scan(&routeSeen)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = s.db.QueryRowContext(ctx, `SELECT last_seen, reaped_at FROM community_tombstones WHERE route_id = ?`, routeID).Scan(&out.LastSeen, &out.ReapedAt)
+		err = s.db.QueryRowContext(ctx, `SELECT last_seen, reaped_at FROM community_tombstones WHERE route_id = ? AND length(community) > 0`, routeID).Scan(&out.LastSeen, &out.ReapedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

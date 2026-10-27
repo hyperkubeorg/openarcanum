@@ -212,7 +212,7 @@ def fake_media_flags(tone) -> str:
     in the browser process there."""
     flags = f"--use-fake-device-for-media-stream --use-file-for-fake-audio-capture={tone}"
     if sys.platform == "darwin":
-        flags += " --disable-features=AudioServiceSandbox,AudioServiceOutOfProcess"
+        flags += " --disable-features=AudioServiceSandbox"
     return flags
 
 

@@ -156,7 +156,10 @@ All of these are per relay and need no accounts (docs/protocol.md §2).
   `fanout_threshold` subscribers is copied only for a connection holding
   a token from the key the topic commits to (community servers issue them
   for themselves). A member who knows a large channel's topic can't use
-  the relay to amplify traffic to everyone in it. Group DMs (≤ 10 members,
+  the relay to amplify traffic to everyone in it. The check runs on every
+  chunk, and a message that sends no chunk for `start_window` is
+  forgotten (a late chunk is refused), so a message begun while a topic
+  was small can't finish once it has grown. Group DMs (≤ 10 members,
   a few devices each) stay below the default threshold.
 - **Chunk cache (optional, off by default).** With `chunk_cache_bytes`
   set, the relay keeps, in memory only, recent messages whose publisher
@@ -171,8 +174,10 @@ All of these are per relay and need no accounts (docs/protocol.md §2).
   `chunk_cache_bytes` plus Go's own overhead. The oldest messages go first;
   one topic holds at most `chunk_cache_topic_bytes` and one publishing
   connection at most `chunk_cache_conn_bytes` (its own oldest go first; its
-  unfinished cacheable messages may hold that much again, dropped after
-  `chunk_cache_ttl`),
+  unfinished cacheable messages may hold that much again, within
+  `chunk_cache_bytes` together with the cache and every other connection's
+  unfinished messages, and are dropped after `chunk_cache_ttl` even while
+  the connection is idle),
   so one publisher can't push everyone else's messages out. Evicting is
   constant time whatever the number of entries. Only subscribers who know
   the topic (and so could have received the message live) can ask for a
@@ -839,7 +844,10 @@ means recipients fetch the other one (docs/protocol.md §11). Inside a
 maintainer cluster, a completed upload's record and every released token
 reach the other members at once, any member serves the blob (fetching the
 chunks a client asks for from a member that has them), and the rest of the
-content is copied in the background within `peer_blob_bytes_per_hour`; a
+content is copied in the background within `peer_blob_bytes_per_hour`, every
+`trusted_interval` and apart from the pulls (a member that doesn't answer
+for chunks goes into the same backoff as one whose pull failed, so it costs
+one timeout per backoff and never holds up mail from the others); a
 member whose store is full keeps the record only and serves from its peers
 (see "Maintainer clusters"). `meta backup`
 includes them anyway, so a node restored from a backup still serves the

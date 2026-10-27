@@ -58,6 +58,16 @@ func TestForgedCommunityTombstonesRefused(t *testing.T) {
 	if dead, err := tombstoned(ctx, s.db, `community`, victim.Public); dead || err != nil {
 		t.Fatalf("an unverified tombstone blocks a community: %v %v", dead, err)
 	}
+	// Nor does it retire the route id: a heartbeat for it is unknown (not
+	// 410), and the route can be posted as new.
+	if dead, err := tombstoned(ctx, s.db, `route_id`, other); dead || err != nil {
+		t.Fatalf("an unbound tombstone retires a route: %v %v", dead, err)
+	}
+	tx, _ := s.db.BeginTx(ctx, nil)
+	if err := s.routeTombstone(ctx, tx, &wire.Route{RouteId: other}, victim.Public); err != nil {
+		t.Fatalf("posting the route anew: %v", err)
+	}
+	_ = tx.Rollback()
 	// A real one: the community's last sign of life is older than the
 	// reap window here too.
 	s.SetClock(func() time.Time { return now.Add(8 * 24 * time.Hour) })

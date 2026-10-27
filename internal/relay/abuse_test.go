@@ -839,3 +839,100 @@ func TestPlainClientKeepsConnectionBudget(t *testing.T) {
 		t.Fatalf("plain client wasn't held to its budget: 60 frames in %v", d)
 	}
 }
+
+// A message started while its topic was small doesn't carry on without a
+// token once the topic has grown: the check runs on every chunk.
+func TestFanoutTokenCheckedOnEveryChunk(t *testing.T) {
+	srv, url := start(t, func(c *relay.Config) { c.FanoutThreshold = 2 })
+	issuer, _ := identity.Generate()
+	big := fanout.NewTopic(issuer.Public)
+	first := newInbox()
+	if err := dial(t, url).Subscribe(ctx(t), big, first.handler); err != nil {
+		t.Fatal(err)
+	}
+	ws, hello := rawHello(t, url)
+	writeRaw(t, ws, startFrame(hello.Versions[len(hello.Versions)-1], nil))
+	if f := readRaw(t, ws); f.GetAck() == nil {
+		t.Fatalf("start: %v", f)
+	}
+	publish := func(id uint64, seq uint32, final bool, data string) {
+		writeRaw(t, ws, &wire.RelayFrame{Kind: &wire.RelayFrame_Publish{Publish: &wire.Publish{Topic: big, MessageId: id, Seq: seq, Final: final, Data: []byte(data)}}})
+	}
+	publish(1, 0, false, "sp")
+	waitStat(t, func() int64 { return srv.Stats().Delivered.Load() }, 1)
+	// Two more subscribers: the topic is large now.
+	for range 2 {
+		if err := dial(t, url).Subscribe(ctx(t), big, newInbox().handler); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish(1, 1, true, "am")
+	if f := readRaw(t, ws); f.GetError().GetCode() != wire.ErrorCode_ERROR_CODE_FANOUT_TOKEN_REQUIRED {
+		t.Fatalf("later chunk on a grown topic: %v", f)
+	}
+	waitStat(t, func() int64 { return srv.Stats().FanoutRefused.Load() }, 1)
+}
+
+// A message whose chunks stop coming for the start window is forgotten: a
+// late chunk is refused, and the slot it held is free for a new message.
+func TestStalledMessagesAgeOut(t *testing.T) {
+	srv, url := start(t, func(c *relay.Config) {
+		c.StartWindow.Duration = time.Second
+		c.MaxPartial = 1
+	})
+	box := newInbox()
+	if err := dial(t, url).Subscribe(ctx(t), []byte("t"), box.handler); err != nil {
+		t.Fatal(err)
+	}
+	ws, hello := rawHello(t, url)
+	writeRaw(t, ws, startFrame(hello.Versions[len(hello.Versions)-1], nil))
+	if f := readRaw(t, ws); f.GetAck() == nil {
+		t.Fatalf("start: %v", f)
+	}
+	publish := func(id uint64, seq uint32, final bool, data string) {
+		writeRaw(t, ws, &wire.RelayFrame{Kind: &wire.RelayFrame_Publish{Publish: &wire.Publish{Topic: []byte("t"), MessageId: id, Seq: seq, Final: final, Data: []byte(data)}}})
+	}
+	publish(1, 0, false, "a")
+	waitStat(t, func() int64 { return srv.Stats().Delivered.Load() }, 1)
+	// The one slot is taken: a second message is refused.
+	publish(2, 0, false, "b")
+	if f := readRaw(t, ws); f.GetError().GetCode() != wire.ErrorCode_ERROR_CODE_LIMIT {
+		t.Fatalf("second message in flight: %v", f)
+	}
+	time.Sleep(1500 * time.Millisecond)
+	// Past the window the first message is gone: its late chunk is
+	// refused and a new message takes the slot.
+	publish(1, 1, true, "b")
+	if f := readRaw(t, ws); f.GetError().GetCode() != wire.ErrorCode_ERROR_CODE_LIMIT {
+		t.Fatalf("late chunk of a stalled message: %v", f)
+	}
+	publish(3, 0, false, "o")
+	publish(3, 1, true, "k")
+	if got := box.wait(t, 1); string(got[0]) != "ok" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// An unfinished cacheable message on a connection that goes quiet is
+// dropped after chunk_cache_ttl all the same.
+func TestChunkCachePendingExpiresWhileIdle(t *testing.T) {
+	srv, url := start(t, func(c *relay.Config) {
+		c.ChunkCacheBytes = 8 << 20
+		c.ChunkCacheTTL.Duration = time.Second
+		c.PingInterval.Duration = 100 * time.Millisecond
+	})
+	ws, hello := rawHello(t, url)
+	writeRaw(t, ws, startFrame(hello.Versions[len(hello.Versions)-1], nil))
+	if f := readRaw(t, ws); f.GetAck() == nil {
+		t.Fatalf("start: %v", f)
+	}
+	writeRaw(t, ws, &wire.RelayFrame{Kind: &wire.RelayFrame_Publish{Publish: &wire.Publish{Topic: []byte("t"), MessageId: 1, Cacheable: true, Data: make([]byte, 4096)}}})
+	waitStat(t, func() int64 { return int64(srv.CachePendingBytes()) }, 4096)
+	deadline := time.Now().Add(5 * time.Second)
+	for srv.CachePendingBytes() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("idle connection still holds %d pending bytes after the TTL", srv.CachePendingBytes())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

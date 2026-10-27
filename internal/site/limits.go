@@ -140,36 +140,57 @@ func (g *powGate) challenge() string {
 	return base64.RawURLEncoding.EncodeToString(append(body, g.mac(body)...))
 }
 
-// check accepts a solved challenge once.
-func (g *powGate) check(challenge, counterHex string) error {
+// verify checks a solved challenge: ours, fresh, solved, not used up. It
+// consumes nothing, so a form that then fails validation can be sent again
+// with the same solution; consume marks it used once the report is taken.
+func (g *powGate) verify(challenge, counterHex string) (issued time.Time, err error) {
 	raw, err := base64.RawURLEncoding.DecodeString(challenge)
 	if err != nil || len(raw) != 40 || !hmac.Equal(raw[24:], g.mac(raw[:24])) {
-		return errPoW
+		return time.Time{}, errPoW
 	}
-	issued := time.Unix(int64(binary.BigEndian.Uint64(raw[:8])), 0)
+	issued = time.Unix(int64(binary.BigEndian.Uint64(raw[:8])), 0)
 	now := g.now()
 	if now.Sub(issued) > powTTL || issued.Sub(now) > time.Minute {
-		return errPoW
+		return time.Time{}, errPoW
 	}
 	counter, err := hex.DecodeString(counterHex)
 	if err != nil || !pow.VerifyIn(powContext, []byte(challenge), counter, g.bits) {
-		return errPoW
+		return time.Time{}, errPoW
 	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if _, dup := g.used[challenge]; dup {
+		return time.Time{}, errPoW
+	}
+	return issued, nil
+}
+
+// consume uses up a verified challenge. Expired entries go whenever one
+// is added, so a flood of solved challenges can't keep the table full.
+func (g *powGate) consume(challenge string, issued time.Time) error {
+	now := g.now()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if _, dup := g.used[challenge]; dup {
 		return errPoW
 	}
+	for k, exp := range g.used {
+		if now.After(exp) {
+			delete(g.used, k)
+		}
+	}
 	if len(g.used) >= powUsedMax {
-		for k, exp := range g.used {
-			if now.After(exp) {
-				delete(g.used, k)
-			}
-		}
-		if len(g.used) >= powUsedMax {
-			return errPoW
-		}
+		return errPoW
 	}
 	g.used[challenge] = issued.Add(powTTL)
 	return nil
+}
+
+// check accepts a solved challenge once (verify and consume together).
+func (g *powGate) check(challenge, counterHex string) error {
+	issued, err := g.verify(challenge, counterHex)
+	if err != nil {
+		return err
+	}
+	return g.consume(challenge, issued)
 }

@@ -89,6 +89,16 @@ class Paths:
         return self.log / "client.log"
 
 
+def read_at_most(path: Path, limit: int) -> bytes | None:
+    """The file's bytes, or None when it is larger than `limit` (checked
+    before anything is read: a multi-GB file picked by mistake stays on
+    disk)."""
+    if path.stat().st_size > limit:
+        return None
+    data = path.read_bytes()
+    return None if len(data) > limit else data
+
+
 def ensure_dir(path: Path, private: bool = False) -> None:
     """Create path for the app, readable by its user only. A directory that
     already exists keeps its mode (it may be one the user named, such as
@@ -126,17 +136,16 @@ def atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
 
 
 def move_tree(src: Path, dst: Path) -> None:
-    """Move a directory's contents into dst (used when the data folder moves)."""
+    """Move a directory's contents into dst (used when the data folder
+    moves). Nothing at dst is overwritten (FileExistsError), and the profile
+    file goes last: a move that fails midway leaves the profile where it was."""
     if not src.exists() or src.resolve() == dst.resolve():
         return
     ensure_dir(dst)
-    for child in src.iterdir():
+    for child in sorted(src.iterdir(), key=lambda c: c.name == "vault.bin"):
         target = dst / child.name
         if target.exists():
-            if target.is_dir():
-                shutil.rmtree(target)
-            else:
-                target.unlink()
+            raise FileExistsError(str(target))
         shutil.move(str(child), str(target))
     try:
         src.rmdir()

@@ -1163,3 +1163,88 @@ func TestRefusedJoinLeavesNoCall(t *testing.T) {
 	}
 	waitCalls(0, "after everyone left")
 }
+
+// A participant joining again (a connection that dropped without a leave,
+// or a rejoin before the relay noticed) replaces its earlier connection.
+func TestRejoinReplacesTheEarlierConnection(t *testing.T) {
+	s := newSFU(t)
+	srv := newServer(t)
+	g, _ := srv.grant(t, "a", 1, nil)
+	first, second := newClient(t, true), newClient(t, true)
+	if err := first.join(t, s, g); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.join(t, s, g); err != nil {
+		t.Fatalf("joining again: %v", err)
+	}
+	if s.Calls() != 1 {
+		t.Fatalf("%d calls", s.Calls())
+	}
+	first.peer.Leave() // long gone from the call: changes nothing
+	second.peer.Leave()
+	deadline := time.Now().Add(5 * time.Second)
+	for s.Calls() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d calls after everyone left", s.Calls())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Asking for what one already gets sends nobody a CallWatchers; a burst of
+// changes makes a few rounds, not one per change; and a control naming a
+// thousand participants still applies to the ones in the call.
+func TestWatchersRoundsFollowChanges(t *testing.T) {
+	s := newSFU(t)
+	srv := newServer(t)
+	ga, pa := srv.grant(t, "a", 1, nil)
+	gb, pb := srv.grant(t, "b", 2, nil)
+	alice, bob := newClient(t, true), newClient(t, false)
+	if err := alice.join(t, s, ga); err != nil {
+		t.Fatal(err)
+	}
+	if err := bob.join(t, s, gb); err != nil {
+		t.Fatal(err)
+	}
+	alice.waitWatch(t, sfu.KindAudio, 1)
+	rounds := func() int {
+		alice.mu.Lock()
+		defer alice.mu.Unlock()
+		return len(alice.watchers)
+	}
+	before := rounds()
+	for range 50 {
+		if err := bob.peer.Listen(&wire.CallListen{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := bob.peer.Layer(&wire.CallLayer{Source: pa, Kind: sfu.KindCamera, Rid: ""}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+	if n := rounds(); n != before {
+		t.Fatalf("%d CallWatchers for requests that changed nothing", n-before)
+	}
+	for i := range 100 {
+		if err := bob.peer.Listen(&wire.CallListen{Deaf: i%2 == 0}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alice.waitWatch(t, sfu.KindAudio, 1)
+	time.Sleep(300 * time.Millisecond)
+	if n := rounds() - before; n > 10 {
+		t.Fatalf("%d CallWatchers for a burst of 100 changes", n)
+	}
+	deafened := make([][]byte, 0, 1000)
+	for i := range 999 {
+		other := make([]byte, 16)
+		other[0], other[1] = byte(i>>8), byte(i)
+		deafened = append(deafened, other)
+	}
+	deafened = append(deafened, pb)
+	ctl, _ := callauth.SignControl(srv.key, &wire.CallControl{CallId: srv.id, Seq: 1, Deafened: deafened})
+	if err := s.Update(ctl); err != nil {
+		t.Fatal(err)
+	}
+	alice.waitWatch(t, sfu.KindAudio, 0)
+}

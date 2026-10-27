@@ -129,7 +129,9 @@ and has no accounts.
    (a chunk for another topic gets `Error{BAD_FRAME}`). It enforces
    `max_chunk` per chunk and `max_message` (≤ 25 MiB) per message; an
    over-size message gets `Error{TOO_LARGE}`. Once a chunk of a message is
-   refused, its remaining chunks are dropped whatever topic they name. Clients
+   refused, its remaining chunks are dropped whatever topic they name. A
+   message with no chunk for the start window is forgotten: a later chunk
+   of it gets `Error{LIMIT}` and the sender starts it again. Clients
    cap `max_message` at 25 MiB whatever a relay announces, and bound what
    unfinished messages may hold (64 MiB, 1024 messages, 64 per sender).
    Knowing a topic is the permission: topics are
@@ -156,10 +158,11 @@ and has no accounts.
    plain budget plus a per-inbound-stream allowance, capped
    (docs/operations.md "Abuse controls"), because it carries every
    member's session.
-   **Large fan-outs.** A `Publish` that starts a message on a topic with
-   more than `fanout_threshold` other subscribers is refused
-   (`Error{FANOUT_TOKEN_REQUIRED}`, the message's chunks dropped) unless the
-   connection holds a live fan-out token from a key the topic commits to.
+   **Large fan-outs.** Every chunk of a message on a topic with more than
+   `fanout_threshold` other subscribers is refused
+   (`Error{FANOUT_TOKEN_REQUIRED}`, the message's remaining chunks dropped)
+   unless the connection holds a live fan-out token from a key the topic
+   commits to; a topic small when a message started may have grown since.
    Topics that can grow large (channel topics) are made as
    `r || SHA-256("openarcanum/fanout-topic/v1" || 0x00 || server_key || r)[:16]`
    with `r` 16 random bytes, so anyone can check which key a topic belongs
@@ -610,7 +613,8 @@ Messages still deletes), typing indicators, join and leave messages.
 `SignedAction{action, signature}` wraps `AdminAction{community, actor, at,
 nonce, op}`. The server requires `actor` = the session identity, a valid
 signature, `community` = its owner key, `|at - now| ≤ 5 min`, and an unseen
-nonce; then checks permissions (role hierarchy: you act only on roles and
+nonce of 16 to 64 bytes; an action over 512 KiB or carrying unknown fields
+is refused (it is kept verbatim in the audit log); then checks permissions (role hierarchy: you act only on roles and
 members below your highest role; owners outrank everyone).
 Every applied action is stored verbatim in the audit log, so anyone allowed
 to read the log can verify who signed what.
@@ -1336,7 +1340,9 @@ not part of the public replication. Members of one maintainer cluster also
 pass their tombstones to each other (§7.5): a member that was down while
 the others reaped a community drops it too, unless it saw the server sign
 something after the tombstone's `last_seen` (or the route re-registered
-it). Members of a cluster should use the same `community_reap_after`. Every node refuses (410) a route, listing or heartbeat
+it). A tombstone received for a route the member never held names no
+community and binds nothing: it neither answers 410 nor stops that route
+being posted as new (a member can't retire routes it doesn't hold). Members of a cluster should use the same `community_reap_after`. Every node refuses (410) a route, listing or heartbeat
 signed longer than `community_reap_after` ago, so a peer still holding an
 old copy can't bring it back by replication.
 
@@ -1467,9 +1473,11 @@ member's deletes:
 peer log, so any member serves a blob and an ack on any member ends it
 everywhere (a remembered release can't be revived by a late record). A
 member with the record but not the content fetches the chunks a client asks
-for from a member that has them (`PeerBlobChunkRequest`, 10 s each), keeps
-them, and copies the rest in the background within
-`peer_blob_bytes_per_hour`, so the blob outlives the node it was uploaded to.
+for from a member that has them (`PeerBlobChunkRequest`, 10 s each, members
+with a session first and none in backoff), keeps them, and copies the rest
+in the background within `peer_blob_bytes_per_hour`, on its own clock apart
+from the pulls, so the blob outlives the node it was uploaded to and a
+member that is slow to serve chunks delays copies, not mail.
 A member whose `blob_store_max` is reached keeps the record only and serves
 through. A member whose collected chunks don't hash to the blob id discards
 them and keeps the record, so the content is fetched again from the members.
@@ -2233,7 +2241,9 @@ at once through the control.
 
 ### 12.3 During a call
 
-- `VoiceState{self_mute, self_deaf, camera, screen}`: shown to everyone.
+- `VoiceState{self_mute, self_deaf, camera, screen}`: shown to everyone. A
+  state that changes nothing is acknowledged without a push; changes are
+  allowed five at once, then one a second (429 past that).
 - `VoiceRooms` (server push, after `Sync` and on every change): who is in
   each voice channel the member can see (View Channel), without participant
   ids or keys.
@@ -2269,7 +2279,9 @@ at once through the control.
   relay would forward it to now (what they asked for, within the sender's
   grant and the control: a server-muted participant has no audio
   receivers) and which simulcast layers they want. Sent after the join and
-  on every change, in order. A client encodes and sends only kinds with
+  on every change, in order; changes within 50 ms are gathered into one
+  message, so a burst of requests costs the relay one pass over the
+  call. A client encodes and sends only kinds with
   receivers, and only those layers (`RTCRtpSender` encodings `active`);
   the track itself stays (the camera's preview, the voice detector). A
   client that never gets `CallWatchers` (an older relay) sends everything.

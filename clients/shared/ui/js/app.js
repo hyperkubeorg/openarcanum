@@ -167,6 +167,7 @@ async function selectCommunity(cid, channel) {
   st.cid = cid;
   st.replyTo = null;
   await loadState(cid);
+  if (st.cid !== cid) return; // another community was chosen meanwhile
   const s = st.states[cid];
   const text = s ? s.channels.filter((c) => c.kind === 'text') : [];
   const want = text.find((c) => c.id === channel) || text[0];
@@ -277,17 +278,19 @@ on('community', (summary) => {
 
 on('community_removed', ({ id }) => {
   st.communities = st.communities.filter((c) => c.id !== id);
+  forgetCommunityMessages(id);
   if (st.cid === id) { st.cid = null; st.channel = null; }
   if (adminUI.shell && adminUI.cid === id) leavePage();
   render();
 });
 
 on('message', ({ community, message }) => {
-  upsertMessage(community, message);
+  const pane = community === st.cid && st.view === 'community' ? paneOf(message.channel_id) : null;
+  // Only channels that were loaded keep up; the rest load when opened.
+  if (st.msgs[key(community, message.channel_id)]) upsertMessage(community, message, { onScreen: !!pane });
   // A message ends its author's typing indicator.
   const typing = chat.typing[key(community, message.channel_id)];
   if (typing) delete typing[message.author];
-  const pane = community === st.cid && st.view === 'community' ? paneOf(message.channel_id) : null;
   if (pane) {
     renderMessages(false, pane);
     renderTyping();

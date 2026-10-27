@@ -230,7 +230,10 @@ func (s *Server) release(ctx context.Context, upload, th []byte, expires int64) 
 
 // ---------------------------------------------------------------- content
 
-// chunkFromPeers asks the trusted members, one after another, for a chunk.
+// chunkFromPeers asks the trusted members, one after another, for a chunk:
+// those with a session first, and none whose last contact failed until its
+// backoff has passed (as the pulls do), so a member that doesn't answer
+// costs one timeout per backoff, not one per chunk.
 func (s *Server) chunkFromPeers(ctx context.Context, upload []byte, index uint32) []byte {
 	s.peers.mu.Lock()
 	links := make([]*peerLink, 0, len(s.peers.links))
@@ -246,8 +249,27 @@ func (s *Server) chunkFromPeers(ctx context.Context, upload []byte, index uint32
 			}
 		}
 	}
+	now := s.now()
+	var ready []*peerLink
 	for _, l := range links {
+		l.mu.Lock()
+		due, live := !now.Before(l.nextTry), l.sess != nil
+		l.mu.Unlock()
+		switch {
+		case !due:
+		case live:
+			ready = append([]*peerLink{l}, ready...)
+		default:
+			ready = append(ready, l)
+		}
+	}
+	for _, l := range ready {
 		cctx, cancel := context.WithTimeout(ctx, peerChunkTimeout)
+		if _, err := s.linkSession(cctx, l); err != nil {
+			cancel()
+			s.linkResult(ctx, l, err)
+			continue
+		}
 		r, err := s.request(cctx, l, &wire.PeerMessage{Body: &wire.PeerMessage_BlobChunkRequest{BlobChunkRequest: &wire.PeerBlobChunkRequest{UploadId: upload, Index: index}}})
 		cancel()
 		if err != nil {
@@ -417,9 +439,26 @@ func (s *Server) peerBlobChunk(ctx context.Context, req *wire.PeerBlobChunkReque
 	return &wire.PeerMessage{Body: &wire.PeerMessage_BlobChunk{BlobChunk: &wire.PeerBlobChunk{UploadId: req.UploadId, Index: req.Index, Data: data}}}
 }
 
+// runBlobCopies copies remote blobs' content every trusted_interval until
+// ctx or the peer sessions end.
+func (s *Server) runBlobCopies(ctx context.Context) {
+	t := time.NewTicker(s.cfg.TrustedInterval.Duration)
+	defer t.Stop()
+	for {
+		s.copyRemoteBlobs(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.peers.ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
 // copyRemoteBlobs fills in the content of remote blobs from the members,
-// oldest first, within peer_blob_bytes_per_hour (the run loop calls it
-// after each round), so a blob outlives the node it was uploaded to.
+// oldest first, within peer_blob_bytes_per_hour (runBlobCopies calls it
+// each trusted_interval), so a blob outlives the node it was uploaded to.
 func (s *Server) copyRemoteBlobs(ctx context.Context) {
 	now := s.now()
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM blobs WHERE remote = 1 AND expires_at > ? ORDER BY created_at LIMIT 100`, now.UnixMilli())

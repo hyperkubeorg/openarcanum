@@ -27,7 +27,11 @@ const ManualBackupInterval = 10 * time.Minute
 
 // maxActionSkew bounds how old (or how far in the future) a signed admin
 // action may be. Nonces are remembered for twice this long.
-const maxActionSkew = 5 * time.Minute
+const (
+	maxActionSkew  = 5 * time.Minute
+	maxActionNonce = 64
+	maxActionBytes = 512 << 10 // the largest real action is a settings change of a few KB
+)
 
 // admin verifies and applies a signed admin action, then records it in the
 // audit log (docs/protocol.md §4.4).
@@ -52,8 +56,13 @@ func (s *Server) adminWith(ctx context.Context, ss *sess, sa *wire.SignedAction,
 	if d := now.Sub(time.UnixMilli(a.At)); d > maxActionSkew || d < -maxActionSkew {
 		return nil, errInvalid("action timestamp is too far from the server's clock")
 	}
-	if len(a.Nonce) < 16 {
-		return nil, errInvalid("action nonce too short")
+	if len(a.Nonce) < 16 || len(a.Nonce) > maxActionNonce {
+		return nil, errInvalid("action nonce must be 16 to 64 bytes")
+	}
+	// The action is kept verbatim in the audit log; one that is mostly
+	// padding (unknown fields, or a huge nonce) is nobody's real request.
+	if len(sa.Action) > maxActionBytes || len(a.ProtoReflect().GetUnknown()) > 0 {
+		return nil, errInvalid("action too large")
 	}
 
 	s.mu.Lock()

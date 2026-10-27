@@ -113,6 +113,31 @@ func TestCallJoinGrantsAndRekeys(t *testing.T) {
 	}
 }
 
+// A state that changes nothing is acknowledged without a push; changes are
+// allowed a few at once, then one a second.
+func TestVoiceStateChangesLimited(t *testing.T) {
+	e := setup(t, nil)
+	alice := e.member("Alice", e.invite.Secret)
+	waitAttached(t, e)
+	vc := voiceChannel(e, "talk")
+	if _, err := voiceJoin(alice, vc); err != nil {
+		t.Fatal(err)
+	}
+	state := func(mute bool) *wire.ClientMessage {
+		return &wire.ClientMessage{Body: &wire.ClientMessage_VoiceState{VoiceState: &wire.VoiceState{ChannelId: vc, SelfMute: mute}}}
+	}
+	for i := 0; i < 20; i++ {
+		if err := voiceCall(alice, state(false)); err != nil {
+			t.Fatalf("the same state again (%d): %v", i, err)
+		}
+	}
+	var limited error
+	for i := 0; i < 8 && limited == nil; i++ {
+		limited = voiceCall(alice, state(i%2 == 0))
+	}
+	wantErr(t, limited, "limited")
+}
+
 // Self mute, deafen, camera and screen reach everyone; camera and screen
 // only count with Video and Screen Share.
 func TestVoiceStateFlags(t *testing.T) {

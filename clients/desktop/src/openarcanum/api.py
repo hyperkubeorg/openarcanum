@@ -27,6 +27,7 @@ from openarcanum import i18n
 from openarcanum import updates as updates_mod
 from openarcanum.errors import UserError
 from openarcanum.i18n import _
+from openarcanum.paths import read_at_most
 
 if TYPE_CHECKING:
     from openarcanum.bus import Bus
@@ -615,10 +616,10 @@ class JsApi:
             from pathlib import Path
 
             try:
-                data = Path(self._open_path(path)).read_bytes()
+                data = read_at_most(Path(self._open_path(path)), 256 * 1024)
             except OSError as e:
                 raise UserError(_("Can't read that image: {reason}").format(reason=e.strerror)) from None
-            if len(data) > 256 * 1024:
+            if data is None:
                 raise UserError(_("Images can be at most 256 KB."))
             if not (
                 data[:8] == b"\x89PNG\r\n\x1a\n"

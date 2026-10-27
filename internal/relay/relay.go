@@ -37,6 +37,10 @@ const InboundStreamBit = 0x80000000
 
 const maxTopicLen = 64
 
+// unstartedReadLimit bounds a message before Start: a Start fits, a chunk
+// doesn't (nothing before Start has been paid for).
+const unstartedReadLimit = 1024
+
 // Server is a relay instance. Create one with New and mount Handler.
 type Server struct {
 	cfg Config
@@ -230,7 +234,9 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		return
 	}
-	ws.SetReadLimit(int64(s.cfg.MaxChunk) + 4096)
+	// Until Start, a message is a Start (or a few hundred bytes of nothing
+	// useful): the chunk-sized limit comes with the start.
+	ws.SetReadLimit(unstartedReadLimit)
 	c := s.newConn(r.Context(), ws, ip, key)
 	c.run()
 }
@@ -378,7 +384,9 @@ type conn struct {
 	endpointKey string
 
 	// Only touched by the read loop.
-	partial      map[uint64]inflight
+	partial map[uint64]inflight
+	// Guarded by pmu: the pinger sweeps it too (cacheChunk).
+	pmu          sync.Mutex
 	pendingCache map[uint64]*cachePending
 
 	smu        sync.Mutex
@@ -571,6 +579,7 @@ func (c *conn) pinger() {
 				c.close(websocket.StatusGoingAway, "ping timeout", err)
 				return
 			}
+			c.expirePending(time.Now())
 		case <-c.ctx.Done():
 			return
 		}
@@ -661,6 +670,7 @@ func (c *conn) close(code websocket.StatusCode, reason string, err error) {
 			s.closeLink(l, c, "peer disconnected")
 		}
 		c.leaveCalls()
+		c.dropPending(0, true)
 
 		if reason != "" {
 			s.log.Debug("relay connection closed", "conn", c.id, "reason", reason, "err", errKind(err))
@@ -817,7 +827,20 @@ func (c *conn) publish(m *wire.Publish) {
 		return
 	}
 	s := c.srv
+	now := time.Now()
 	p, inFlight := c.partial[m.MessageId]
+	if inFlight && now.Sub(p.at) >= s.cfg.StartWindow.Duration {
+		// Its chunks stopped coming for the start window: whatever was
+		// checked for it no longer holds (the topic may have grown), and
+		// the slot is wanted back.
+		c.dropPartial(m.MessageId)
+		p, inFlight = inflight{}, false
+		if m.Seq != 0 {
+			c.sendError(0, wire.ErrorCode_ERROR_CODE_LIMIT, "message took too long; send it again")
+			c.reject(m)
+			return
+		}
+	}
 	if inFlight && p.size == rejected {
 		if m.Final {
 			delete(c.partial, m.MessageId)
@@ -832,6 +855,9 @@ func (c *conn) publish(m *wire.Publish) {
 		return
 	}
 	if !inFlight && len(c.partial) >= s.cfg.MaxPartial {
+		c.expirePartial(now)
+	}
+	if !inFlight && len(c.partial) >= s.cfg.MaxPartial {
 		c.sendError(0, wire.ErrorCode_ERROR_CODE_LIMIT, "too many messages in flight")
 		return
 	}
@@ -840,7 +866,9 @@ func (c *conn) publish(m *wire.Publish) {
 		c.reject(m)
 		return
 	}
-	if !inFlight && s.cfg.FanoutThreshold > 0 && s.subscribersBesides(m.Topic, c) > s.cfg.FanoutThreshold && !c.mayFanOut(m.Topic) {
+	// Checked on every chunk: a topic small when a message started may
+	// have grown since, and the remaining chunks would reach everyone.
+	if s.cfg.FanoutThreshold > 0 && s.subscribersBesides(m.Topic, c) > s.cfg.FanoutThreshold && !c.mayFanOut(m.Topic) {
 		s.stats.FanoutRefused.Add(1)
 		c.sendError(0, wire.ErrorCode_ERROR_CODE_FANOUT_TOKEN_REQUIRED, "this topic is large; publishing needs a fan-out token")
 		c.reject(m)
@@ -855,7 +883,7 @@ func (c *conn) publish(m *wire.Publish) {
 	if m.Final {
 		delete(c.partial, m.MessageId)
 	} else {
-		c.partial[m.MessageId] = inflight{topic: string(m.Topic), size: total}
+		c.partial[m.MessageId] = inflight{topic: string(m.Topic), size: total, at: now}
 	}
 
 	d := &wire.Deliver{Topic: m.Topic, Sender: c.id, MessageId: m.MessageId, Seq: m.Seq, Final: m.Final, Data: m.Data}
@@ -883,11 +911,27 @@ func (c *conn) publish(m *wire.Publish) {
 // remaining chunks are ignored, whatever topic they name, and nothing of it
 // is cached.
 func (c *conn) reject(m *wire.Publish) {
-	delete(c.pendingCache, m.MessageId)
+	c.dropPending(m.MessageId, false)
 	if m.Final {
 		delete(c.partial, m.MessageId)
 	} else {
-		c.partial[m.MessageId] = inflight{size: rejected}
+		c.partial[m.MessageId] = inflight{size: rejected, at: time.Now()}
+	}
+}
+
+// dropPartial forgets a message whose chunks stopped coming.
+func (c *conn) dropPartial(id uint64) {
+	delete(c.partial, id)
+	c.dropPending(id, false)
+}
+
+// expirePartial drops the messages whose last chunk is older than the
+// start window, so stalled ones don't hold max_partial.
+func (c *conn) expirePartial(now time.Time) {
+	for id, p := range c.partial {
+		if now.Sub(p.at) >= c.srv.cfg.StartWindow.Duration {
+			c.dropPartial(id)
+		}
 	}
 }
 
@@ -904,10 +948,12 @@ func (s *Server) subscribersBesides(topic []byte, c *conn) int {
 }
 
 // inflight is a message whose chunks are still arriving: the topic its
-// first chunk named, and its bytes so far.
+// first chunk named, its bytes so far and when its last chunk came (one
+// with no chunk for start_window is dropped).
 type inflight struct {
 	topic string
 	size  uint64
+	at    time.Time
 }
 
 // rejected as a size marks a message whose remaining chunks are dropped.

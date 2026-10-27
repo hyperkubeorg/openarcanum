@@ -20,6 +20,7 @@ from openarcanum import PRODUCT_NAME, keys
 from openarcanum.community import Offline, RpcError, sign_action
 from openarcanum.errors import UserError
 from openarcanum.i18n import _
+from openarcanum.paths import read_at_most
 from openarcanum.wire import community_pb2 as cp
 
 if TYPE_CHECKING:
@@ -267,10 +268,10 @@ class Moderation:
         if not EMOJI_NAME.match(name):
             raise UserError(_("Emoji names are 2 to 32 lowercase letters, digits or underscores."))
         try:
-            data = await asyncio.to_thread(Path(path).expanduser().read_bytes)
+            data = await asyncio.to_thread(read_at_most, Path(path).expanduser(), MAX_EMOJI_BYTES)
         except OSError as e:
             raise UserError(_("Can't read that image: {reason}").format(reason=e.strerror)) from None
-        if len(data) > MAX_EMOJI_BYTES:
+        if data is None:
             raise UserError(_("Emoji images can be at most 256 KB."))
         conn = self.core.conn(cid)
         identity = self.core.identity_key(conn.rec["identity"])

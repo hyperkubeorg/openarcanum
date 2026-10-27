@@ -715,6 +715,18 @@ func TestReportSubmission(t *testing.T) {
 	if rec := ts.do(req{path: "/report/security", form: form}); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "anti-spam") {
 		t.Fatalf("replayed challenge: %d", rec.Code)
 	}
+	// A form that fails validation doesn't use its challenge up: the
+	// corrected form goes through with the same solution (so solving
+	// challenges for invalid forms can't fill the table of used ones).
+	form = solvedForm(t, ts, "bug", goodReport())
+	form.Set("user_id", "not-an-id")
+	if rec := ts.do(req{path: "/report/bug", form: form}); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "didn't pass") {
+		t.Fatalf("invalid form: %d", rec.Code)
+	}
+	form.Set("user_id", goodUserID)
+	if rec := ts.do(req{path: "/report/bug", form: form}); rec.Code != 200 || !strings.Contains(rec.Body.String(), "your report arrived") {
+		t.Fatalf("corrected form: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestReportValidation(t *testing.T) {

@@ -626,9 +626,11 @@ def detect_target(
     if sys.platform == "darwin":
         for parent in exe.parents:
             if parent.suffix == ".app":
-                if frozen:
-                    return InstallTarget("app-bundle", parent), ""
-                break
+                if not frozen:
+                    break
+                if not os.access(parent.parent, os.W_OK):
+                    return None, _("The app's folder isn't writable, so this copy can't update itself.")
+                return InstallTarget("app-bundle", parent), ""
         return None, _("This copy isn't running from an app bundle, so it can't update itself.")
     return None, _("This system can't update itself.")
 

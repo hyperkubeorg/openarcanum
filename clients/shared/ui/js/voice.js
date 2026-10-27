@@ -23,7 +23,14 @@ const voiceUI = {
   get current() { return this.state.active ? { cid: this.state.community, channel: this.state.channel } : null; },
 
   // The voice bar shows while in a call, joining one, or after one failed.
-  barVisible() { return !!(this.current || this.joining || this.failure); },
+  barVisible() {
+    // A failure for a channel that is gone (voice turned off) goes with it.
+    if (this.failure) {
+      const s = st.states[this.failure.cid];
+      if (s && !s.channels.some((c) => c.id === this.failure.channel)) this.failure = null;
+    }
+    return !!(this.current || this.joining || this.failure);
+  },
 
   roomOf(cid, channel) {
     const r = (this.rooms[cid] || []).find((x) => x.channel === channel);
@@ -436,6 +443,7 @@ const voiceUI = {
       if (!this.resize) {
         this.resize = new ResizeObserver(() => this.reportSizes());
       }
+      this.resize.disconnect(); // the stage before this one is gone
       this.resize.observe(stage);
       this.refreshStageHead();
     }
@@ -452,8 +460,9 @@ const voiceUI = {
       if (camera) keys.add(`${p.participant}/camera`);
       if (screen) keys.add(`${p.participant}/screen`);
     }
-    // A video that ended isn't watched any more (or focused).
+    // A video that ended isn't watched any more (or focused), and its element goes.
     for (const k of [...this.watching]) if (!keys.has(k)) this.watching.delete(k);
+    for (const k of [...this.videos.keys()]) if (!keys.has(k)) { this.videos.get(k).srcObject = null; this.videos.delete(k); }
     if (this.focus && !keys.has(this.focus)) this.focus = null;
     this.lastStage = this.stageSignature();
     const focused = this.focus && tiles.find((x) => x.dataset.key === this.focus);

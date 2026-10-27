@@ -904,13 +904,15 @@ ON CONFLICT (peer_key) DO UPDATE SET url = excluded.url, epoch = excluded.epoch,
 }
 
 // runPeers pulls every trusted peer each trusted_interval, and at once
-// when a peer says its log grew, until ctx ends.
+// when a peer says its log grew, until ctx ends. Blob content is copied
+// on its own clock (runBlobCopies): a member slow to serve chunks holds
+// up copies, never the pulls.
 func (s *Server) runPeers(ctx context.Context) {
+	go s.runBlobCopies(ctx)
 	t := time.NewTicker(s.cfg.TrustedInterval.Duration)
 	defer t.Stop()
 	for {
 		s.peerRound(ctx, true)
-		s.copyRemoteBlobs(ctx)
 		select {
 		case <-ctx.Done():
 			return

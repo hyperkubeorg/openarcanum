@@ -59,7 +59,7 @@ from openarcanum.owners import (
     verify_chain,
     verify_owner_add,
 )
-from openarcanum.paths import ENGINE_SANDBOX, Paths, atomic_write, move_tree, platform_name
+from openarcanum.paths import ENGINE_SANDBOX, Paths, atomic_write, move_tree, platform_name, read_at_most
 from openarcanum.permissions import (
     FEATURES,
     PERMISSIONS,
@@ -85,6 +85,7 @@ log = logging.getLogger(__name__)
 DIRECTORY_CHECK_SECONDS = 600
 
 MAX_FILE = 25 * 1024 * 1024
+MAX_BACKUP_BYTES = 4 * 1024 * 1024  # a backup holds keys and a community list: kilobytes
 # state.bin (drafts, the last open channel and the like): at most this many
 # keys, each value at most this big as JSON.
 MAX_UI_STATE_KEYS = 256
@@ -245,6 +246,14 @@ class Core:
         self.base_paths = paths
         self.prefs = Preferences(paths.preferences)
         self.paths = paths.with_data_location(Path(d) if (d := self.prefs.values.get("data_dir")) else None)
+        # The chosen folder is only used while it holds the data: a drive
+        # that isn't plugged in must not get an empty profile created on
+        # its mount point. The setting stays; the folder may come back.
+        self._data_dir_missing = ""
+        if d and not self.paths.data.is_dir():
+            log.warning("the data folder %s isn't available; using the default location", d)
+            self._data_dir_missing = str(d)
+            self.paths = paths
         self.paths.ensure()
         self.emit: Callable[[str, dict], None] = emit or (lambda e, p: None)
         # Whether the page may capture media (the window's policy, app.py);
@@ -257,6 +266,7 @@ class Core:
         self.guard = UnlockGuard(self.paths.unlock_guard)
         self.last_activity = time.monotonic()
         self._tasks: set[asyncio.Task] = set()
+        self._profile_tasks: list[asyncio.Task] = []  # the open profile's own loops
         # Communities where this client is signing another owner's removal.
         self._completing_leaves: set[str] = set()
         self._avatar_cache: dict[tuple[str, str, int], str] = {}
@@ -281,9 +291,11 @@ class Core:
         self.clusters = Clusters.load(
             self.prefs.maintainer_sets, settings_mod.effective_maintainers(self.prefs.values["maintainers"])
         )
-        self._clusters_checked = 0.0
+        # Due at once: the monotonic clock starts at boot, so zero would put
+        # the first check up to a refresh interval away on a fresh system.
+        self._clusters_checked = time.monotonic() - REFRESH_SECONDS
         self._clusters_generation = -1
-        self._directory_checked = 0.0
+        self._directory_checked = time.monotonic() - DIRECTORY_CHECK_SECONDS
         self.meta = MetaClient([])
         self._apply_maintainers()
         self.directory = LocalDirectory(self.meta)
@@ -753,12 +765,14 @@ class Core:
         self.require_unlocked()
         if not passphrase:
             raise UserError(_("Enter your passphrase to confirm."))
-        self._guard_check()
-        try:
-            await asyncio.to_thread(open_with_passphrase, VAULT_MAGIC, passphrase, self.paths.vault.read_bytes())
-        except WrongPassphrase:
-            raise self._wrong_passphrase(_("That passphrase is wrong.")) from None
-        self.guard.succeeded()
+        # One check at a time, so each counts toward the backoff before the next starts.
+        async with self._open_lock:
+            self._guard_check()
+            try:
+                await asyncio.to_thread(open_with_passphrase, VAULT_MAGIC, passphrase, self.paths.vault.read_bytes())
+            except WrongPassphrase:
+                raise self._wrong_passphrase(_("That passphrase is wrong.")) from None
+            self.guard.succeeded()
 
     async def set_remember(self, enabled: bool, passphrase: str = "") -> dict:
         """Stay signed in on this device, or not ("Ask for my passphrase when
@@ -769,27 +783,30 @@ class Core:
         keychain or the file, a backup of either) doesn't open the profile
         file from now on."""
         v = self.require_unlocked()
-        self._guard_check()
-        if enabled:
-            try:
-                await asyncio.to_thread(open_with_passphrase, VAULT_MAGIC, passphrase, self.paths.vault.read_bytes())
-            except WrongPassphrase:
-                raise self._wrong_passphrase(_("That passphrase is wrong.")) from None
-            self.guard.succeeded()
-            self.prefs.set("remember_device", True)
-            await self._keep_unlock_key(v, toast=False)
-        else:
-            try:
-                # scrypt in a worker; the switch and save here, on the loop
-                # that does every other save (as change_passphrase).
-                key, header, h = await asyncio.to_thread(v.new_key_for, passphrase, passphrase)
-            except WrongPassphrase:
-                raise self._wrong_passphrase(_("That passphrase is wrong.")) from None
-            self.guard.succeeded()
-            v.use_key(key, header, h)
-            await self._forget_unlock_key()
-            self.prefs.set("remember_device", False)
-        self._stay_offer = ""
+        async with self._open_lock:
+            self._guard_check()
+            if enabled:
+                try:
+                    await asyncio.to_thread(
+                        open_with_passphrase, VAULT_MAGIC, passphrase, self.paths.vault.read_bytes()
+                    )
+                except WrongPassphrase:
+                    raise self._wrong_passphrase(_("That passphrase is wrong.")) from None
+                self.guard.succeeded()
+                self.prefs.set("remember_device", True)
+                await self._keep_unlock_key(v, toast=False)
+            else:
+                try:
+                    # scrypt in a worker; the switch and save here, on the loop
+                    # that does every other save (as change_passphrase).
+                    key, header, h = await asyncio.to_thread(v.new_key_for, passphrase, passphrase)
+                except WrongPassphrase:
+                    raise self._wrong_passphrase(_("That passphrase is wrong.")) from None
+                self.guard.succeeded()
+                v.use_key(key, header, h)
+                await self._forget_unlock_key()
+                self.prefs.set("remember_device", False)
+            self._stay_offer = ""
         self.prefs.mark_shown("stay_signed_in_offered")
         self.emit("profile", self.profile_status())
         return await self.remember_status()
@@ -802,12 +819,31 @@ class Core:
         for cid, rec in self.vault.data["communities"].items():
             if rec.get("status") in ("active", "pending"):
                 self._start(cid)
-        self.spawn(self._idle_watch())
-        self.spawn(self._cache_janitor())
+        self._profile_tasks = [self.spawn(self._idle_watch()), self.spawn(self._cache_janitor())]
         await self.dms.opened()
         await self.devices.opened()
         await self.statuses.opened()
         self.emit("profile", self.profile_status())
+        if self._data_dir_missing:
+            text = _("The data folder {folder} isn't available; this device's default location is used.").format(
+                folder=self._data_dir_missing
+            )
+            self.emit("toast", {"text": text, "error": True})
+
+    async def _close_profile(self) -> None:
+        """Stop what the open profile runs (its community connections, the
+        DM, device and status loops, its own tasks), before the profile is
+        set aside or deleted: a new one starts its own."""
+        for conn in list(self.conns.values()):
+            with contextlib.suppress(Exception):
+                await conn.stop()
+        self.conns.clear()
+        for part in (self.dms, self.devices, self.statuses):
+            with contextlib.suppress(Exception):
+                await part.shutdown()
+        for t in self._profile_tasks:
+            t.cancel()
+        self._profile_tasks = []
 
     async def lock(self) -> dict:
         """Lock now, or an idle lock. Locked means the passphrase is needed
@@ -824,16 +860,17 @@ class Core:
     async def change_passphrase(self, old: str, new: str) -> dict:
         v = self.require_unlocked()
         check_new_passphrase(new)
-        self._guard_check()
-        try:
-            # scrypt in a worker; the switch and save here, on the loop that
-            # does every other save (a save in between would write the file
-            # under the old key).
-            key, header, h = await asyncio.to_thread(v.new_key_for, old, new)
-        except WrongPassphrase:
-            raise self._wrong_passphrase(_("The current passphrase is wrong.")) from None
-        self.guard.succeeded()
-        v.use_key(key, header, h)
+        async with self._open_lock:
+            self._guard_check()
+            try:
+                # scrypt in a worker; the switch and save here, on the loop that
+                # does every other save (a save in between would write the file
+                # under the old key).
+                key, header, h = await asyncio.to_thread(v.new_key_for, old, new)
+            except WrongPassphrase:
+                raise self._wrong_passphrase(_("The current passphrase is wrong.")) from None
+            self.guard.succeeded()
+            v.use_key(key, header, h)
         if self.prefs.unlock_key_in:
             # The file's key changed with the passphrase.
             await self._keep_unlock_key(v)
@@ -853,9 +890,7 @@ class Core:
             for f in (self.paths.vault, self.paths.state, self.paths.data / "dms.bin", self.paths.data / "olm.bin"):
                 if f.exists():
                     f.rename(f.with_name(f"{f.name}.set-aside-{stamp}"))
-            for conn in list(self.conns.values()):
-                await conn.stop()
-            self.conns.clear()
+            await self._close_profile()
             self.caches.clear()
             shutil.rmtree(self.paths.cache, ignore_errors=True)
             self.paths.ensure()
@@ -867,10 +902,7 @@ class Core:
     async def wipe_device(self, reason: str) -> None:
         """This device was removed from the account: stop everything and
         delete the profile, state, DM history and cache."""
-        for conn in list(self.conns.values()):
-            with contextlib.suppress(Exception):
-                await conn.stop()
-        self.conns.clear()
+        await self._close_profile()
         for c in list(self.caches.values()):
             c.wipe()
         self.caches.clear()
@@ -937,9 +969,11 @@ class Core:
             raise UserError(_("A profile already exists on this device."))
         check_new_passphrase(new_passphrase)
         try:
-            blob = await asyncio.to_thread(Path(path).expanduser().read_bytes)
+            blob = await asyncio.to_thread(read_at_most, Path(path).expanduser(), MAX_BACKUP_BYTES)
         except OSError as e:
             raise UserError(_("Can't read the backup file: {reason}").format(reason=e.strerror)) from None
+        if blob is None:
+            raise UserError(_("That isn't a backup file (it's far too large)."))
         try:
             data = await asyncio.to_thread(keys.import_backup, blob, backup_passphrase)
         except WrongPassphrase:
@@ -2183,10 +2217,10 @@ class Core:
     async def set_avatar(self, cid: str, path: str | None) -> dict:
         if path:
             try:
-                data = await asyncio.to_thread(Path(path).expanduser().read_bytes)
+                data = await asyncio.to_thread(read_at_most, Path(path).expanduser(), 256 * 1024)
             except OSError as e:
                 raise UserError(_("Can't read that image: {reason}").format(reason=e.strerror)) from None
-            if len(data) > 256 * 1024:
+            if data is None:
                 raise UserError(_("Avatars can be at most 256 KB."))
             msg = cp.SetProfile(avatar=data)
         else:
@@ -3017,6 +3051,8 @@ class Core:
         new = self.base_paths.with_data_location(Path(folder) if folder else None)
         if new.data == self.paths.data:
             return
+        if new.data.is_dir() and any(new.data.iterdir()):
+            raise UserError(_("That folder already holds OpenArcanum data. Choose an empty folder."))
         for c in self.caches.values():
             c.save()
         # Hosted servers keep their data in the data folder: stop them for

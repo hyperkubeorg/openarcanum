@@ -3,8 +3,8 @@ package sfu
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,33 +39,65 @@ type call struct {
 	// joining is dropped, so a refused first join doesn't keep it.
 	joining int
 
+	// The control's lists as sets (guarded by mu).
+	sets controlSets
+
 	// Held while working out and sending CallWatchers, so two changes
 	// can't reach a sender in the wrong order. Taken before mu.
 	wmu sync.Mutex
+	// A CallWatchers round is due (watchTimer), or the last went out at
+	// watchSent (guarded by mu): changes within watchDebounce make one.
+	watchTimer *time.Timer
+	watchSent  time.Time
 }
 
 func newCall(s *SFU, g *wire.CallGrant) *call {
+	ctl := &wire.CallControl{CallId: g.CallId}
 	return &call{
 		sfu:       s,
 		id:        g.CallId,
 		serverKey: g.ServerKey,
 		peers:     map[string]*Peer{},
-		control:   &wire.CallControl{CallId: g.CallId},
+		control:   ctl,
+		sets:      setsOf(ctl),
 		removed:   map[string]bool{},
 		audio:     map[string]*audioSource{},
 		video:     map[string]*videoSource{},
 	}
 }
 
-// audioMutedBy says whether the control silences a source's audio of kind:
+// controlSets is a control's lists by participant id, so a check for one
+// participant costs a lookup whatever the lists' length (a control may
+// name a thousand).
+type controlSets struct {
+	muted, deafened, noVideo, noScreen, removed map[string]bool
+}
+
+func setsOf(ctl *wire.CallControl) controlSets {
+	set := func(list [][]byte) map[string]bool {
+		m := make(map[string]bool, len(list))
+		for _, x := range list {
+			m[pid(x)] = true
+		}
+		return m
+	}
+	return controlSets{muted: set(ctl.Muted), deafened: set(ctl.Deafened), noVideo: set(ctl.NoVideo), noScreen: set(ctl.NoScreen), removed: set(ctl.Removed)}
+}
+
+// audioMuted says whether the control silences a source's audio of kind:
 // server mute or no Speak (Muted) silences both the microphone and screen
 // audio (the relay can't tell what a track really carries); screen audio
 // also goes with Screen Share (NoScreen).
-func audioMutedBy(ctl *wire.CallControl, participant []byte, kind string) bool {
-	if listHas(ctl.Muted, participant) {
-		return true
+func (cs controlSets) audioMuted(source, kind string) bool {
+	return cs.muted[source] || (kind == KindScreenAudio && cs.noScreen[source])
+}
+
+// videoBlocked says whether the control stops a source's video of kind.
+func (cs controlSets) videoBlocked(source, kind string) bool {
+	if kind == KindScreen {
+		return cs.noScreen[source]
 	}
-	return kind == KindScreenAudio && listHas(ctl.NoScreen, participant)
+	return cs.noVideo[source]
 }
 
 func trackKey(source, kind string) string { return source + "/" + kind }
@@ -166,16 +198,20 @@ func (p *Peer) isClosed() bool {
 func (c *call) join(ctx context.Context, g *wire.CallGrant, j *wire.CallJoin, sig Signaler, release func()) (*Peer, string, error) {
 	id := pid(g.Participant)
 	c.mu.Lock()
+	// The participant's earlier connection (one that dropped without a
+	// leave, or a rejoin before it timed out) makes way: the grant is theirs.
+	if old := c.peers[id]; old != nil {
+		c.mu.Unlock()
+		old.Leave()
+		c.mu.Lock()
+	}
 	switch {
 	case c.ended:
 		c.mu.Unlock()
 		return nil, "", errors.New("this call has ended")
-	case c.removed[id] || listHas(c.control.Removed, g.Participant):
+	case c.removed[id] || c.sets.removed[id]:
 		c.mu.Unlock()
 		return nil, "", errors.New("you were removed from this call")
-	case c.peers[id] != nil:
-		c.mu.Unlock()
-		return nil, "", errors.New("already in this call")
 	case uint32(len(c.peers)) >= maxParticipants(g):
 		c.mu.Unlock()
 		return nil, "", errors.New("this call is full")
@@ -284,7 +320,7 @@ func (p *Peer) onTrack(remote *webrtc.TrackRemote, recv *webrtc.RTPReceiver) {
 			return
 		}
 		src := &audioSource{codec: remote.Codec().RTPCodecCapability, outs: map[*Peer]*audioOut{}}
-		src.muted.Store(audioMutedBy(c.control, p.grant.Participant, kind))
+		src.muted.Store(c.sets.audioMuted(p.id, kind))
 		c.audio[key] = src
 		for _, other := range c.peers {
 			if other != p {
@@ -301,11 +337,7 @@ func (p *Peer) onTrack(remote *webrtc.TrackRemote, recv *webrtc.RTPReceiver) {
 	isNew := vs == nil
 	if isNew {
 		vs = &videoSource{call: c, owner: p, source: p.id, kind: kind, codec: remote.Codec().RTPCodecCapability, layers: map[string]*webrtc.TrackRemote{}, pc: p.pc}
-		list := c.control.NoVideo
-		if kind == KindScreen {
-			list = c.control.NoScreen
-		}
-		vs.blocked.Store(listHas(list, g.Participant))
+		vs.blocked.Store(c.sets.videoBlocked(vs.source, kind))
 		c.video[key] = vs
 	}
 	rid := remote.RID()
@@ -391,7 +423,7 @@ func (p *Peer) attachAudioLocked(key string, src *audioSource) {
 // muted that participant for itself; screen audio only while it asks for
 // it (it watches that screen with its sound on).
 func (p *Peer) hearsLocked(source, kind string) bool {
-	if listHas(p.call.control.Deafened, p.grant.Participant) || p.listen.deaf {
+	if p.call.sets.deafened[p.id] || p.listen.deaf {
 		return false
 	}
 	if kind == KindScreenAudio {
@@ -531,6 +563,11 @@ func (p *Peer) Layer(l *wire.CallLayer) error {
 		return errors.New("no such participant")
 	}
 	c.mu.Lock()
+	if p.wants[key] == l.Rid {
+		// Asked for what it already gets: nothing to work out or tell.
+		c.mu.Unlock()
+		return nil
+	}
 	if l.Rid == "" {
 		delete(p.wants, key)
 	} else {
@@ -578,6 +615,10 @@ func (p *Peer) Listen(m *wire.CallListen) error {
 	}
 	c := p.call
 	c.mu.Lock()
+	if l.deaf == p.listen.deaf && maps.Equal(l.noAudio, p.listen.noAudio) && maps.Equal(l.screenAudio, p.listen.screenAudio) {
+		c.mu.Unlock()
+		return nil
+	}
 	p.listen = l
 	p.applyAudioLocked()
 	c.mu.Unlock()
@@ -590,12 +631,12 @@ func (p *Peer) Listen(m *wire.CallListen) error {
 // given the grant, the control and what each of them asked for.
 func (c *call) watchersLocked(s *Peer) *wire.CallWatchers {
 	g := s.grant
-	ctl := c.control
+	cs := c.sets
 	allowed := map[string]bool{
-		KindAudio:       g.Audio && !audioMutedBy(ctl, g.Participant, KindAudio),
-		KindScreenAudio: g.Audio && g.Screen && !audioMutedBy(ctl, g.Participant, KindScreenAudio),
-		KindCamera:      g.Video && !listHas(ctl.NoVideo, g.Participant),
-		KindScreen:      g.Screen && !listHas(ctl.NoScreen, g.Participant),
+		KindAudio:       g.Audio && !cs.audioMuted(s.id, KindAudio),
+		KindScreenAudio: g.Audio && g.Screen && !cs.audioMuted(s.id, KindScreenAudio),
+		KindCamera:      g.Video && !cs.videoBlocked(s.id, KindCamera),
+		KindScreen:      g.Screen && !cs.videoBlocked(s.id, KindScreen),
 	}
 	out := &wire.CallWatchers{CallId: c.id}
 	for _, kind := range []string{KindAudio, KindCamera, KindScreen, KindScreenAudio} {
@@ -627,9 +668,31 @@ func (c *call) watchersLocked(s *Peer) *wire.CallWatchers {
 	return out
 }
 
-// notifyWatchers tells each participant whose receivers changed. Never
-// called with c.mu held.
+// watchDebounce is how long changes to who receives what are gathered
+// before CallWatchers go out again: working them out costs every
+// participant a pass over the others, so a participant changing what it
+// listens to at frame rate costs one pass per window, not one per frame.
+const watchDebounce = 50 * time.Millisecond
+
+// notifyWatchers tells each participant whose receivers changed: at once
+// when none went out within watchDebounce, else once that has passed (one
+// round for every change until then). Never called with c.mu held.
 func (c *call) notifyWatchers() {
+	c.mu.Lock()
+	if c.watchTimer != nil {
+		c.mu.Unlock()
+		return
+	}
+	if wait := watchDebounce - time.Since(c.watchSent); wait > 0 {
+		c.watchTimer = time.AfterFunc(wait, c.sendWatchers)
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+	c.sendWatchers()
+}
+
+func (c *call) sendWatchers() {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	type send struct {
@@ -638,6 +701,7 @@ func (c *call) notifyWatchers() {
 	}
 	var sends []send
 	c.mu.Lock()
+	c.watchTimer, c.watchSent = nil, time.Now()
 	for _, p := range c.peers {
 		if p.isClosed() || !p.isAnswered() {
 			continue
@@ -742,23 +806,13 @@ func (c *call) applyControl(ctl *wire.CallControl) {
 		c.mu.Unlock()
 		return
 	}
-	c.control = ctl
+	c.control, c.sets = ctl, setsOf(ctl)
 	for key, src := range c.audio {
 		source, kind, _ := strings.Cut(key, "/")
-		if raw, err := hex.DecodeString(source); err == nil {
-			src.muted.Store(audioMutedBy(ctl, raw, kind))
-		}
+		src.muted.Store(c.sets.audioMuted(source, kind))
 	}
 	for _, vs := range c.video {
-		list := ctl.NoVideo
-		if vs.kind == KindScreen {
-			list = ctl.NoScreen
-		}
-		blocked := false
-		for _, x := range list {
-			blocked = blocked || pid(x) == vs.source
-		}
-		vs.blocked.Store(blocked)
+		vs.blocked.Store(c.sets.videoBlocked(vs.source, vs.kind))
 	}
 	var kick []*Peer
 	for _, r := range ctl.Removed {
@@ -808,8 +862,8 @@ func (c *call) broadcastState() {
 			Audio:       p.sends[KindAudio],
 			Camera:      p.sends[KindCamera],
 			Screen:      p.sends[KindScreen],
-			Muted:       listHas(c.control.Muted, p.grant.Participant),
-			Deafened:    listHas(c.control.Deafened, p.grant.Participant),
+			Muted:       c.sets.muted[p.id],
+			Deafened:    c.sets.deafened[p.id],
 			Priority:    p.grant.Priority,
 		})
 		p.mu.Unlock()

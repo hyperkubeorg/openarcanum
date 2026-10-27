@@ -295,6 +295,21 @@ func (s *Server) reportMessage(ctx context.Context, ss *sess, r *wire.ReportMess
 		s.mu.Unlock()
 		return nil, errInvalid("you can't report your own message")
 	}
+	// The cheap checks first: the queue scans below open every report. A
+	// repeat counts toward the limit like any other attempt.
+	if !s.reports.allow(ss.member, s.now()) {
+		s.mu.Unlock()
+		return nil, errRateLimited(fmt.Sprintf("you can report at most %d messages every %d minutes", reportBurst, int(reportWindow/time.Minute)))
+	}
+	dedupe := s.reportDedupe(ss.member, stored.id)
+	var dup int
+	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM reports WHERE dedupe = ? LIMIT 1`, dedupe).Scan(&dup); err == nil {
+		s.mu.Unlock()
+		return nil, errConflict("you already reported this message")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		s.mu.Unlock()
+		return nil, err
+	}
 	open, err := s.openReportCount(ctx)
 	if err != nil {
 		s.mu.Unlock()
@@ -313,14 +328,10 @@ func (s *Server) reportMessage(ctx context.Context, ss *sess, r *wire.ReportMess
 		s.mu.Unlock()
 		return nil, errRateLimited(fmt.Sprintf("you have %d reports waiting for the moderators; wait until they've looked at them", mine))
 	}
-	if !s.reports.allow(ss.member, s.now()) {
-		s.mu.Unlock()
-		return nil, errRateLimited(fmt.Sprintf("you can report at most %d messages every %d minutes", reportBurst, int(reportWindow/time.Minute)))
-	}
 	rep, err := s.createReport(ctx, &reportRec{
 		Kind: wire.ReportKind_REPORT_KIND_MEMBER, CreatedAt: s.now().UnixMilli(), Reporter: ss.member,
 		MessageID: stored.id, ChannelID: stored.channelID, Author: body.Author,
-	}, reason, s.reportDedupe(ss.member, stored.id))
+	}, reason, dedupe)
 	if err != nil {
 		s.mu.Unlock()
 		return nil, err

@@ -178,3 +178,65 @@ func TestChunkCachePendingBounded(t *testing.T) {
 		t.Fatalf("stale pending message kept: %d pending", len(c.pendingCache))
 	}
 }
+
+// Unfinished cacheable messages count against chunk_cache_bytes across
+// connections, not only against each connection's share: once cache and
+// pending together fill the budget, further chunks aren't kept, and a
+// connection that closes gives its part back.
+func TestChunkCachePendingSharedAcrossConnections(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ChunkCacheBytes, cfg.ChunkCacheTopicBytes, cfg.ChunkCacheConnBytes = 16<<10, 16<<10, 8<<10
+	cfg.ChunkCacheMaxMessage, cfg.MaxChunk, cfg.MaxPartial = 8<<10, 1024, 8
+	cfg.ChunkCacheTTL.Duration = time.Second
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	s := New(cfg, nil)
+	conns := make([]*conn, 3)
+	for i := range conns {
+		conns[i] = &conn{srv: s, id: uint64(i + 1), partial: map[uint64]inflight{}, pendingCache: map[uint64]*cachePending{}}
+	}
+	chunk := func(c *conn, id uint64, seq uint32, final bool, n int) {
+		m := &wire.Publish{Topic: []byte("t"), MessageId: id, Seq: seq, Final: final, Cacheable: true, Data: make([]byte, n)}
+		c.cacheChunk(m, &wire.Deliver{Topic: m.Topic, MessageId: id, Seq: seq, Final: final, Data: m.Data})
+	}
+	// Two connections each hold their share: the budget is spent.
+	for _, c := range conns[:2] {
+		for seq := uint32(0); seq < 8; seq++ {
+			chunk(c, 1, seq, false, 1024)
+		}
+	}
+	if got := s.cache.pendingBytes(); got != 16<<10 {
+		t.Fatalf("pending across connections %d, want %d", got, 16<<10)
+	}
+	// A third connection's message finds no room and holds nothing.
+	chunk(conns[2], 1, 0, false, 1024)
+	if got := conns[2].pendingBytes(); got != 0 {
+		t.Fatalf("third connection holds %d bytes past the budget", got)
+	}
+	if got := s.cache.pendingBytes(); got != 16<<10 {
+		t.Fatalf("pending across connections %d after refusing", got)
+	}
+	// The first connection closes: its part comes back, and the third
+	// connection's next message is kept.
+	conns[0].dropPending(0, true)
+	if got := s.cache.pendingBytes(); got != 8<<10 {
+		t.Fatalf("pending after a connection closed %d, want %d", got, 8<<10)
+	}
+	chunk(conns[2], 2, 0, false, 1024)
+	if got := conns[2].pendingBytes(); got != 1024 {
+		t.Fatalf("third connection holds %d bytes, want 1024", got)
+	}
+	// Finishing moves a message from pending into the cache.
+	chunk(conns[2], 2, 1, true, 1)
+	if got := s.cache.pendingBytes(); got != 8<<10 || s.cache.entries() != 1 {
+		t.Fatalf("after finishing: pending %d, %d cached", got, s.cache.entries())
+	}
+	// Left unfinished for the TTL, the rest goes without any new message
+	// (the pinger sweeps idle connections).
+	conns[1].pendingCache[1].at = time.Now().Add(-2 * time.Second)
+	conns[1].expirePending(time.Now())
+	if got := s.cache.pendingBytes(); got != 0 {
+		t.Fatalf("pending after expiry %d", got)
+	}
+}

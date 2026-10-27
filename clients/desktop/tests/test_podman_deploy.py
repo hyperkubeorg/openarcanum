@@ -162,7 +162,8 @@ def test_config_file(host):
     # The environment sets the listener; a value here would be ignored.
     assert "listen" not in conf
     assert conf["tls_mode"] == "acme"
-    assert conf["tls_domains"] == [host]
+    # The site also answers for www (redirected to the first name).
+    assert conf["tls_domains"] == [host] + (["www." + host] if host == "openarcanum.org" else [])
     # The image's own health check asks the status listener.
     check = re.search(r"HEALTHCHECK .*http://127\.0\.0\.1:(\d+)/healthz", image_stage(stage))
     assert check, f"no health check in stage {stage}"

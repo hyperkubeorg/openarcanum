@@ -15,7 +15,8 @@
 // relay which audio it doesn't want (listenState()).
 //
 // The only secrets this code ever sees are per-call media keys: the call key
-// for the current and previous epoch. A sender's SFrame key id is
+// for the newest few epochs (kept for frames in flight at a key change, and
+// zeroed when let go). A sender's SFrame key id is
 // epoch << 8 | slot, so every key id is used by one sender under one key, and
 // RFC 9605 derives a separate key and salt for each.
 'use strict';
@@ -166,6 +167,7 @@ function frameMetadata(kind, clear) {
 // The same key id under a new key is fine (and common: alone in a channel,
 // leave and join again, and the new call starts again at epoch 1).
 const usedSendKids = new Set();
+const USED_SEND_KIDS_KEPT = 512; // every key change adds one; the newest cover any reuse
 
 async function sendKeyTag(kid, key) {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', key));
@@ -248,7 +250,11 @@ class Call {
 
   async setKeys(epoch, keyB64, slot) {
     const key = b64bytes(keyB64);
-    if (this.epochs.length && this.epochs[this.epochs.length - 1].epoch === epoch) return;
+    delete this.s.key; // consumed: only `epochs` holds key material from here on
+    if (this.epochs.length && this.epochs[this.epochs.length - 1].epoch === epoch) {
+      await this.installRecvKeys(); // the roster may have changed within the epoch
+      return;
+    }
     // Who held which slot in this epoch: a frame must carry the slot its
     // track's participant held in the frame's epoch.
     this.epochs.push({ epoch, key, slots: new Map(this.s.participants.map((p) => [p.participant, p.slot])) });
@@ -257,7 +263,9 @@ class Call {
     while (this.epochs.length > 4) {
       const old = this.epochs.shift();
       for (const kid of [...this.sframe.recv.keys()]) if (kid >> 8n === BigInt(old.epoch)) this.sframe.dropRecvKey(kid);
+      old.key.fill(0);
     }
+    for (const e of this.keyMissing) if (e < BigInt(this.epochs[0].epoch)) this.keyMissing.delete(e);
     await this.installRecvKeys();
     this.keyWaiters = this.keyWaiters.filter((w) => { if (w.epoch > BigInt(epoch)) return true; w.resolve(); return false; });
     const first = this.sframe.send === null;
@@ -267,6 +275,7 @@ class Call {
       const tag = await sendKeyTag(kid, key);
       if (usedSendKids.has(tag)) { this.sframe.send = null; console.error('call: key id already used with this key; not sending until the key changes'); return; }
       usedSendKids.add(tag);
+      while (usedSendKids.size > USED_SEND_KIDS_KEPT) usedSendKids.delete(usedSendKids.values().next().value);
       await this.sframe.setSendKey(kid, key);
     };
     if (first) await apply();
@@ -486,8 +495,10 @@ class Call {
     // change, say). Its encoded streams can be created only once, so the
     // first decryption pipe stays and follows the new binding.
     const bind = this.bound.get(e.receiver);
-    if (bind) Object.assign(bind, { kind, participant });
-    else {
+    if (bind) {
+      if (bind.participant !== participant || bind.kind !== kind) this.releaseMedia(bind.participant, bind.kind, e.track);
+      Object.assign(bind, { kind, participant });
+    } else {
       const fresh = { kind, participant };
       this.bound.set(e.receiver, fresh);
       const { readable, writable } = e.receiver.createEncodedStreams();
@@ -498,7 +509,7 @@ class Call {
     const hadStream = had ? (had.el ? had.el.srcObject : had) : null;
     const hadTrack = hadStream ? hadStream.getTracks()[0] : null;
     if (hadTrack === e.track) { this.onChange(); return; }
-    if (had && had.el) { had.el.srcObject = null; had.src.disconnect(); had.gain.disconnect(); }
+    this.releaseMedia(participant, kind);
     if (kind === 'audio' || kind === 'screen-audio') {
       const ms = new MediaStream([e.track]);
       // Chromium only feeds remote WebRTC audio into WebAudio while an
@@ -519,8 +530,20 @@ class Call {
     } else {
       r[kind] = new MediaStream([e.track]);
     }
-    e.track.onended = () => { delete r[kind]; this.onChange(); };
+    e.track.onended = () => { this.releaseMedia(participant, kind, e.track); this.onChange(); };
     this.onChange();
+  }
+
+  // Drops what plays `kind` of `participant` (when it carries `track`, if
+  // given): the audio graph nodes and the element, or the video stream.
+  releaseMedia(participant, kind, track) {
+    const r = this.remote.get(participant);
+    const had = r && r[kind];
+    if (!had) return;
+    const stream = had.el ? had.el.srcObject : had;
+    if (track && !(stream && stream.getTracks().includes(track))) return;
+    if (had.el) { had.el.srcObject = null; had.src.disconnect(); had.gain.disconnect(); }
+    delete r[kind];
   }
 
   remoteOf(participant) {
@@ -1020,7 +1043,7 @@ class Call {
   dropRemote(id) {
     const r = this.remote.get(id);
     if (!r) return;
-    for (const k of ['audio', 'screen-audio']) if (r[k]) { r[k].el.srcObject = null; r[k].src.disconnect(); r[k].gain.disconnect(); }
+    for (const k of ['audio', 'screen-audio', 'camera', 'screen']) this.releaseMedia(id, k);
     this.remote.delete(id);
   }
 
@@ -1036,7 +1059,9 @@ class Call {
     if (this.ctx) this.ctx.close().catch(() => {});
     this.pc = null;
     this.sframe = new SFrame.Context(); // forget the keys
+    for (const e of this.epochs) e.key.fill(0);
     this.epochs = [];
+    delete this.s.key;
     this.firstEpoch = null;
     for (const w of this.keyWaiters) w.resolve();
     this.keyWaiters = [];
