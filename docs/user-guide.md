@@ -825,6 +825,20 @@ community). It holds only a DM key and an inbox address, separate for each
 community, and it's off by default. A community's admins can turn contact
 cards off for the whole community; the option then disappears.
 
+### Contact codes: DMs without a shared community
+
+A **contact code** lets someone message you without sharing a community,
+for example the team answering a report you sent on the website.
+**Direct messages** → **Contacts** (the people icon) → **Your contact
+code** shows yours: give it a name if you like (or leave it empty), then
+**Copy**. It uses a DM key of its own, not one from any community, so it
+doesn't tell anyone which communities you're in. A code works for about a
+week; **Make a new code** when you need it again.
+
+To use someone's code: **Contacts** → **Add a contact code**, paste it,
+**Add and message**. They see your first message as a request, as for
+anyone who isn't in their contacts.
+
 ### Start a conversation
 
 - **1:1:** in a community, right-click the person (in **Members**, or

@@ -388,13 +388,13 @@ var funcs = template.FuncMap{
 		}
 		return t.UTC().Format("2006-01-02 15:04 UTC")
 	},
-	"iso":        func(t time.Time) string { return t.UTC().Format(time.RFC3339) },
-	"label":      label,
-	"kindLabel":  func(k string) string { return map[string]string{"bug": "Bug", "security": "Security"}[k] },
-	"severities": func() []string { return Severities },
-	"statuses":   func() []string { return Statuses },
-	"kinds":      func() []string { return Kinds },
-	"userIDLen":  func() int { return UserIDLen },
+	"iso":            func(t time.Time) string { return t.UTC().Format(time.RFC3339) },
+	"label":          label,
+	"kindLabel":      func(k string) string { return map[string]string{"bug": "Bug", "security": "Security"}[k] },
+	"severities":     func() []string { return Severities },
+	"statuses":       func() []string { return Statuses },
+	"kinds":          func() []string { return Kinds },
+	"maxContactCode": func() int { return MaxContactCode },
 }
 
 // label is how a status or severity value is shown.
@@ -554,17 +554,15 @@ func localPath(p string) bool {
 // ---------------------------------------------------------------- reports
 
 type reportPage struct {
-	Form             *reportForm
-	Challenge        string
-	Bits             int
-	PoWContext       string
-	ContactCommunity string
-	Ref              string
+	Form       *reportForm
+	Challenge  string
+	Bits       int
+	PoWContext string
+	Ref        string
 }
 
 func (s *Server) reportPage(f *reportForm) reportPage {
-	return reportPage{Form: f, Challenge: s.pow.challenge(), Bits: s.cfg.ReportPoWBits, PoWContext: powContext,
-		ContactCommunity: s.cfg.ContactCommunity}
+	return reportPage{Form: f, Challenge: s.pow.challenge(), Bits: s.cfg.ReportPoWBits, PoWContext: powContext}
 }
 
 func reportTitle(kind string) string {
@@ -576,7 +574,7 @@ func reportTitle(kind string) string {
 
 func (s *Server) reportForm(w http.ResponseWriter, r *http.Request) {
 	kind := mux.Vars(r)["kind"]
-	f := &reportForm{Kind: kind, Community: s.cfg.ContactCommunity}
+	f := &reportForm{Kind: kind}
 	s.render(w, r, http.StatusOK, "report.html", page{Title: reportTitle(kind), Section: "report-" + kind, Data: s.reportPage(f)})
 }
 

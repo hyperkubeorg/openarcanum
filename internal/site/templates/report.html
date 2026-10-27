@@ -14,7 +14,7 @@
 {{end}}
 
 <div class="notice info">
-  <p>We reply by <strong>direct message in {{.Product}}</strong>, so we need your user ID and a community we're both in. An e-mail address is optional.</p>
+  <p>We reply by <strong>direct message in {{.Product}}</strong>, so we need your contact code. An e-mail address is optional.</p>
 </div>
 
 {{with $f.Errors}}{{with .form}}<div class="notice danger" role="alert"><p>{{.}}</p></div>{{end}}{{end}}
@@ -67,18 +67,11 @@
   <h2 class="section-title">How we reach you</h2>
 
   <div class="field">
-    <label for="user_id">Your user ID</label>
-    <input type="text" id="user_id" name="user_id" class="mono" value="{{$f.UserID}}" maxlength="{{userIDLen}}" minlength="{{userIDLen}}" required
-           autocomplete="off" spellcheck="false" aria-describedby="user_id-hint{{with $f.Errors}}{{with .user_id}} user_id-err{{end}}{{end}}"{{with $f.Errors}}{{with .user_id}} aria-invalid="true"{{end}}{{end}}>
-    <p class="hint" id="user_id-hint">In the {{.Product}} app, right-click your own name in that community (in the member list or on one of your messages) and choose <strong>Copy user ID</strong>. It is 43 letters, digits, - and _.</p>
-    {{with $f.Errors}}{{with .user_id}}<p class="error" id="user_id-err">{{.}}</p>{{end}}{{end}}
-  </div>
-
-  <div class="field">
-    <label for="community">Community we can message you in</label>
-    <input type="text" id="community" name="community" value="{{$f.Community}}" maxlength="200" required aria-describedby="community-hint{{with $f.Errors}}{{with .community}} community-err{{end}}{{end}}"{{with $f.Errors}}{{with .community}} aria-invalid="true"{{end}}{{end}}>
-    <p class="hint" id="community-hint">{{with .Data.ContactCommunity}}Join <strong>{{.}}</strong> if you haven't, or name another community the maintainers are in. {{end}}Publish a contact card there (community menu → Your profile here → Publish a contact card here) so we can start a direct message with you.</p>
-    {{with $f.Errors}}{{with .community}}<p class="error" id="community-err">{{.}}</p>{{end}}{{end}}
+    <label for="contact_code">Your contact code</label>
+    <textarea id="contact_code" name="contact_code" class="mono" rows="4" maxlength="{{maxContactCode}}" required
+              autocomplete="off" spellcheck="false" aria-describedby="contact_code-hint{{with $f.Errors}}{{with .contact_code}} contact_code-err{{end}}{{end}}"{{with $f.Errors}}{{with .contact_code}} aria-invalid="true"{{end}}{{end}}>{{$f.ContactCode}}</textarea>
+    <p class="hint" id="contact_code-hint">In the {{.Product}} app{{if .WebApp}} (desktop or <a href="/app/">in your browser</a>){{end}}, open <strong>Direct messages → Contacts → Your contact code</strong> and copy it. It lets us message you without sharing a community, and works for about a week. A name in it is optional.</p>
+    {{with $f.Errors}}{{with .contact_code}}<p class="error" id="contact_code-err">{{.}}</p>{{end}}{{end}}
   </div>
 
   <div class="row">

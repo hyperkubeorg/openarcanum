@@ -233,6 +233,28 @@ def open_card(signed: dm.SignedContactCard) -> Card:
     return Card(card, devices, signed)
 
 
+CONTACT_CODE_PREFIX = "openarcanum-contact:"
+MAX_CODE_NAME = 64
+# A contact card is at most 64 KiB (docs/protocol.md §9.2).
+MAX_CONTACT_CODE = len(CONTACT_CODE_PREFIX) + (64 << 10) * 4 // 3 + 4
+
+
+def parse_contact_code(code: str) -> Card:
+    """The verified card in a contact code. A card published in a community
+    (bound to a membership there) isn't a contact code."""
+    code = "".join((code or "").split())
+    if not code.startswith(CONTACT_CODE_PREFIX) or len(code) > MAX_CONTACT_CODE:
+        raise UserError(_("That isn't a contact code. It starts with {prefix}").format(prefix=CONTACT_CODE_PREFIX))
+    try:
+        signed = dm.SignedContactCard.FromString(unb64(code[len(CONTACT_CODE_PREFIX) :]))
+    except Exception:
+        raise UserError(_("That contact code is damaged. Copy it again.")) from None
+    card = open_card(signed)
+    if card.card.member or not card.card.inboxes:
+        raise UserError(_("That isn't a contact code. It starts with {prefix}").format(prefix=CONTACT_CODE_PREFIX))
+    return card
+
+
 # The fields of a DM history entry and their types. This device writes
 # them; the history copy from another of my devices (docs/protocol.md
 # §10.3) brings entries
@@ -437,7 +459,18 @@ class DMManager:
     # ---------------------------------------------------------------- my DM identities
 
     def _ident(self, cid: str, create: bool) -> str | None:
-        """The DM identity (b64 public key) this profile uses in a community."""
+        """The DM identity (b64 public key) this profile uses in a community,
+        or with no community (""), the one behind its contact code."""
+        if not cid:
+            pub = self.d.get("contact_identity")
+            if pub and pub in self.d["ids"]:
+                return pub
+            if not create:
+                return None
+            pub = self._new_ident(_("Contact code"))
+            self.d["contact_identity"] = pub
+            self.core.save_vault()
+            return pub
         rec = self.core.vault.data["communities"].get(cid)
         if rec is None:
             raise UserError(_("Unknown community."))
@@ -446,6 +479,12 @@ class DMManager:
             return pub
         if not create:
             return None
+        pub = self._new_ident(rec.get("name", ""))
+        rec["dm_identity"] = pub
+        self.core.save_vault()
+        return pub
+
+    def _new_ident(self, label: str) -> str:
         self.core.require_unlocked()
         k = SigningKey.generate()
         iid = f"dm-{b64(k.public)[:16]}"
@@ -453,13 +492,11 @@ class DMManager:
             "seed": b64(k.seed),
             "kind": "dm",
             "created": int(time.time()),
-            "label": rec.get("name", ""),
+            "label": label,
         }
         pub = b64(k.public)
         self.d["ids"][pub] = {"iid": iid, "list": "", "extras": {}, "inbox_token": b64(os.urandom(32))}
-        rec["dm_identity"] = pub
         self.core.vault.keys_changed()
-        self.core.save_vault()
         return pub
 
     def _signing(self, pub: str) -> SigningKey:
@@ -713,7 +750,7 @@ class DMManager:
         card = dm.ContactCard(
             identity=unb64(pub),
             member=self.core.identity_public(rec["identity"]) if rec.get("identity") else b"",
-            name=rec.get("display_name", ""),
+            name=rec.get("display_name", "") if cid else self.d.get("contact_name", ""),
             devices=dm.SignedDmDeviceList.FromString(unb64(ent["list"])),
             issued_at=int(time.time()),
         )
@@ -960,6 +997,80 @@ class DMManager:
         self.core.emit("dm_contacts", {})
         return {"ok": True, "id": ident}
 
+    # ---------------------------------------------------------------- contact codes
+
+    async def contact_code(self, name: str = "") -> str:
+        """My contact code: a contact card for an identity of its own, not
+        tied to any community (so it doesn't link me to one), that someone
+        can add to start a direct message with me. It carries this device's
+        fallback key, which is replaced every 7 days, so a code works for
+        about a week; a new one is made each time."""
+        self.core.require_unlocked()
+        name = " ".join((name or "").split())
+        if len(name) > MAX_CODE_NAME:
+            raise UserError(_("Names can be at most {max} characters.").format(max=MAX_CODE_NAME))
+        pub = self._ident("", create=True)
+        if name != self.d.get("contact_name", ""):
+            self.d["contact_name"] = name
+            self.core.save_vault()
+        await self._ensure_listed(pub)
+        signed, _curves = self._build_card(pub, "")
+        return CONTACT_CODE_PREFIX + b64(signed.SerializeToString())
+
+    async def add_contact_code(self, code: str) -> dict:
+        """Add whoever made a contact code to my contacts."""
+        self.core.require_unlocked()
+        card = parse_contact_code(code)
+        ident = b64(card.card.identity)
+        if ident in self.d["ids"]:
+            raise UserError(_("That's your own contact code."))
+        if self._blocked(card.card.identity):
+            raise UserError(_("You blocked this person. Unblock them first."))
+        self._remember_card(card)
+        known = self.d["contacts"].get(ident)
+        self.d["contacts"][ident] = {
+            "name": card.card.name or (known or {}).get("name") or "Contact",
+            "community": (known or {}).get("community", ""),
+            "member": (known or {}).get("member", ""),
+            "added_at": (known or {}).get("added_at", int(time.time())),
+        }
+        self.core.save_vault()
+        await self.core.devices.broadcast("contact_added", {"id": ident, "contact": self.d["contacts"][ident]})
+        self.core.emit("dm_contacts", {})
+        return {"ok": True, "id": ident}
+
+    async def open_with_contact(self, ident: str) -> dict:
+        """The 1:1 conversation with a contact, creating it if needed: from
+        the card held for them (a contact code), or fetched again from the
+        community they're a contact from."""
+        self.core.require_unlocked()
+        c = self.d["contacts"].get(ident)
+        if c is None:
+            raise UserError(_("That person isn't in your contacts."))
+        if c.get("community") and c.get("member"):
+            return await self.open_with_member(c["community"], c["member"])
+        raw = self.d["peers"].get(ident, {}).get("card")
+        if not raw:
+            raise UserError(_("Ask them for a new contact code."))
+        card = open_card(dm.SignedContactCard.FromString(unb64(raw)))
+        if self._blocked(card.card.identity):
+            raise UserError(_("You blocked this person. Unblock them first."))
+        existing = self._direct_with(ident)
+        if existing:
+            return {"id": existing}
+        return await self._create("", [(card, "", b"", {})], name="", direct=True)
+
+    def _direct_with(self, them: str) -> str | None:
+        for gid, g in self.d["groups"].items():
+            st = Group.from_list(g["chain"]).state
+            if (
+                st.direct
+                and g.get("status") != "left"
+                and them in [b64(m.identity) for m in [*st.members, *st.invited]]
+            ):
+                return gid
+        return None
+
     async def remove_contact(self, ident: str) -> dict:
         self.d["contacts"].pop(ident, None)
         self.core.save_vault()
@@ -978,7 +1089,10 @@ class DMManager:
             mine = self.d["groups"][gid]["me"]
         elif ident in self.d["contacts"]:
             cid = self.d["contacts"][ident].get("community", "")
-            mine = self.core.vault.data["communities"].get(cid, {}).get("dm_identity", "")
+            if cid:
+                mine = self.core.vault.data["communities"].get(cid, {}).get("dm_identity", "")
+            else:
+                mine = self.d.get("contact_identity", "")
         if not mine:
             raise UserError(_("Open a conversation with them first."))
         return {
@@ -1248,14 +1362,9 @@ class DMManager:
         them = b64(card.card.identity)
         if self._blocked(card.card.identity):
             raise UserError(_("You blocked this person. Unblock them first."))
-        for gid, g in self.d["groups"].items():
-            st = Group.from_list(g["chain"]).state
-            if (
-                st.direct
-                and g.get("status") != "left"
-                and them in [b64(m.identity) for m in [*st.members, *st.invited]]
-            ):
-                return {"id": gid}
+        existing = self._direct_with(them)
+        if existing:
+            return {"id": existing}
         return await self._create(cid, [(card, cid, unb64(member), otks)], name="", direct=True)
 
     async def create_group(self, cid: str, members: list[str], name: str = "") -> dict:

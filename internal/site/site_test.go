@@ -690,7 +690,9 @@ func TestPassphraseHashing(t *testing.T) {
 
 // ---------------------------------------------------------------- reports
 
-const goodUserID = "u7fKqGm0bE3x1Y9cWJp2LhT8sNdA4vRz6oQiXeBgMkc"
+// A contact code as the app makes them (a signed card, base64url); the
+// site checks its form, the app its signature.
+const goodContactCode = ContactCodePrefix + "CrQECiDPrKG76-U9ZVvWl2x2EC_IBYlRifL0CXm-oMLvcqm1fxoNUml0YSBSZXBvcnRlciKcAgrXAQogz6yhu-vlPWVb1pdsdhAvyAWJUYny9Al5vqDC73Kp"
 
 func solvedForm(t *testing.T, ts *testSite, kind string, v url.Values) url.Values {
 	t.Helper()
@@ -718,22 +720,22 @@ func hexString(b []byte) string {
 
 func goodReport() url.Values {
 	return url.Values{
-		"title":       {"Crash when opening settings"},
-		"description": {"The app closes when I open Settings → Network. Every time."},
-		"user_id":     {goodUserID},
-		"community":   {"OpenArcanum Beta"},
-		"email":       {"tester@example.invalid"},
+		"title":        {"Crash when opening settings"},
+		"description":  {"The app closes when I open Settings → Network. Every time."},
+		"contact_code": {goodContactCode},
+		"email":        {"tester@example.invalid"},
 	}
 }
 
-func TestValidUserID(t *testing.T) {
-	if !ValidUserID(goodUserID) {
-		t.Fatal("rejected a good id")
+func TestValidContactCode(t *testing.T) {
+	if !ValidContactCode(goodContactCode) {
+		t.Fatal("rejected a good code")
 	}
-	for _, bad := range []string{"", goodUserID[:42], goodUserID + "A", strings.Replace(goodUserID, "u", "+", 1),
-		goodUserID[:42] + "d", // non-canonical: trailing bits set
-		strings.Repeat("A", 42) + "=", "<script>alert(1)</script>xxxxxxxxxxxxxxxxxxx"} {
-		if ValidUserID(bad) {
+	body := strings.TrimPrefix(goodContactCode, ContactCodePrefix)
+	for _, bad := range []string{"", body, ContactCodePrefix, ContactCodePrefix + "abc", goodContactCode + "=",
+		strings.Replace(goodContactCode, "C", "+", 1), "openarcanum-invite:" + body,
+		ContactCodePrefix + strings.Repeat("A", MaxContactCode), ContactCodePrefix + "<script>alert(1)</script>" + body} {
+		if ValidContactCode(bad) {
 			t.Errorf("accepted %q", bad)
 		}
 	}
@@ -752,7 +754,7 @@ func TestReportSubmission(t *testing.T) {
 		t.Fatal(list, err)
 	}
 	r := list[0]
-	if r.Kind != "security" || r.Status != "new" || r.Content.UserID != goodUserID || r.Content.Severity != "high" || !strings.Contains(rec.Body.String(), r.Ref) {
+	if r.Kind != "security" || r.Status != "new" || r.Content.ContactCode != goodContactCode || r.Content.Severity != "high" || !strings.Contains(rec.Body.String(), r.Ref) {
 		t.Fatalf("%+v", r)
 	}
 	// The challenge works once.
@@ -763,11 +765,11 @@ func TestReportSubmission(t *testing.T) {
 	// corrected form goes through with the same solution (so solving
 	// challenges for invalid forms can't fill the table of used ones).
 	form = solvedForm(t, ts, "bug", goodReport())
-	form.Set("user_id", "not-an-id")
+	form.Set("contact_code", "not-a-code")
 	if rec := ts.do(req{path: "/report/bug", form: form}); rec.Code != http.StatusUnprocessableEntity || strings.Contains(rec.Body.String(), "didn't pass") {
 		t.Fatalf("invalid form: %d", rec.Code)
 	}
-	form.Set("user_id", goodUserID)
+	form.Set("contact_code", goodContactCode)
 	if rec := ts.do(req{path: "/report/bug", form: form}); rec.Code != 200 || !strings.Contains(rec.Body.String(), "your report arrived") {
 		t.Fatalf("corrected form: %d %s", rec.Code, rec.Body.String())
 	}
@@ -776,14 +778,13 @@ func TestReportSubmission(t *testing.T) {
 func TestReportValidation(t *testing.T) {
 	ts := newSite(t)
 	cases := map[string]func(v url.Values){
-		"user_id":     func(v url.Values) { v.Set("user_id", "not-an-id") },
-		"user_id ":    func(v url.Values) { v.Del("user_id") },
-		"community":   func(v url.Values) { v.Del("community") },
-		"title":       func(v url.Values) { v.Set("title", "line\nbreak") },
-		"title ":      func(v url.Values) { v.Set("title", strings.Repeat("x", maxTitle+1)) },
-		"description": func(v url.Values) { v.Set("description", "too short") },
-		"email":       func(v url.Values) { v.Set("email", "Mallory <m@example.invalid>") },
-		"steps":       func(v url.Values) { v.Set("steps", "bidi \u202e override") },
+		"contact_code":  func(v url.Values) { v.Set("contact_code", "not-a-code") },
+		"contact_code ": func(v url.Values) { v.Del("contact_code") },
+		"title":         func(v url.Values) { v.Set("title", "line\nbreak") },
+		"title ":        func(v url.Values) { v.Set("title", strings.Repeat("x", maxTitle+1)) },
+		"description":   func(v url.Values) { v.Set("description", "too short") },
+		"email":         func(v url.Values) { v.Set("email", "Mallory <m@example.invalid>") },
+		"steps":         func(v url.Values) { v.Set("steps", "bidi \u202e override") },
 	}
 	for name, f := range cases {
 		v := goodReport()
@@ -858,17 +859,16 @@ func TestReportHoneypotAndRateLimit(t *testing.T) {
 // Report contents and notes never reach the database file in the clear.
 func TestReportsEncryptedAtRest(t *testing.T) {
 	ts := newSite(t)
-	markers := []string{"ZEBRA-TITLE-MARKER", "QUOKKA-DESCRIPTION-MARKER", "WOMBAT-STEPS", "narwhal@example.invalid", "AXOLOTL-COMMUNITY", "PANGOLIN-NOTE"}
+	markers := []string{"ZEBRA-TITLE-MARKER", "QUOKKA-DESCRIPTION-MARKER", "WOMBAT-STEPS", "narwhal@example.invalid", "PANGOLIN-NOTE"}
 	v := goodReport()
 	v.Set("title", markers[0])
 	v.Set("description", markers[1]+" with enough text to pass")
 	v.Set("steps", markers[2])
 	v.Set("email", markers[3])
-	v.Set("community", markers[4])
 	if rec := ts.do(req{path: "/report/security", form: solvedForm(t, ts, "security", v)}); rec.Code != 200 {
 		t.Fatal(rec.Code)
 	}
-	if err := ts.st.TriageReport(context.Background(), 1, 1, Triage{Status: "triaged", Severity: "low", Note: markers[5]}); err != nil {
+	if err := ts.st.TriageReport(context.Background(), 1, 1, Triage{Status: "triaged", Severity: "low", Note: markers[4]}); err != nil {
 		t.Fatal(err)
 	}
 	ts.st.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
@@ -878,7 +878,7 @@ func TestReportsEncryptedAtRest(t *testing.T) {
 		b, _ := os.ReadFile(filepath.Join(ts.dir, e.Name()))
 		all = append(all, b...)
 	}
-	for _, m := range append(markers, goodUserID) {
+	for _, m := range append(markers, strings.TrimPrefix(goodContactCode, ContactCodePrefix)) {
 		if bytes.Contains(all, []byte(m)) {
 			t.Errorf("%q is in the data directory in the clear", m)
 		}
@@ -889,7 +889,7 @@ func TestReportsEncryptedAtRest(t *testing.T) {
 		t.Fatal(r, err)
 	}
 	notes, err := ts.st.Notes(context.Background(), 1)
-	if err != nil || len(notes) != 1 || !strings.Contains(notes[0].Body, markers[5]) || !strings.Contains(notes[0].Body, "Status: new → triaged") {
+	if err != nil || len(notes) != 1 || !strings.Contains(notes[0].Body, markers[4]) || !strings.Contains(notes[0].Body, "Status: new → triaged") {
 		t.Fatal(notes, err)
 	}
 	// A wrong key is refused.
@@ -911,7 +911,7 @@ func TestAdminShowsReportsEscaped(t *testing.T) {
 	v := goodReport()
 	v.Set("title", `<script>alert(1)</script>`)
 	v.Set("description", `<img src=x onerror=alert(1)> and "quotes" & more text`)
-	v.Set("community", `"><svg onload=alert(1)>`)
+	v.Set("name", `"><svg onload=alert(1)>`)
 	if rec := ts.do(req{path: "/report/bug", form: solvedForm(t, ts, "bug", v)}); rec.Code != 200 {
 		t.Fatal(rec.Code)
 	}
@@ -928,8 +928,8 @@ func TestAdminShowsReportsEscaped(t *testing.T) {
 		}
 	}
 	body := ts.do(req{path: "/admin/reports/1", cookies: []*http.Cookie{sc}}).Body.String()
-	if !strings.Contains(body, `value="`+goodUserID+`"`) || !strings.Contains(body, `data-copy="reporter-id"`) {
-		t.Fatal("user ID and its copy button missing")
+	if !strings.Contains(body, goodContactCode+"</textarea>") || !strings.Contains(body, `data-copy="reporter-code"`) {
+		t.Fatal("contact code and its copy button missing")
 	}
 	// Triage: status, severity, assignee and a note.
 	rec := ts.do(req{path: "/admin/reports/1", cookies: []*http.Cookie{sc}, form: url.Values{"csrf": {csrf}, "status": {"in-progress"}, "severity": {"critical"}, "assignee": {"1"}, "note": {"<b>looking</b>"}}})
@@ -1020,7 +1020,7 @@ func TestAccessLogPrivacy(t *testing.T) {
 	if strings.Count(line, "\n") != 3 {
 		t.Fatalf("log: %q", line)
 	}
-	for _, leak := range []string{"203.0.113.99", "2001:db8", "s3cret", "private", "Crash when", goodUserID, "tester@", "1234567"} {
+	for _, leak := range []string{"203.0.113.99", "2001:db8", "s3cret", "private", "Crash when", strings.TrimPrefix(goodContactCode, ContactCodePrefix), "tester@", "1234567"} {
 		if strings.Contains(line, leak) {
 			t.Errorf("log has %q: %q", leak, line)
 		}
@@ -1141,7 +1141,6 @@ func TestConfigValidate(t *testing.T) {
 		"reports_per_hour":     func(c *Config) { c.ReportsPerHour = 0 },
 		"reports_per_day":      func(c *Config) { c.ReportsPerDay = 0 },
 		"report_pow_bits":      func(c *Config) { c.ReportPoWBits = 30 },
-		"contact_community":    func(c *Config) { c.ContactCommunity = strings.Repeat("c", 201) },
 		"download_url":         func(c *Config) { c.DownloadURL = "javascript:alert(1)" },
 		"source_url":           func(c *Config) { c.SourceURL = "http://example.invalid" },
 		"session_ttl":          func(c *Config) { c.SessionTTL.Duration = time.Second },

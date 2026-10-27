@@ -802,6 +802,17 @@ class JsApi:
     def dm_open(self, cid: str, member: str) -> dict:
         return self._a(lambda: self._core.dms.open_with_member(cid, member))
 
+    def dm_open_contact(self, ident: str) -> dict:
+        return self._a(lambda: self._core.dms.open_with_contact(str(ident)))
+
+    def dm_contact_code(self, name: str = "") -> dict:
+        """My contact code, for the report form on the website or anyone who
+        should be able to message me without sharing a community."""
+        return self._a(lambda: self._core.dms.contact_code(str(name or "")))
+
+    def dm_add_contact_code(self, code: str) -> dict:
+        return self._a(lambda: self._core.dms.add_contact_code(str(code or "")))
+
     def dm_create_group(self, cid: str, members: list, name: str = "") -> dict:
         return self._a(lambda: self._core.dms.create_group(cid, [str(m) for m in members], str(name)))
 

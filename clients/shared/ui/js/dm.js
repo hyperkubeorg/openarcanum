@@ -68,6 +68,11 @@ const dmUI = {
     try { const r = await api('dm_open', cid, member.key); await this.open(r.id); }
     catch (e) { toastError(e); }
   },
+
+  async startWithContact(id) {
+    try { const r = await api('dm_open_contact', id); await this.open(r.id); }
+    catch (e) { toastError(e); }
+  },
 };
 
 function dmCall(...args) {
@@ -602,11 +607,48 @@ async function safetyDialog(id, name, gid = '') {
   });
 }
 
+// A contact code lets someone message you without sharing a community: the
+// report form on the website asks for one, so the maintainers can reply.
+function myContactCodeDialog() {
+  const name = h('input', { type: 'text', maxlength: 64, placeholder: t('Optional') });
+  const out = h('textarea', { rows: 4, readonly: true, class: 'contact-code' });
+  const err = h('div', { class: 'error', role: 'alert' });
+  const make = async () => {
+    err.textContent = '';
+    try { out.value = await api('dm_contact_code', name.value); } catch (e) { err.textContent = e.message; }
+  };
+  const body = h('div', {},
+    h('p', { text: t('Give this code to someone so they can send you a direct message, without sharing a community. It works for about a week; make a new one when you need it again.') }),
+    field(t('Name they see'), name, t('Leave it empty to stay anonymous.')),
+    h('div', { class: 'row' }, h('button', { class: 'btn', text: t('Make a new code'), onclick: make })),
+    field(t('Your contact code'), out), err);
+  make();
+  modal({ title: t('Your contact code'), body, actions: [
+    { label: t('Copy'), kind: 'primary', run: async () => { if (!out.value) return false; await api('copy_text', out.value); toast(t('Contact code copied.')); } },
+    { label: t('Close') },
+  ] });
+}
+
+function addContactCodeDialog() {
+  const code = h('textarea', { rows: 4, placeholder: 'openarcanum-contact:…' }); // i18n: not shown (the code's literal prefix)
+  const body = h('div', {},
+    h('p', { text: t('Paste the contact code someone gave you. They are added to your contacts, and you can message them.') }),
+    field(t('Contact code'), code));
+  modal({ title: t('Add a contact code'), body, actions: [
+    { label: t('Add and message'), kind: 'primary', run: async () => {
+      const r = await api('dm_add_contact_code', code.value);
+      toast(t('Added to your contacts.'));
+      dmUI.startWithContact(r.id);
+    } },
+    { label: t('Cancel') },
+  ] });
+}
+
 async function contactsDialog() {
   let contacts = [];
   try { contacts = await api('dm_contacts'); } catch (e) { toastError(e); return; }
   const body = h('div', { class: 'dm-info' });
-  if (!contacts.length) body.appendChild(emptyNote(t("No contacts yet. Add people from a community's member list.")));
+  if (!contacts.length) body.appendChild(emptyNote(t("No contacts yet. Add people from a community's member list, or with a contact code.")));
   for (const c of contacts) {
     body.appendChild(h('div', { class: 'member-row', oncontextmenu: (e) => userMenu(e, { contact: c }, { after: () => { m.close(); contactsDialog(); } }) },
       withStatus(avatarEl(c.name, c.id, 'sm'), personStatus(c.id)),
@@ -615,11 +657,16 @@ async function contactsDialog() {
       c.verified ? h('span', { class: 'pill ok', text: t('verified') }) : null,
       c.key_changed ? h('span', { class: 'pill warn', text: t('key changed') }) : null,
       c.blocked ? h('span', { class: 'pill', text: t('blocked') }) : null,
+      c.blocked ? null : h('button', { class: 'btn small', text: t('Message'), onclick: () => { m.close(); dmUI.startWithContact(c.id); } }),
       h('button', { class: 'btn small', text: t('Safety number'), onclick: () => { m.close(); safetyDialog(c.id, c.name); } }),
       h('button', { class: 'btn small', text: c.blocked ? t('Unblock') : t('Block'), onclick: () => api('dm_block', c.id, !c.blocked).then(() => { m.close(); contactsDialog(); }, toastError) }),
       h('button', { class: 'btn small danger', text: t('Remove'), onclick: () => api('dm_remove_contact', c.id).then(() => { m.close(); contactsDialog(); }, toastError) })));
   }
-  const m = modal({ title: t('Contacts'), body, actions: [{ label: t('Close'), kind: 'primary' }] });
+  const m = modal({ title: t('Contacts'), body, actions: [
+    { label: t('Your contact code'), run: () => { myContactCodeDialog(); } },
+    { label: t('Add a contact code'), run: () => { addContactCodeDialog(); } },
+    { label: t('Close'), kind: 'primary' },
+  ] });
 }
 
 // ---------------------------------------------------------------- events

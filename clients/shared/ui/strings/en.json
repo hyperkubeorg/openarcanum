@@ -448,6 +448,11 @@
     "ui/js/chat.js"
    ]
   },
+  "Add a contact code": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Add a node": {
    "used_in": [
     "ui/js/lock.js"
@@ -462,6 +467,11 @@
    "used_in": [
     "ui/js/admin.js",
     "ui/js/chat.js"
+   ]
+  },
+  "Add and message": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Add as contact": {
@@ -511,6 +521,11 @@
   "Added to contacts.": {
    "used_in": [
     "ui/js/people.js"
+   ]
+  },
+  "Added to your contacts.": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Added {node}": {
@@ -747,6 +762,11 @@
   "Ask for your passphrase": {
    "used_in": [
     "ui/js/settings.js"
+   ]
+  },
+  "Ask them for a new contact code.": {
+   "used_in": [
+    "dm.py"
    ]
   },
   "Asked {time}": {
@@ -1586,6 +1606,17 @@
     "ui/js/settings.js"
    ]
   },
+  "Contact code": {
+   "used_in": [
+    "dm.py",
+    "ui/js/dm.js"
+   ]
+  },
+  "Contact code copied.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Contacts": {
    "used_in": [
     "ui/js/dm.js"
@@ -1644,6 +1675,7 @@
   },
   "Copy": {
    "used_in": [
+    "ui/js/dm.js",
     "ui/js/dom.js"
    ]
   },
@@ -2709,6 +2741,11 @@
     "core.py"
    ]
   },
+  "Give this code to someone so they can send you a direct message, without sharing a community. It works for about a week; make a new one when you need it again.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Grants": {
    "used_in": [
     "ui/js/admin.js"
@@ -3371,6 +3408,11 @@
     "ui/js/dm.js"
    ]
   },
+  "Leave it empty to stay anonymous.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Leave this group? You will stop receiving its messages, and its history is deleted from your devices.": {
    "used_in": [
     "ui/js/dm.js"
@@ -3596,6 +3638,11 @@
    ],
    "used_in": [
     "ui/js/lock.js"
+   ]
+  },
+  "Make a new code": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Make a strong random passphrase": {
@@ -4168,10 +4215,23 @@
     "ui/js/moderation.js"
    ]
   },
+  "Name they see": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Name this device": {
    "used_in": [
     "ui/js/devices.js",
     "ui/js/lock.js"
+   ]
+  },
+  "Names can be at most {max} characters.": {
+   "vars": [
+    "max"
+   ],
+   "used_in": [
+    "dm.py"
    ]
   },
   "Needs approval": {
@@ -4421,9 +4481,13 @@
     "ui/js/chat.js"
    ]
   },
+  "No contacts yet. Add people from a community's member list, or with a contact code.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "No contacts yet. Add people from a community's member list.": {
    "used_in": [
-    "ui/js/dm.js",
     "ui/js/status.js"
    ]
   },
@@ -5057,6 +5121,11 @@
   "Paste move code…": {
    "used_in": [
     "ui/js/admin.js"
+   ]
+  },
+  "Paste the contact code someone gave you. They are added to your contacts, and you can message them.": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Paste the invite someone sent you.": {
@@ -6798,6 +6867,11 @@
     "dm.py"
    ]
   },
+  "That contact code is damaged. Copy it again.": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "That device isn't linked.": {
    "used_in": [
     "dm.py"
@@ -6891,6 +6965,14 @@
     "core.py"
    ]
   },
+  "That isn't a contact code. It starts with {prefix}": {
+   "vars": [
+    "prefix"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "That isn't a member key.": {
    "used_in": [
     "moderation.py"
@@ -6952,9 +7034,19 @@
     "core.py"
    ]
   },
+  "That person isn't in your contacts.": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "That took too long. Check your connection and try again.": {
    "used_in": [
     "api.py"
+   ]
+  },
+  "That's your own contact code.": {
+   "used_in": [
+    "dm.py"
    ]
   },
   "The AppImage's folder isn't writable, so this copy can't update itself.": {
@@ -9038,6 +9130,11 @@
   "Your computer serves the community": {
    "used_in": [
     "ui/js/join.js"
+   ]
+  },
+  "Your contact code": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Your contacts see": {

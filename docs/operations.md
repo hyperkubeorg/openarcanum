@@ -1182,7 +1182,6 @@ logging keys ("Logs, health and metrics") and the TLS keys above
 | `reports_per_hour` | 5 (1 to 1000) | reports per IPv4 address or IPv6 /64 in a sliding hour |
 | `reports_per_day` | 500 | reports from everyone together per day (bounds storage under a distributed flood; once reached, reports are refused and a warning is logged, so a flood can block real reports for the rest of the day: raise it, or `report_pow_bits`, if that happens) |
 | `report_pow_bits` | 18 (0 to 24) | the forms' proof-of-work difficulty: about 2^18 SHA-256 hashes in the browser, well under a second on a laptop |
-| `contact_community` | none | the community reporters are asked to be in, so the team can message them; shown on the forms and filled in |
 | `download_url`, `source_url` | none | https links shown on the landing page (Download, Source code) once set; empty shows none |
 | `webclient_dir` | none (the site image: `/usr/share/openarcanum/webclient`) | the built web client (`clients/web/build.py`), served at /app/ with its own Content-Security-Policy and an "Open in your browser" link on the landing page; empty: no web client |
 | `session_ttl` | `12h` (5m to 720h) | an admin sign-in's longest life |
@@ -1504,7 +1503,7 @@ mailbox bytes), which an operator may still want private.
   and signatures made by earlier releases.
 - **The website.** `site` starts with `tls_mode` off on `:7300`. A public
   deployment sets `tls_domains`, `tls_mode` `acme`, `acme_email` and
-  `http_listen` ("Website" above), and usually `download_url`,
-  `source_url` and `contact_community`, which are empty by default (the
-  landing page then shows no links and the report forms ask reporters to
-  name a community).
+  `http_listen` ("Website" above), and usually `download_url` and
+  `source_url`, which are empty by default (the landing page then shows no
+  links). Report forms ask for the reporter's contact code, so the team can
+  reply by direct message.

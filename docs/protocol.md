@@ -1639,6 +1639,16 @@ So:
   `inboxes` one first-contact mailbox address per device. Each device shares
   its fallback key and inbox with the user's other devices (§10.2), so any of
   them can publish the full card.
+- **Contact codes:** `openarcanum-contact:` followed by a `SignedContactCard`
+  in unpadded base64url, handed from person to person (the website's report
+  forms ask for one) instead of fetched from a community. The card is for a
+  DM identity of its own, used with no community (so the code links its
+  owner to none), has an empty `member`, and must list at least one inbox;
+  a card with a `member` is refused as a code. It has no one-time keys:
+  the first message uses the card's fallback key, so a code works until
+  that key is replaced twice (about a week). The person who adds a code
+  keeps the card as for any contact; their first message reaches the
+  code's owner as a request.
 - **One-time keys** (`OneTimeKey`, signed by the device: `openarcanum/dm-otk/v2`)
   are uploaded per device (`AddKeyPackages` with `KeyPackage{device,
   package}`); the server hands out one per device per `GetContactCard` and

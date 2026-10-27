@@ -397,7 +397,6 @@ Edit `site.json` in the kit and run setup.sh. Useful keys:
 
 | Key | Meaning |
 |---|---|
-| `contact_community` | the community reporters are asked to be in, so the team can message them |
 | `download_url`, `source_url` | links on the landing page |
 | `webclient_dir` | set by the image: the web client, served at https://openarcanum.org/app/ |
 | `reports_per_hour` | reports per client network per hour [5] |

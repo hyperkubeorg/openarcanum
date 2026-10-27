@@ -55,10 +55,6 @@ type Config struct {
 	// ReportPoWBits is the proof-of-work difficulty of the report forms
 	// (0 off, up to 24; each bit doubles the work).
 	ReportPoWBits int `json:"report_pow_bits" env:"REPORT_POW_BITS"`
-	// ContactCommunity names the community reporters are asked to share
-	// with the team, so the team can DM them (shown on the forms and
-	// filled in for them). Empty: reporters name one.
-	ContactCommunity string `json:"contact_community" env:"CONTACT_COMMUNITY"`
 	// DownloadURL and SourceURL add Download and Source code links to the
 	// landing page once set (https only). Empty (default): no links.
 	DownloadURL string `json:"download_url" env:"DOWNLOAD_URL"`
@@ -146,8 +142,6 @@ func (c *Config) Validate() error {
 		return errors.New("reports_per_day must be between 1 and 1000000")
 	case c.ReportPoWBits < 0 || c.ReportPoWBits > pow.MaxBits:
 		return fmt.Errorf("report_pow_bits must be between 0 and %d", pow.MaxBits)
-	case len(c.ContactCommunity) > maxCommunity:
-		return fmt.Errorf("contact_community must be at most %d characters", maxCommunity)
 	case c.SessionTTL.Duration < 5*time.Minute || c.SessionTTL.Duration > 30*24*time.Hour:
 		return errors.New("session_ttl must be between 5m and 720h")
 	case c.SessionIdle.Duration < time.Minute || c.SessionIdle.Duration > c.SessionTTL.Duration:

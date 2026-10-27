@@ -18,26 +18,32 @@ const (
 	minDescription = 20
 	maxSteps       = 20_000
 	maxVersion     = 200
-	maxCommunity   = 200
 	maxName        = 64
 	maxEmail       = 254
 	// maxFormBytes bounds a form post's body.
 	maxFormBytes = 128 << 10
 )
 
-// UserIDLen is the length of an OpenArcanum user ID: a 32-byte Ed25519
-// public key in unpadded base64url, as the desktop app's "Copy user ID"
-// gives it (client keys.encode; a member key in a community, or a DM
-// identity key).
-const UserIDLen = 43
+// ContactCodePrefix starts a contact code: a signed contact card in
+// unpadded base64url that the app gives out (Direct messages → Contacts →
+// Your contact code) so someone can message its owner without sharing a
+// community. The maintainers add it in the app to reply (client
+// dm.parse_contact_code checks the signature there).
+const ContactCodePrefix = "openarcanum-contact:"
 
-// ValidUserID reports whether s is a user ID in its canonical form.
-func ValidUserID(s string) bool {
-	if len(s) != UserIDLen {
+// MaxContactCode bounds a contact code. One device's card is about 900
+// characters; a card can list up to 20 devices.
+const MaxContactCode = 16 << 10
+
+// ValidContactCode reports whether s looks like a contact code: the prefix
+// and a card that decodes.
+func ValidContactCode(s string) bool {
+	body, ok := strings.CutPrefix(s, ContactCodePrefix)
+	if !ok || len(s) > MaxContactCode || len(body) < 64 {
 		return false
 	}
-	b, err := base64.RawURLEncoding.Strict().DecodeString(s)
-	return err == nil && len(b) == 32
+	_, err := base64.RawURLEncoding.Strict().DecodeString(body)
+	return err == nil
 }
 
 // cleanText normalises a submitted text field: valid UTF-8, \n line ends,
@@ -67,8 +73,7 @@ type reportForm struct {
 	Description string
 	Steps       string
 	Version     string
-	UserID      string
-	Community   string
+	ContactCode string
 	Name        string
 	Email       string
 	Severity    string
@@ -109,18 +114,17 @@ func parseReport(kind string, v url.Values) *reportForm {
 	f.Description = text("description", false, minDescription, maxDescription, true, "The description")
 	f.Steps = text("steps", false, 0, maxSteps, false, "Steps to reproduce")
 	f.Version = text("version", true, 0, maxVersion, false, "Version and system")
-	f.Community = text("community", true, 0, maxCommunity, true, "The community")
 	f.Name = text("name", true, 0, maxName, false, "Your name")
 	f.Email = text("email", true, 0, maxEmail, false, "The e-mail address")
-	f.UserID = strings.TrimSpace(v.Get("user_id"))
-	if f.UserID == "" {
-		f.fail("user_id", "Your user ID is required: we contact you by direct message.")
-	} else if !ValidUserID(f.UserID) {
-		f.fail("user_id", "That isn't a user ID. In the app, right-click your name and choose Copy user ID; it is 43 letters, digits, - and _.")
-		if len(f.UserID) > 100 {
-			f.UserID = f.UserID[:100]
+	f.ContactCode = strings.Join(strings.Fields(v.Get("contact_code")), "")
+	if f.ContactCode == "" {
+		f.fail("contact_code", "Your contact code is required: we reply by direct message.")
+	} else if !ValidContactCode(f.ContactCode) {
+		f.fail("contact_code", "That isn't a contact code. In the app, open Direct messages → Contacts → Your contact code and copy it; it starts with "+ContactCodePrefix)
+		if len(f.ContactCode) > MaxContactCode {
+			f.ContactCode = f.ContactCode[:MaxContactCode]
 		}
-		f.UserID = strings.ToValidUTF8(f.UserID, "")
+		f.ContactCode = strings.ToValidUTF8(f.ContactCode, "")
 	}
 	if f.Email != "" {
 		if a, err := mail.ParseAddress(f.Email); err != nil || a.Address != f.Email {
@@ -139,5 +143,5 @@ func parseReport(kind string, v url.Values) *reportForm {
 
 func (f *reportForm) content() ReportContent {
 	return ReportContent{Title: f.Title, Description: f.Description, Steps: f.Steps, Version: f.Version,
-		UserID: f.UserID, Community: f.Community, Name: f.Name, Email: f.Email, Severity: f.Severity}
+		ContactCode: f.ContactCode, Name: f.Name, Email: f.Email, Severity: f.Severity}
 }

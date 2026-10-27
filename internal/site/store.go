@@ -549,11 +549,14 @@ type ReportContent struct {
 	Description string `json:"description"`
 	Steps       string `json:"steps,omitempty"`
 	Version     string `json:"version,omitempty"`
-	UserID      string `json:"user_id"`
-	Community   string `json:"community"`
-	Name        string `json:"name,omitempty"`
-	Email       string `json:"email,omitempty"`
-	Severity    string `json:"severity,omitempty"`
+	ContactCode string `json:"contact_code,omitempty"`
+	// UserID and Community: how reports sent before contact codes reached
+	// the reporter (a member of a community the maintainers are in).
+	UserID    string `json:"user_id,omitempty"`
+	Community string `json:"community,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Email     string `json:"email,omitempty"`
+	Severity  string `json:"severity,omitempty"`
 }
 
 // Report is a report with its triage state.
