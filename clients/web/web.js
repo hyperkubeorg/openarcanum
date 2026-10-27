@@ -78,6 +78,12 @@
     }
   };
 
+  // Notifications (mentions, direct messages while the tab is in the
+  // background) need the browser's permission, asked for on a click.
+  if (window.Notification && Notification.permission === 'default') {
+    document.addEventListener('click', () => { Notification.requestPermission().catch(() => {}); }, { once: true });
+  }
+
   const invite = location.hash.length > 1 ? decodeURIComponent(location.hash.slice(1)) : '';
   if (invite) history.replaceState(null, '', location.pathname);
   worker.postMessage({ type: 'start', lang: navigator.language || '', invite });

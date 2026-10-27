@@ -82,6 +82,7 @@ async function enterApp(status) {
   try {
     chat.drafts = (await api('ui_state_get', 'drafts')) || {};
     st.showMembers = !!(await api('ui_state_get', 'show_members'));
+    setSidebarWidth(await api('ui_state_get', 'sidebar_width'));
     const last = (await api('ui_state_get', 'last')) || {};
     await refreshCommunities();
     // The conversation list (and the direct messages icon's unread count) from this device's store.
@@ -323,3 +324,69 @@ for (const ev of ['mousemove', 'keydown', 'mousedown', 'wheel']) {
 }
 
 bridge.ready.then(boot);
+
+// ---------------------------------------------------------------- list column width
+
+// The list column (channels, conversations) can be made wider or narrower
+// by dragging its right edge, or with the arrow keys on the handle. The
+// width is kept per profile (ui_state 'sidebar_width'); it can't be hidden.
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = 240;
+let sidebarWidth = SIDEBAR_DEFAULT;
+
+function setSidebarWidth(w) {
+  const n = Number(w);
+  sidebarWidth = Number.isFinite(n) && n > 0 ? Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, n))) : SIDEBAR_DEFAULT;
+  document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+  const handle = $('.sidebar-resizer');
+  if (handle) handle.setAttribute('aria-valuenow', String(sidebarWidth));
+}
+
+function saveSidebarWidth() {
+  api('ui_state_set', 'sidebar_width', sidebarWidth === SIDEBAR_DEFAULT ? null : sidebarWidth).catch(() => {});
+}
+
+(function sidebarResizer() {
+  const handle = h('div', {
+    class: 'sidebar-resizer', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical',
+    'aria-label': t('Width of the list'), 'aria-valuemin': String(SIDEBAR_MIN), 'aria-valuemax': String(SIDEBAR_MAX),
+    'aria-valuenow': String(sidebarWidth),
+  });
+  let startX = 0;
+  let startW = 0;
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    startX = e.clientX;
+    startW = sidebarWidth;
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    document.body.classList.add('resizing-sidebar');
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (handle.hasPointerCapture(e.pointerId)) setSidebarWidth(startW + e.clientX - startX);
+  });
+  const end = (e) => {
+    if (!handle.hasPointerCapture(e.pointerId)) return;
+    handle.releasePointerCapture(e.pointerId);
+    handle.classList.remove('dragging');
+    document.body.classList.remove('resizing-sidebar');
+    saveSidebarWidth();
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+  handle.addEventListener('dblclick', () => { setSidebarWidth(SIDEBAR_DEFAULT); saveSidebarWidth(); });
+  handle.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 48 : 16;
+    if (e.key === 'ArrowLeft') setSidebarWidth(sidebarWidth - step);
+    else if (e.key === 'ArrowRight') setSidebarWidth(sidebarWidth + step);
+    else if (e.key === 'Home') setSidebarWidth(SIDEBAR_MIN);
+    else if (e.key === 'End') setSidebarWidth(SIDEBAR_MAX);
+    else return;
+    e.preventDefault();
+    saveSidebarWidth();
+  });
+  $('#app').appendChild(handle);
+})();
+

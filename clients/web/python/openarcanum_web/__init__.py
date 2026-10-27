@@ -225,6 +225,20 @@ def boot(lang: str = "", invite_link: str = "") -> None:
     _gui = WebGui(bus, invite_link or None)
     loop = WebLoop()
     core = Core(paths, emit=bus.push)
+    gui = _gui
+
+    # As app.run: the core's notify events also become notifications.
+    def forward(event: str, data: Any) -> None:
+        bus.push(event, data)
+        if event == "notify":
+            gui.notify(data.get("title", "OpenArcanum"), data.get("body", ""))
+
+    core.emit = forward
+    core.media_access = gui.media_access
+    # The maintainer networks and whether their nodes serve the public
+    # directory (the app hides "Find a community" when none does). No
+    # updater (the site serves the current release) and no hosting here.
+    core.start_clusters()
     _api = api_mod.JsApi(loop, core, bus, _gui)
     _allowed = api_mod.bridge_methods()
     log.info("web client started")

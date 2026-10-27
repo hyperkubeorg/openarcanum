@@ -8769,6 +8769,11 @@
     "ui/js/status.js"
    ]
   },
+  "Width of the list": {
+   "used_in": [
+    "ui/js/app.js"
+   ]
+  },
   "Window": {
    "used_in": [
     "ui/js/settings.js"

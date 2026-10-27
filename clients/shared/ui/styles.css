@@ -353,7 +353,11 @@ table.list td .row { justify-content: flex-end; }
 .passphrase-field .meter { margin-top: var(--s2); }
 
 /* ================================================================ layout */
-.app { display: grid; grid-template-columns: 72px 240px minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr); height: 100vh; }
+.app { display: grid; grid-template-columns: 72px var(--sidebar-width, 240px) minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr); height: 100vh; position: relative; }
+/* The handle on the list column's right edge (app.js sidebarResizer). */
+.sidebar-resizer { position: absolute; top: 0; bottom: 0; left: calc(72px + var(--sidebar-width, 240px) - 3px); width: 6px; cursor: col-resize; z-index: 5; touch-action: none; }
+.sidebar-resizer:hover, .sidebar-resizer.dragging, .sidebar-resizer:focus-visible { background: var(--accent); opacity: .6; outline: none; }
+body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .rail, .sidebar, .main, .members { min-height: 0; }
 
 .rail { background: var(--rail); display: flex; flex-direction: column; align-items: center; padding: var(--s3) 0; gap: var(--s2); overflow-y: auto; scrollbar-width: none; }
