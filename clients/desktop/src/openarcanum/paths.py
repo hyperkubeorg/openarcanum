@@ -167,4 +167,6 @@ def platform_name() -> str:
         return "macOS"
     if sys.platform.startswith("win"):
         return "Windows"
+    if sys.platform == "emscripten":
+        return "Web browser"  # the web client (clients/web)
     return sys.platform

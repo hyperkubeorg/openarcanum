@@ -42,7 +42,7 @@ PY_FUZZ_TIMEOUT    := $(if $(filter nightly,$(HYPOTHESIS_PROFILE)),--timeout=0)
 
 # The repo's Python scripts (no .py suffix) and the packaging scripts, linted
 # with the client's ruff settings.
-PY_SCRIPTS := $(addprefix ../../,scripts/check-markers scripts/public-check scripts/check-lock scripts/fuzz-go scripts/check-deploy scripts/check-release-bins scripts/version scripts/strings scripts/ui-icons scripts/dev-client) packaging
+PY_SCRIPTS := $(addprefix ../../,scripts/check-markers scripts/public-check scripts/check-lock scripts/fuzz-go scripts/check-deploy scripts/check-release-bins scripts/version scripts/strings scripts/ui-icons scripts/dev-client) packaging ../web
 
 # Headless GUI wrapper for anything that opens a window: Xvfb and a session
 # bus on Linux; Windows and macOS (CI runners included) have a desktop.

@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -135,6 +136,10 @@ func (s *Server) Handler(accessLog io.Writer) http.Handler {
 		files.ServeHTTP(w, r)
 	})
 	r.PathPrefix("/static/").Handler(cacheFor(static, 24*time.Hour)).Methods(get...)
+	if s.cfg.WebClientDir != "" {
+		r.Handle("/app", http.RedirectHandler("/app/", http.StatusMovedPermanently)).Methods(get...)
+		r.PathPrefix("/app/").Handler(webClient(s.cfg.WebClientDir)).Methods(get...)
+	}
 	r.Handle("/favicon.svg", cacheFor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, staticFS, "static/brand.svg")
 	}), 24*time.Hour)).Methods(get...)
@@ -168,7 +173,7 @@ func (s *Server) Handler(accessLog io.Writer) http.Handler {
 		TrustedProxyHeader: s.cfg.TrustedProxyHeader,
 		Redact:             redactPath,
 		// Admin pages carry CSRF tokens next to text reporters wrote.
-		NoCompress: isAdminPath,
+		NoCompress: func(r *http.Request) bool { return isAdminPath(r) || isPacked(r) },
 	})
 }
 
@@ -204,6 +209,42 @@ func cacheFor(h http.Handler, d time.Duration) http.Handler {
 	})
 }
 
+// webClient serves the built web client. The page, its scripts and the
+// manifest are checked on every load, so a new release reaches people at
+// once; Pyodide, the wheels and the content-named app-*.zip are cached.
+func webClient(dir string) http.Handler {
+	files := http.StripPrefix("/app/", http.FileServer(http.Dir(dir)))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		if strings.HasSuffix(p, "/") && p != "/app/" { // no directory listings
+			http.NotFound(w, r)
+			return
+		}
+		if strings.HasPrefix(p, "/app/pyodide/") || strings.HasPrefix(p, "/app/wheels/") || strings.HasPrefix(p, "/app/app-") {
+			w.Header().Set("Cache-Control", "public, max-age=604800")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		files.ServeHTTP(w, r)
+	})
+}
+
+func init() {
+	// Pyodide's modules and WebAssembly must be served with these types; the
+	// system's MIME tables (which Go reads first) don't always have them.
+	_ = mime.AddExtensionType(".mjs", "text/javascript; charset=utf-8")
+	_ = mime.AddExtensionType(".wasm", "application/wasm")
+}
+
+func isWebClientPath(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/app/")
+}
+
+// isPacked: already compressed, not worth compressing again.
+func isPacked(r *http.Request) bool {
+	return isWebClientPath(r) && (strings.HasSuffix(r.URL.Path, ".zip") || strings.HasSuffix(r.URL.Path, ".whl"))
+}
+
 func isAdminPath(r *http.Request) bool {
 	return r.URL.Path == "/admin" || strings.HasPrefix(r.URL.Path, "/admin/")
 }
@@ -213,6 +254,19 @@ func isAdminPath(r *http.Request) bool {
 const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; " +
 	"connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
+// WebClientCSP is the web client's policy (/app/): its scripts and worker
+// only from the site, WebAssembly (Pyodide) allowed, and connections to the
+// maintainer nodes and relays the person uses, which can be anywhere.
+// clients/web/build.py puts the same policy in the page.
+const WebClientCSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; " +
+	"img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' https: wss:; font-src 'self'; " +
+	"frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+// WebClientPermissionsPolicy lets the web client use the microphone, camera
+// and screen sharing for calls.
+const WebClientPermissionsPolicy = "accelerometer=(), camera=(self), display-capture=(self), geolocation=(), gyroscope=(), " +
+	"magnetometer=(), microphone=(self), payment=(), usb=(), interest-cohort=(), browsing-topics=()"
+
 // PermissionsPolicy turns off the browser features the site never uses.
 const PermissionsPolicy = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), " +
 	"payment=(), usb=(), interest-cohort=(), browsing-topics=()"
@@ -220,10 +274,15 @@ const PermissionsPolicy = "accelerometer=(), camera=(), geolocation=(), gyroscop
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", ContentSecurityPolicy)
+		if isWebClientPath(r) {
+			h.Set("Content-Security-Policy", WebClientCSP)
+			h.Set("Permissions-Policy", WebClientPermissionsPolicy)
+		} else {
+			h.Set("Content-Security-Policy", ContentSecurityPolicy)
+			h.Set("Permissions-Policy", PermissionsPolicy)
+		}
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Permissions-Policy", PermissionsPolicy)
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
@@ -316,6 +375,7 @@ type page struct {
 	Product  string
 	Download string
 	Source   string
+	WebApp   bool
 	Data     any
 }
 
@@ -386,6 +446,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name s
 	p.Path = r.URL.Path
 	p.Product = ProductName
 	p.Download, p.Source = s.cfg.DownloadURL, s.cfg.SourceURL
+	p.WebApp = s.cfg.WebClientDir != ""
 	if a := adminFrom(r); a != nil {
 		p.Admin = a.admin
 		p.CSRF = a.csrf

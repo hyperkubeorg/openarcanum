@@ -47,7 +47,8 @@ async function leaveAddPageFor(cid) {
 
 function addPage(tab, link = '') {
   // Without a directory on any maintainer node, there is nothing to find.
-  const waysIn = ADD_WAYS.filter((w) => w.id !== 'find' || directoryAvailable());
+  // The web client (clients/web) can't run the community server program.
+  const waysIn = ADD_WAYS.filter((w) => (w.id !== 'find' || directoryAvailable()) && (w.id !== 'host' || !window.openarcanumWeb));
   if (!waysIn.some((w) => w.id === tab)) tab = 'join';
   const titleId = 'add-page-title';
   const panel = h('div', { class: 'add-panel', role: 'tabpanel', id: 'add-panel' });

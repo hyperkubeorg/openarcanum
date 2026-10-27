@@ -3,8 +3,9 @@
   <img src="/static/brand.svg" alt="" width="96" height="96">
   <h1>{{.Product}}</h1>
   <p class="tagline">Private community chat with no accounts. Your keys are your login, each community runs its own server, and direct messages are end-to-end encrypted.</p>
-  {{if or .Download .Source}}
+  {{if or .WebApp .Download .Source}}
   <div class="actions">
+    {{if .WebApp}}<a class="btn primary" href="/app/">Open in your browser</a>{{end}}
     {{if .Download}}<a class="btn primary" href="{{.Download}}" rel="noopener noreferrer">Download {{.Product}}</a>{{end}}
     {{if .Source}}<a class="btn" href="{{.Source}}" rel="noopener noreferrer">Source code</a>{{end}}
   </div>

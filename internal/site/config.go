@@ -63,6 +63,10 @@ type Config struct {
 	// landing page once set (https only). Empty (default): no links.
 	DownloadURL string `json:"download_url" env:"DOWNLOAD_URL"`
 	SourceURL   string `json:"source_url" env:"SOURCE_URL"`
+	// WebClientDir is the built web client (clients/web/build.py), served
+	// at /app/ with a link on the landing page. Empty (default): no web
+	// client. The site image sets it.
+	WebClientDir string `json:"webclient_dir" env:"WEBCLIENT_DIR"`
 	// SessionTTL is how long an admin sign-in lasts at most; SessionIdle
 	// ends it sooner after no activity.
 	SessionTTL  config.Duration `json:"session_ttl" env:"SESSION_TTL"`

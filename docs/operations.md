@@ -1184,6 +1184,7 @@ logging keys ("Logs, health and metrics") and the TLS keys above
 | `report_pow_bits` | 18 (0 to 24) | the forms' proof-of-work difficulty: about 2^18 SHA-256 hashes in the browser, well under a second on a laptop |
 | `contact_community` | none | the community reporters are asked to be in, so the team can message them; shown on the forms and filled in |
 | `download_url`, `source_url` | none | https links shown on the landing page (Download, Source code) once set; empty shows none |
+| `webclient_dir` | none (the site image: `/usr/share/openarcanum/webclient`) | the built web client (`clients/web/build.py`), served at /app/ with its own Content-Security-Policy and an "Open in your browser" link on the landing page; empty: no web client |
 | `session_ttl` | `12h` (5m to 720h) | an admin sign-in's longest life |
 | `session_idle` | `1h` (≥ 1m, ≤ `session_ttl`) | sign-out after this long without a request |
 

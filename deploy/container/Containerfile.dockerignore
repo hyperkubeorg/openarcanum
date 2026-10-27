@@ -1,10 +1,16 @@
-# Build context for deploy/container/Containerfile (the repo root): only the
-# Go sources. BuildKit reads <Containerfile>.dockerignore next to the file;
-# podman/buildah take it with --ignorefile.
+# Build context for deploy/container/Containerfile (the repo root): the Go
+# sources and what the web client is built from. BuildKit reads
+# <Containerfile>.dockerignore next to the file; podman/buildah take it
+# with --ignorefile.
 *
 !go.mod
 !go.sum
 !cmd/
 !internal/
+!clients/desktop/src/openarcanum/
+!clients/shared/ui/
+!clients/web/
+clients/web/.cache/
+**/__pycache__/
 internal/**/testdata/
 **/*_test.go

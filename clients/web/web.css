@@ -1,0 +1,13 @@
+#web-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+  background: #1e1f22;
+  color: #dbdee1;
+  font: 15px system-ui, sans-serif;
+}

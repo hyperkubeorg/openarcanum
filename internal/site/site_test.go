@@ -293,6 +293,50 @@ func TestLandingPageLinksAndAnnouncements(t *testing.T) {
 	}
 }
 
+func TestWebClient(t *testing.T) {
+	if body := newSite(t).do(req{path: "/"}).Body.String(); strings.Contains(body, `href="/app/"`) {
+		t.Error("web app link without webclient_dir")
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pyodide"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"index.html": "<!doctype html>web", "pyodide/pyodide.asm.wasm": "\x00asm", "worker.js": "x"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := newSite(t, func(c *Config) { c.WebClientDir = dir })
+	if body := ts.do(req{path: "/"}).Body.String(); !strings.Contains(body, `href="/app/"`) {
+		t.Error("landing page lacks the web app link")
+	}
+	if rec := ts.do(req{path: "/"}); rec.Header().Get("Content-Security-Policy") != ContentSecurityPolicy {
+		t.Error("the site's own pages lost their policy")
+	}
+	rec := ts.do(req{path: "/app/"})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "web") {
+		t.Fatalf("/app/: %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); got != WebClientCSP {
+		t.Errorf("/app/ policy %q", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("/app/ cache %q", got)
+	}
+	rec = ts.do(req{path: "/app/pyodide/pyodide.asm.wasm"})
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/wasm" || !strings.Contains(rec.Header().Get("Cache-Control"), "max-age") {
+		t.Errorf("wasm: %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"))
+	}
+	for _, p := range []string{"/app/pyodide/", "/app/missing.js", "/app/../site.json"} {
+		if code := ts.do(req{path: p}).Code; code != http.StatusNotFound && code != http.StatusMovedPermanently {
+			t.Errorf("%s: %d", p, code)
+		}
+	}
+	if code := ts.do(req{path: "/app"}).Code; code != http.StatusMovedPermanently {
+		t.Errorf("/app: %d", code)
+	}
+}
+
 // ---------------------------------------------------------------- admin authorization
 
 var adminRoutes = []struct{ method, path string }{
