@@ -90,9 +90,13 @@ function addPage(tab, link = '') {
       h('div', { class: 'spacer' }),
       h('button', { class: 'icon-btn add-page-close', title: t('Close'), icon: 'x', onclick: closeAddCommunity })),
     h('div', { class: 'add-page-body' },
-      sectionIntro(directoryAvailable()
-        ? t('Join a community someone invited you to, find a public one, or start your own: served by this computer while OpenArcanum runs, or by a server of yours that stays on.')
-        : t('Join a community someone invited you to, or start your own: served by this computer while OpenArcanum runs, or by a server of yours that stays on.')),
+      sectionIntro(window.openarcanumWeb
+        ? (directoryAvailable()
+          ? t('Join a community someone invited you to, find a public one, or start your own on a server of yours that stays on.')
+          : t('Join a community someone invited you to, or start your own on a server of yours that stays on.'))
+        : (directoryAvailable()
+          ? t('Join a community someone invited you to, find a public one, or start your own: served by this computer while OpenArcanum runs, or by a server of yours that stays on.')
+          : t('Join a community someone invited you to, or start your own: served by this computer while OpenArcanum runs, or by a server of yours that stays on.'))),
       ways, panel));
   page.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#modal-root .backdrop')) { e.preventDefault(); closeAddCommunity(); }
@@ -356,6 +360,16 @@ function hostPane() {
 
 const CLAIM_COMMANDS = 'community init -data ./my-community -relay wss://relay-01.openarcanum.org/ws\ncommunity run -data ./my-community'; // i18n: not shown (shell commands, typed the same in every language)
 
+// Where the community server is downloaded from, for the web client, which
+// has no copy of the program to save.
+const SERVER_RELEASES_URL = 'https://github.com/hyperkubeorg/openarcanum/releases/latest'; // i18n: not shown (a URL)
+
+function serverDownloadSection() {
+  return formSection(t('1. Get the community server'), [
+    h('p', { text: t('Download the server release for the computer that will run your community (a Linux server or a computer that stays on): openarcanum-servers for amd64 or arm64. It contains the community program.') }),
+    h('p', {}, h('a', { href: SERVER_RELEASES_URL, target: '_blank', rel: 'noopener noreferrer', text: t('Open the releases page') }))]);
+}
+
 function serverPane() {
   const box = h('div');
   // 1. The program: the copy inside this app, for this computer's system.
@@ -375,11 +389,11 @@ function serverPane() {
     const p = await pickSave('any', path.dataset.name || 'community'); // i18n: not shown (a file name)
     if (p) path.value = p;
   } });
-  const getIt = formSection(t('1. Copy the community server'), [
+  const getIt = window.openarcanumWeb ? serverDownloadSection() : formSection(t('1. Copy the community server'), [
     h('p', { class: 'binary-about', text: t('The same program this app uses to host communities.') }),
     field(t('Save to'), path, t('A full path, or a folder. Copy it to the computer that will run your community.'))],
   formFoot(saveErr, browse, saveBtn));
-  api('community_binary_info').then(async (info) => {
+  if (!window.openarcanumWeb) api('community_binary_info').then(async (info) => {
     path.dataset.name = info.name;
     $('.binary-about', getIt).textContent = info.available
       ? t('The same program this app uses to host communities, for {platform}. For another system, use the server release for it (docs/admin-guide.md "Installing the servers").', { platform: info.platform })

@@ -121,6 +121,11 @@
     "ui/js/join.js"
    ]
   },
+  "1. Get the community server": {
+   "used_in": [
+    "ui/js/join.js"
+   ]
+  },
   "10 minutes": {
    "used_in": [
     "ui/js/moderation.js",
@@ -2397,6 +2402,11 @@
     "ui/js/admin.js"
    ]
   },
+  "Download the server release for the computer that will run your community (a Linux server or a computer that stays on): openarcanum-servers for amd64 or arm64. It contains the community program.": {
+   "used_in": [
+    "ui/js/join.js"
+   ]
+  },
   "Downloaded updates": {
    "used_in": [
     "core.py"
@@ -3129,7 +3139,17 @@
     "ui/js/dm.js"
    ]
   },
+  "Join a community someone invited you to, find a public one, or start your own on a server of yours that stays on.": {
+   "used_in": [
+    "ui/js/join.js"
+   ]
+  },
   "Join a community someone invited you to, find a public one, or start your own: served by this computer while OpenArcanum runs, or by a server of yours that stays on.": {
+   "used_in": [
+    "ui/js/join.js"
+   ]
+  },
+  "Join a community someone invited you to, or start your own on a server of yours that stays on.": {
    "used_in": [
     "ui/js/join.js"
    ]
@@ -4930,6 +4950,11 @@
    ],
    "used_in": [
     "ui/js/settings.js"
+   ]
+  },
+  "Open the releases page": {
+   "used_in": [
+    "ui/js/join.js"
    ]
   },
   "OpenArcanum asks for your passphrase every time it starts. No key is kept on this device.": {
