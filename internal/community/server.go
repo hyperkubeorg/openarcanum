@@ -1106,7 +1106,16 @@ func Init(ctx context.Context, cfg Config) (*InitResult, error) {
 	if err := s.setMeta(ctx, s.db, "route_id", routeID); err != nil {
 		return nil, err
 	}
-	code, err := EncodeCode(ClaimPrefix, &wire.ClaimCode{ServerKey: key.Public, RouteId: routeID, Relays: cfg.Relays, Secret: secret})
+	relays := cfg.Relays
+	if len(relays) == 0 && cfg.RelayMode == "automatic" {
+		// The app reaches an unclaimed server through the relays its claim
+		// code names: in automatic mode, the ones the maintainers list now
+		// (the server attaches to some of them when it starts).
+		if relays, err = registryRelays(ctx, cfg.Maintainers); err != nil {
+			return nil, fmt.Errorf("no relays for the claim code: %w", err)
+		}
+	}
+	code, err := EncodeCode(ClaimPrefix, &wire.ClaimCode{ServerKey: key.Public, RouteId: routeID, Relays: relays, Secret: secret})
 	if err != nil {
 		return nil, err
 	}

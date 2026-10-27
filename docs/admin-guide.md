@@ -577,6 +577,11 @@ community init -data /var/lib/openarcanum-community -relay wss://relay-01.openar
     -maintainer https://maintainer-01.openarcanum.org -install vps
 ```
 
+With `-automatic-relays`, `init` asks the maintainer nodes for their relay
+list and names those relays (up to 8) in the claim code: the app reaches the
+unclaimed server through them. If no maintainer answers, `init` stops and
+creates nothing.
+
 **Back up the storage key** (`storage.key`, or wherever you put it) away
 from the machine right away: the server's backups can't be read without it.
 

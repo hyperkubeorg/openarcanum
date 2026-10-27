@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -532,6 +533,34 @@ func (s *Server) maintainerURLs(ctx context.Context) []string {
 		op, _ = identity.Decode(s.cfg.MaintainerOperatorKey)
 	}
 	return s.clusters.Expand(ctx, s.cfg.Maintainers, op)
+}
+
+// maxClaimRelays bounds the relays a claim code names.
+const maxClaimRelays = 8
+
+// registryRelays lists the relays the maintainers' registries know (for a
+// claim code in automatic relay mode, before the server runs).
+func registryRelays(ctx context.Context, maintainers []string) ([]string, error) {
+	c := newHTTPClient()
+	var out []string
+	var lastErr error = errors.New("no maintainer node lists a relay")
+	for _, m := range maintainers {
+		var list wire.RelayList
+		if err := c.get(ctx, strings.TrimRight(m, "/")+"/v1/relays", &list); err != nil {
+			lastErr = err
+			continue
+		}
+		for _, r := range list.Relays {
+			if u, err := relayurl.Canonical(r.Url); err == nil && !slices.Contains(out, u) {
+				out = append(out, u)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil, lastErr
+	}
+	sort.Strings(out)
+	return out[:min(len(out), maxClaimRelays)], nil
 }
 
 func (s *Server) fetchRelays(ctx context.Context) ([]*wire.RelayInfo, error) {

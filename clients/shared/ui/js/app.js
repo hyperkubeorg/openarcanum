@@ -88,10 +88,11 @@ async function enterApp(status) {
     // The conversation list (and the direct messages icon's unread count) from this device's store.
     dmUI.refresh();
     if (st.view !== view0 || st.cid !== cid0) return;
-    if (last.view === 'dms') { st.view = 'dms'; render(); return; }
-    if (last.cid && st.communities.find((c) => c.id === last.cid)) { await selectCommunity(last.cid, last.channel); return; }
-    if (st.communities.length) await selectCommunity(st.communities[0].id);
-    else render();
+    // Back where you were in a community; anywhere else (or the first
+    // time), Direct messages: its Contacts page.
+    if (last.view !== 'dms' && last.cid && st.communities.find((c) => c.id === last.cid)) { await selectCommunity(last.cid, last.channel); return; }
+    st.view = 'dms';
+    render();
   } catch (e) { toastError(e); render(); }
   finally { $('#app').classList.remove('loading'); openPendingInviteLink().catch(toastError); }
 }

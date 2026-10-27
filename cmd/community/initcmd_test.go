@@ -5,13 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/hyperkubeorg/openarcanum/internal/community"
+	"github.com/hyperkubeorg/openarcanum/internal/identity"
+	"github.com/hyperkubeorg/openarcanum/internal/wire"
 )
 
 // posixModes: Windows has no POSIX mode bits (files there report 0666, or
@@ -194,13 +200,24 @@ func TestInitGuidedHome(t *testing.T) {
 	opens(t, dir)
 }
 
-// VPS from a flag, automatic relays: a maintainer is required.
+// VPS from a flag, automatic relays: a maintainer is required, and the
+// claim code names the relays it lists (the app reaches the unclaimed
+// server through them).
 func TestInitGuidedVPSAutomatic(t *testing.T) {
+	maint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/relays" {
+			http.NotFound(w, r)
+			return
+		}
+		b, _ := proto.Marshal(&wire.RelayList{Relays: []*wire.RelayInfo{{Url: "wss://r1.example.invalid/ws"}}})
+		_, _ = w.Write(b)
+	}))
+	defer maint.Close()
 	dir := filepath.Join(t.TempDir(), "srv")
 	answers := strings.Join([]string{
 		"auto",
 		"", // no maintainer: refused, automatic relays need one
-		"https://maint.example.invalid",
+		maint.URL,
 		"",
 		"", // storage key: default
 		"", // health listener: no (default)
@@ -218,7 +235,28 @@ func TestInitGuidedVPSAutomatic(t *testing.T) {
 	if c["relay_mode"] != "automatic" || c["metrics_listen"] != "" || c["storage_key_file"] != filepath.Join(dir, "storage.key") {
 		t.Fatalf("config: %v", c)
 	}
+	if code := claimCode(t, s); len(code.Relays) != 1 || code.Relays[0] != "wss://r1.example.invalid/ws" {
+		t.Fatalf("claim code relays %v", code.Relays)
+	}
 	opens(t, dir)
+}
+
+// claimCode reads the claim code init printed.
+func claimCode(t *testing.T, out string) *wire.ClaimCode {
+	t.Helper()
+	i := strings.Index(out, community.ClaimPrefix)
+	if i < 0 {
+		t.Fatalf("no claim code in:\n%s", out)
+	}
+	raw, err := identity.Decode(strings.Fields(out[i+len(community.ClaimPrefix):])[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c wire.ClaimCode
+	if err := proto.Unmarshal(raw, &c); err != nil {
+		t.Fatal(err)
+	}
+	return &c
 }
 
 // Cancelling, or stdin ending early, creates nothing.
