@@ -2765,6 +2765,9 @@ class DMManager:
         if kind == "received":
             self.files.on_received(ev.sender_device, list(ev.received.hashes))
             return None
+        if kind == "call":
+            self.core.dmcalls.on_event(gid, ev, mine)
+            return None
         if kind == "typing":
             if not mine:
                 name = self._name_of(gid, sender)

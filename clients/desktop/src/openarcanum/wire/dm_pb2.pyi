@@ -15,12 +15,25 @@ class StatusState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     STATUS_STATE_DND: _ClassVar[StatusState]
     STATUS_STATE_OFFLINE: _ClassVar[StatusState]
     STATUS_STATE_CLEARED: _ClassVar[StatusState]
+
+class DmCallKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DM_CALL_KIND_UNSPECIFIED: _ClassVar[DmCallKind]
+    DM_CALL_KIND_START: _ClassVar[DmCallKind]
+    DM_CALL_KIND_JOIN: _ClassVar[DmCallKind]
+    DM_CALL_KIND_STATE: _ClassVar[DmCallKind]
+    DM_CALL_KIND_LEAVE: _ClassVar[DmCallKind]
 STATUS_STATE_UNSPECIFIED: StatusState
 STATUS_STATE_ONLINE: StatusState
 STATUS_STATE_IDLE: StatusState
 STATUS_STATE_DND: StatusState
 STATUS_STATE_OFFLINE: StatusState
 STATUS_STATE_CLEARED: StatusState
+DM_CALL_KIND_UNSPECIFIED: DmCallKind
+DM_CALL_KIND_START: DmCallKind
+DM_CALL_KIND_JOIN: DmCallKind
+DM_CALL_KIND_STATE: DmCallKind
+DM_CALL_KIND_LEAVE: DmCallKind
 
 class DmDevice(_message.Message):
     __slots__ = ("device_id", "curve25519", "ed25519", "name", "added_at", "device_signature")
@@ -233,7 +246,7 @@ class DmFileChunk(_message.Message):
     def __init__(self, hash: _Optional[bytes] = ..., index: _Optional[int] = ..., total: _Optional[int] = ..., data: _Optional[bytes] = ...) -> None: ...
 
 class DmEvent(_message.Message):
-    __slots__ = ("id", "at", "group_id", "sender", "sender_device", "text", "edit", "delete", "reaction", "typing", "pin", "state", "inboxes", "card", "sync", "stored", "received", "status", "state_tail")
+    __slots__ = ("id", "at", "group_id", "sender", "sender_device", "text", "edit", "delete", "reaction", "typing", "pin", "state", "inboxes", "card", "sync", "stored", "received", "status", "call", "state_tail")
     ID_FIELD_NUMBER: _ClassVar[int]
     AT_FIELD_NUMBER: _ClassVar[int]
     GROUP_ID_FIELD_NUMBER: _ClassVar[int]
@@ -252,6 +265,7 @@ class DmEvent(_message.Message):
     STORED_FIELD_NUMBER: _ClassVar[int]
     RECEIVED_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
+    CALL_FIELD_NUMBER: _ClassVar[int]
     STATE_TAIL_FIELD_NUMBER: _ClassVar[int]
     id: bytes
     at: int
@@ -271,8 +285,9 @@ class DmEvent(_message.Message):
     stored: DmFileStored
     received: DmFileReceived
     status: DmStatus
+    call: DmCall
     state_tail: _containers.RepeatedCompositeFieldContainer[SignedGroupState]
-    def __init__(self, id: _Optional[bytes] = ..., at: _Optional[int] = ..., group_id: _Optional[bytes] = ..., sender: _Optional[bytes] = ..., sender_device: _Optional[bytes] = ..., text: _Optional[_Union[DmText, _Mapping]] = ..., edit: _Optional[_Union[DmEdit, _Mapping]] = ..., delete: _Optional[_Union[DmDelete, _Mapping]] = ..., reaction: _Optional[_Union[DmReaction, _Mapping]] = ..., typing: _Optional[_Union[DmTyping, _Mapping]] = ..., pin: _Optional[_Union[DmPin, _Mapping]] = ..., state: _Optional[_Union[SignedGroupState, _Mapping]] = ..., inboxes: _Optional[_Union[DmInboxes, _Mapping]] = ..., card: _Optional[_Union[SignedContactCard, _Mapping]] = ..., sync: _Optional[bytes] = ..., stored: _Optional[_Union[DmFileStored, _Mapping]] = ..., received: _Optional[_Union[DmFileReceived, _Mapping]] = ..., status: _Optional[_Union[DmStatus, _Mapping]] = ..., state_tail: _Optional[_Iterable[_Union[SignedGroupState, _Mapping]]] = ...) -> None: ...
+    def __init__(self, id: _Optional[bytes] = ..., at: _Optional[int] = ..., group_id: _Optional[bytes] = ..., sender: _Optional[bytes] = ..., sender_device: _Optional[bytes] = ..., text: _Optional[_Union[DmText, _Mapping]] = ..., edit: _Optional[_Union[DmEdit, _Mapping]] = ..., delete: _Optional[_Union[DmDelete, _Mapping]] = ..., reaction: _Optional[_Union[DmReaction, _Mapping]] = ..., typing: _Optional[_Union[DmTyping, _Mapping]] = ..., pin: _Optional[_Union[DmPin, _Mapping]] = ..., state: _Optional[_Union[SignedGroupState, _Mapping]] = ..., inboxes: _Optional[_Union[DmInboxes, _Mapping]] = ..., card: _Optional[_Union[SignedContactCard, _Mapping]] = ..., sync: _Optional[bytes] = ..., stored: _Optional[_Union[DmFileStored, _Mapping]] = ..., received: _Optional[_Union[DmFileReceived, _Mapping]] = ..., status: _Optional[_Union[DmStatus, _Mapping]] = ..., call: _Optional[_Union[DmCall, _Mapping]] = ..., state_tail: _Optional[_Iterable[_Union[SignedGroupState, _Mapping]]] = ...) -> None: ...
 
 class DmText(_message.Message):
     __slots__ = ("text", "reply_to", "files", "mentions")
@@ -459,3 +474,33 @@ class MegolmEnvelope(_message.Message):
     session_id: str
     ciphertext: bytes
     def __init__(self, sender_curve25519: _Optional[bytes] = ..., session_id: _Optional[str] = ..., ciphertext: _Optional[bytes] = ...) -> None: ...
+
+class DmCall(_message.Message):
+    __slots__ = ("kind", "call_id", "call_nonce", "signing_seed", "call_key", "relay", "participant", "slot", "self_mute", "self_deaf", "camera", "screen", "video")
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    CALL_ID_FIELD_NUMBER: _ClassVar[int]
+    CALL_NONCE_FIELD_NUMBER: _ClassVar[int]
+    SIGNING_SEED_FIELD_NUMBER: _ClassVar[int]
+    CALL_KEY_FIELD_NUMBER: _ClassVar[int]
+    RELAY_FIELD_NUMBER: _ClassVar[int]
+    PARTICIPANT_FIELD_NUMBER: _ClassVar[int]
+    SLOT_FIELD_NUMBER: _ClassVar[int]
+    SELF_MUTE_FIELD_NUMBER: _ClassVar[int]
+    SELF_DEAF_FIELD_NUMBER: _ClassVar[int]
+    CAMERA_FIELD_NUMBER: _ClassVar[int]
+    SCREEN_FIELD_NUMBER: _ClassVar[int]
+    VIDEO_FIELD_NUMBER: _ClassVar[int]
+    kind: DmCallKind
+    call_id: bytes
+    call_nonce: bytes
+    signing_seed: bytes
+    call_key: bytes
+    relay: str
+    participant: bytes
+    slot: int
+    self_mute: bool
+    self_deaf: bool
+    camera: bool
+    screen: bool
+    video: bool
+    def __init__(self, kind: _Optional[_Union[DmCallKind, str]] = ..., call_id: _Optional[bytes] = ..., call_nonce: _Optional[bytes] = ..., signing_seed: _Optional[bytes] = ..., call_key: _Optional[bytes] = ..., relay: _Optional[str] = ..., participant: _Optional[bytes] = ..., slot: _Optional[int] = ..., self_mute: _Optional[bool] = ..., self_deaf: _Optional[bool] = ..., camera: _Optional[bool] = ..., screen: _Optional[bool] = ..., video: _Optional[bool] = ...) -> None: ...

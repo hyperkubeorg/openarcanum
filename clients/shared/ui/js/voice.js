@@ -20,12 +20,47 @@ const voiceUI = {
   watching: new Set(),
   focus: null,
 
-  get current() { return this.state.active ? { cid: this.state.community, channel: this.state.channel } : null; },
+  get current() { return this.state.active ? { cid: this.state.community, channel: this.state.channel, dm: this.state.dm } : null; },
+
+  // In a direct message call (dmcalls.py), in that conversation.
+  inDmCall(gid) { return !!(this.state.active && this.state.dm && this.state.dm === gid); },
+
+  // The call's name: the voice channel, or the conversation.
+  callName() {
+    const s = this.state;
+    if (s.dm) {
+      const c = typeof dmUI !== 'undefined' && dmUI.list.find((x) => x.id === s.dm);
+      return c ? t('Call with {name}', { name: c.name }) : t('Call');
+    }
+    return this.channelName(s.community, s.channel);
+  },
+
+  // Join or start the call in a conversation; any other call is left (one at a time).
+  async joinDm(gid, video = false) {
+    if (this.inDmCall(gid)) { this.showStage(); return; }
+    if (this.joining) return;
+    this.failure = null;
+    this.joining = { dm: gid };
+    if (typeof dmCallUI !== 'undefined') delete dmCallUI.ringing[gid];
+    render();
+    try {
+      this.state = await api('dm_call_join', gid, video);
+      if (st.view !== 'dms' || dmUI.current !== gid) await dmUI.open(gid);
+      this.showStage();
+      if (video) setTimeout(() => { if (this.call && !this.call.local.camera) this.call.setCamera(true).catch(toastError); }, 1500);
+    } catch (e) {
+      this.joining = null;
+      toastError(e);
+    } finally {
+      this.joining = null;
+    }
+    render();
+  },
 
   // The voice bar shows while in a call, joining one, or after one failed.
   barVisible() {
     // A failure for a channel that is gone (voice turned off) goes with it.
-    if (this.failure) {
+    if (this.failure && this.failure.cid) {
       const s = st.states[this.failure.cid];
       if (s && !s.channels.some((c) => c.id === this.failure.channel)) this.failure = null;
     }
@@ -85,10 +120,17 @@ const voiceUI = {
     const f = this.failure;
     if (!f) return;
     this.failure = null;
-    this.join(f.cid, f.channel);
+    if (f.dm) this.joinDm(f.dm);
+    else this.join(f.cid, f.channel);
   },
 
   showStage() { st.stage = true; render(); },
+
+  // From the voice bar: a DM call's stage is in its conversation.
+  showDmOrStage() {
+    if (this.state.dm) { st.stage = true; dmUI.open(this.state.dm); return; }
+    this.showStage();
+  },
 
   // ---------------------------------------------------------------- the engine
 
@@ -129,8 +171,10 @@ const voiceUI = {
     const s = this.state;
     const cid = s.community;
     const channel = s.channel;
+    const dm = s.dm;
     this.stop();
     api('voice_leave').catch(() => {});
+    if (dm) { this.failure = { dm, text }; toastError(new Error(text)); render(); return; }
     this.failed(cid, channel, text);
   },
 
@@ -184,7 +228,8 @@ const voiceUI = {
       }
       // The stage only changes when its tiles do (not on every speaking flip).
       const sig = this.stageSignature();
-      if (st.stage && this.state.active && st.cid === this.state.community && sig !== this.lastStage) this.renderStage();
+      const here = this.state.dm ? st.view === 'dms' && dmUI.current === this.state.dm : st.cid === this.state.community;
+      if (st.stage && this.state.active && here && sig !== this.lastStage) this.renderStage();
       // The bar compares with what it shows: a bar drawn afresh (a rejoin
       // redraws the sidebar) records its own signature.
       if (this.barSignature() !== this.lastBar) {
@@ -245,7 +290,7 @@ const voiceUI = {
         h('span', { class: (connected ? 'ok-text' : 'muted') + ' small voice-status' + (connected ? ' live' : ''), role: 'status', text: this.statusText() }), h('div', { class: 'spacer' }),
         h('button', { class: 'icon-btn', title: t('Voice & video settings'), 'aria-label': t('Voice & video settings'), icon: 'settings', onclick: () => openSettings('voice') }),
         btn(t('Leave call'), icon('phone-off'), false, () => this.leave(), { class: 'icon-btn leave' })),
-      h('div', { class: 'small muted clickable', title: t('Show the call'), text: this.channelName(s.community, s.channel) + (note ? ' · ' + note : ''), onclick: () => this.showStage() }),
+      h('div', { class: 'small muted clickable', title: t('Show the call'), text: this.callName() + (note ? ' · ' + note : ''), onclick: () => this.showDmOrStage() }),
       mic ? this.micNotice(mic) : null,
       h('div', { class: 'row voice-controls' },
         s.listen_only ? null : split('mic',
@@ -277,7 +322,7 @@ const voiceUI = {
   joiningCard() {
     const j = this.joining;
     return h('div', { class: 'voice-bar', role: 'group', 'aria-label': t('Voice call') },
-      h('div', { class: 'small muted voice-status', role: 'status', text: t('Joining {channel}…', { channel: this.channelName(j.cid, j.channel) }) }));
+      h('div', { class: 'small muted voice-status', role: 'status', text: j.dm ? t('Connecting…') : t('Joining {channel}…', { channel: this.channelName(j.cid, j.channel) }) }));
   },
 
   failureCard() {
@@ -287,7 +332,7 @@ const voiceUI = {
       h('div', { class: 'row voice-controls' },
         h('button', { class: 'btn small primary', text: t('Try again'), onclick: () => this.retry() }),
         h('button', { class: 'btn small', text: t('Copy details'), onclick: () => api('copy_text', f.text).then(() => toast(t('Copied.'))).catch(toastError) }),
-        h('button', { class: 'btn small', text: t('Dismiss'), onclick: () => { this.failure = null; renderSidebar(); } })));
+        h('button', { class: 'btn small', text: t('Dismiss'), onclick: () => { this.failure = null; render(); } })));
   },
 
   // ---------------------------------------------------------------- the voice bar's menus
@@ -435,7 +480,7 @@ const voiceUI = {
     let stage = main.querySelector('.stage');
     if (!stage) {
       clear(main);
-      main.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'muted' }, icon('volume-2')), h('span', { class: 'title', text: this.channelName(this.state.community, this.state.channel) }),
+      main.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'muted' }, icon('volume-2')), h('span', { class: 'title', text: this.callName() }),
         h('span', { class: 'small muted stage-status', role: 'status' }),
         h('div', { class: 'spacer' }), h('span', { class: 'stage-head-tools' })));
       stage = h('div', { class: 'stage', role: 'region', 'aria-label': t('Call') });
@@ -499,6 +544,12 @@ const voiceUI = {
     const tools = document.querySelector('#main .stage-head-tools');
     if (!tools || !this.state.active) return;
     const s = this.state;
+    if (s.dm) {
+      // A DM call: back to the conversation (the call goes on).
+      keepingFocus(tools, () => tools.replaceChildren(h('button', { class: 'icon-btn', title: t('Show messages'), 'aria-label': t('Show messages'),
+        onclick: () => { st.stage = false; render(); } }, icon('message-square'))));
+      return;
+    }
     const chatOpen = st.voiceChat === s.channel && voiceChat.shown();
     keepingFocus(tools, () => tools.replaceChildren(h('button', { class: 'icon-btn' + (chatOpen ? ' on' : ''), title: t('Chat'), 'aria-label': t('Chat'),
       'aria-pressed': String(!!chatOpen), onclick: () => voiceChat.toggle(s.channel) }, icon('message-square'))));

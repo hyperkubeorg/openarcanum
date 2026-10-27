@@ -821,6 +821,14 @@ class JsApi:
     def dm_revoke_permanent_code(self) -> dict:
         return self._a(self._core.dms.revoke_permanent_code)
 
+    def dm_call_join(self, gid: str, video: bool = False) -> dict:
+        """Join the conversation's call, or start one (leaving any other call)."""
+        return self._a(lambda: self._core.voice.join_dm(str(gid), bool(video)))
+
+    def dm_calls(self) -> dict:
+        """The calls going on in my conversations (who is in each)."""
+        return self._s(self._core.dmcalls.all)
+
     def dm_add_contact_code(self, code: str) -> dict:
         return self._a(lambda: self._core.dms.add_contact_code(str(code or "")))
 

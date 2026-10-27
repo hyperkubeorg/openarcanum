@@ -44,6 +44,9 @@ CTX_RELEASE_MANIFEST = "openarcanum/release-manifest/v1"
 # A device able to receive statuses in a community, vouched for by the member
 # key (statuses.py, docs/protocol.md §9.8).
 CTX_STATUS_DEVICE = "openarcanum/status-device/v1"
+# A relay grant for a call (callauth.CtxCallGrant): signed by a community
+# server, or for a DM call by the call's own key (dmcalls.py).
+CTX_CALL_GRANT = "openarcanum/call-grant/v1"
 
 _RAW = serialization.Encoding.Raw
 _RAW_PUB = serialization.PublicFormat.Raw

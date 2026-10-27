@@ -95,6 +95,68 @@ func (StatusState) EnumDescriptor() ([]byte, []int) {
 	return file_openarcanum_v1_dm_proto_rawDescGZIP(), []int{0}
 }
 
+// A call in a direct message or group DM (docs/protocol.md §9.9). There is
+// no server: the member who starts it makes the call's signing key and media
+// key and sends them in START (end-to-end encrypted, like every event);
+// each participant signs its own relay grant with that key, so the relay
+// (which only checks that the grant's call id commits to its signer) admits
+// it. Who is in the call comes from these events: JOIN, STATE (also every
+// 20 seconds while in it) and LEAVE.
+type DmCallKind int32
+
+const (
+	DmCallKind_DM_CALL_KIND_UNSPECIFIED DmCallKind = 0
+	DmCallKind_DM_CALL_KIND_START       DmCallKind = 1
+	DmCallKind_DM_CALL_KIND_JOIN        DmCallKind = 2
+	DmCallKind_DM_CALL_KIND_STATE       DmCallKind = 3
+	DmCallKind_DM_CALL_KIND_LEAVE       DmCallKind = 4
+)
+
+// Enum value maps for DmCallKind.
+var (
+	DmCallKind_name = map[int32]string{
+		0: "DM_CALL_KIND_UNSPECIFIED",
+		1: "DM_CALL_KIND_START",
+		2: "DM_CALL_KIND_JOIN",
+		3: "DM_CALL_KIND_STATE",
+		4: "DM_CALL_KIND_LEAVE",
+	}
+	DmCallKind_value = map[string]int32{
+		"DM_CALL_KIND_UNSPECIFIED": 0,
+		"DM_CALL_KIND_START":       1,
+		"DM_CALL_KIND_JOIN":        2,
+		"DM_CALL_KIND_STATE":       3,
+		"DM_CALL_KIND_LEAVE":       4,
+	}
+)
+
+func (x DmCallKind) Enum() *DmCallKind {
+	p := new(DmCallKind)
+	*p = x
+	return p
+}
+
+func (x DmCallKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DmCallKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_openarcanum_v1_dm_proto_enumTypes[1].Descriptor()
+}
+
+func (DmCallKind) Type() protoreflect.EnumType {
+	return &file_openarcanum_v1_dm_proto_enumTypes[1]
+}
+
+func (x DmCallKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DmCallKind.Descriptor instead.
+func (DmCallKind) EnumDescriptor() ([]byte, []int) {
+	return file_openarcanum_v1_dm_proto_rawDescGZIP(), []int{1}
+}
+
 // One device's keys for one DM identity: a vodozemac Account.
 type DmDevice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1323,6 +1385,7 @@ type DmEvent struct {
 	//	*DmEvent_Stored
 	//	*DmEvent_Received
 	//	*DmEvent_Status
+	//	*DmEvent_Call
 	Body isDmEvent_Body `protobuf_oneof:"body"`
 	// With `state`: the states just before it (up to 16), so a member who
 	// missed one catches up from the next change.
@@ -1520,6 +1583,15 @@ func (x *DmEvent) GetStatus() *DmStatus {
 	return nil
 }
 
+func (x *DmEvent) GetCall() *DmCall {
+	if x != nil {
+		if x, ok := x.Body.(*DmEvent_Call); ok {
+			return x.Call
+		}
+	}
+	return nil
+}
+
 func (x *DmEvent) GetStateTail() []*SignedGroupState {
 	if x != nil {
 		return x.StateTail
@@ -1589,6 +1661,11 @@ type DmEvent_Status struct {
 	Status *DmStatus `protobuf:"bytes,24,opt,name=status,proto3,oneof"`
 }
 
+type DmEvent_Call struct {
+	// A voice or video call in the conversation (docs/protocol.md §9.9).
+	Call *DmCall `protobuf:"bytes,25,opt,name=call,proto3,oneof"`
+}
+
 func (*DmEvent_Text) isDmEvent_Body() {}
 
 func (*DmEvent_Edit) isDmEvent_Body() {}
@@ -1614,6 +1691,8 @@ func (*DmEvent_Stored) isDmEvent_Body() {}
 func (*DmEvent_Received) isDmEvent_Body() {}
 
 func (*DmEvent_Status) isDmEvent_Body() {}
+
+func (*DmEvent_Call) isDmEvent_Body() {}
 
 type DmText struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
@@ -2854,6 +2933,149 @@ func (x *MegolmEnvelope) GetCiphertext() []byte {
 	return nil
 }
 
+type DmCall struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Kind  DmCallKind             `protobuf:"varint,1,opt,name=kind,proto3,enum=openarcanum.v1.DmCallKind" json:"kind,omitempty"`
+	// SHA-256("openarcanum/call-id/v1" || 0x00 || signing key || call_nonce)[:16].
+	CallId []byte `protobuf:"bytes,2,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	// START only: what every member needs to join.
+	CallNonce   []byte `protobuf:"bytes,3,opt,name=call_nonce,json=callNonce,proto3" json:"call_nonce,omitempty"`
+	SigningSeed []byte `protobuf:"bytes,4,opt,name=signing_seed,json=signingSeed,proto3" json:"signing_seed,omitempty"`
+	CallKey     []byte `protobuf:"bytes,5,opt,name=call_key,json=callKey,proto3" json:"call_key,omitempty"`
+	Relay       string `protobuf:"bytes,6,opt,name=relay,proto3" json:"relay,omitempty"`
+	// The sender's place in the call (random per join) and SFrame slot.
+	Participant   []byte `protobuf:"bytes,7,opt,name=participant,proto3" json:"participant,omitempty"`
+	Slot          uint32 `protobuf:"varint,8,opt,name=slot,proto3" json:"slot,omitempty"`
+	SelfMute      bool   `protobuf:"varint,9,opt,name=self_mute,json=selfMute,proto3" json:"self_mute,omitempty"`
+	SelfDeaf      bool   `protobuf:"varint,10,opt,name=self_deaf,json=selfDeaf,proto3" json:"self_deaf,omitempty"`
+	Camera        bool   `protobuf:"varint,11,opt,name=camera,proto3" json:"camera,omitempty"`
+	Screen        bool   `protobuf:"varint,12,opt,name=screen,proto3" json:"screen,omitempty"`
+	Video         bool   `protobuf:"varint,13,opt,name=video,proto3" json:"video,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DmCall) Reset() {
+	*x = DmCall{}
+	mi := &file_openarcanum_v1_dm_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DmCall) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DmCall) ProtoMessage() {}
+
+func (x *DmCall) ProtoReflect() protoreflect.Message {
+	mi := &file_openarcanum_v1_dm_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DmCall.ProtoReflect.Descriptor instead.
+func (*DmCall) Descriptor() ([]byte, []int) {
+	return file_openarcanum_v1_dm_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *DmCall) GetKind() DmCallKind {
+	if x != nil {
+		return x.Kind
+	}
+	return DmCallKind_DM_CALL_KIND_UNSPECIFIED
+}
+
+func (x *DmCall) GetCallId() []byte {
+	if x != nil {
+		return x.CallId
+	}
+	return nil
+}
+
+func (x *DmCall) GetCallNonce() []byte {
+	if x != nil {
+		return x.CallNonce
+	}
+	return nil
+}
+
+func (x *DmCall) GetSigningSeed() []byte {
+	if x != nil {
+		return x.SigningSeed
+	}
+	return nil
+}
+
+func (x *DmCall) GetCallKey() []byte {
+	if x != nil {
+		return x.CallKey
+	}
+	return nil
+}
+
+func (x *DmCall) GetRelay() string {
+	if x != nil {
+		return x.Relay
+	}
+	return ""
+}
+
+func (x *DmCall) GetParticipant() []byte {
+	if x != nil {
+		return x.Participant
+	}
+	return nil
+}
+
+func (x *DmCall) GetSlot() uint32 {
+	if x != nil {
+		return x.Slot
+	}
+	return 0
+}
+
+func (x *DmCall) GetSelfMute() bool {
+	if x != nil {
+		return x.SelfMute
+	}
+	return false
+}
+
+func (x *DmCall) GetSelfDeaf() bool {
+	if x != nil {
+		return x.SelfDeaf
+	}
+	return false
+}
+
+func (x *DmCall) GetCamera() bool {
+	if x != nil {
+		return x.Camera
+	}
+	return false
+}
+
+func (x *DmCall) GetScreen() bool {
+	if x != nil {
+		return x.Screen
+	}
+	return false
+}
+
+func (x *DmCall) GetVideo() bool {
+	if x != nil {
+		return x.Video
+	}
+	return false
+}
+
 var File_openarcanum_v1_dm_proto protoreflect.FileDescriptor
 
 const file_openarcanum_v1_dm_proto_rawDesc = "" +
@@ -2963,7 +3185,7 @@ const file_openarcanum_v1_dm_proto_rawDesc = "" +
 	"\x04hash\x18\x01 \x01(\fR\x04hash\x12\x14\n" +
 	"\x05index\x18\x02 \x01(\rR\x05index\x12\x14\n" +
 	"\x05total\x18\x03 \x01(\rR\x05total\x12\x12\n" +
-	"\x04data\x18\x04 \x01(\fR\x04data\"\xe9\x06\n" +
+	"\x04data\x18\x04 \x01(\fR\x04data\"\x97\a\n" +
 	"\aDmEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\x12\x0e\n" +
 	"\x02at\x18\x02 \x01(\x03R\x02at\x12\x19\n" +
@@ -2983,7 +3205,8 @@ const file_openarcanum_v1_dm_proto_rawDesc = "" +
 	"\x04sync\x18\x15 \x01(\fH\x00R\x04sync\x126\n" +
 	"\x06stored\x18\x16 \x01(\v2\x1c.openarcanum.v1.DmFileStoredH\x00R\x06stored\x12<\n" +
 	"\breceived\x18\x17 \x01(\v2\x1e.openarcanum.v1.DmFileReceivedH\x00R\breceived\x122\n" +
-	"\x06status\x18\x18 \x01(\v2\x18.openarcanum.v1.DmStatusH\x00R\x06status\x12?\n" +
+	"\x06status\x18\x18 \x01(\v2\x18.openarcanum.v1.DmStatusH\x00R\x06status\x12,\n" +
+	"\x04call\x18\x19 \x01(\v2\x16.openarcanum.v1.DmCallH\x00R\x04call\x12?\n" +
 	"\n" +
 	"state_tail\x18\x1e \x03(\v2 .openarcanum.v1.SignedGroupStateR\tstateTailB\x06\n" +
 	"\x04bodyJ\x04\b\x10\x10\x11J\x04\b\x14\x10\x15\"\x84\x01\n" +
@@ -3084,14 +3307,37 @@ const file_openarcanum_v1_dm_proto_rawDesc = "" +
 	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1e\n" +
 	"\n" +
 	"ciphertext\x18\x03 \x01(\fR\n" +
-	"ciphertext*\xa5\x01\n" +
+	"ciphertext\"\xfa\x02\n" +
+	"\x06DmCall\x12.\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x1a.openarcanum.v1.DmCallKindR\x04kind\x12\x17\n" +
+	"\acall_id\x18\x02 \x01(\fR\x06callId\x12\x1d\n" +
+	"\n" +
+	"call_nonce\x18\x03 \x01(\fR\tcallNonce\x12!\n" +
+	"\fsigning_seed\x18\x04 \x01(\fR\vsigningSeed\x12\x19\n" +
+	"\bcall_key\x18\x05 \x01(\fR\acallKey\x12\x14\n" +
+	"\x05relay\x18\x06 \x01(\tR\x05relay\x12 \n" +
+	"\vparticipant\x18\a \x01(\fR\vparticipant\x12\x12\n" +
+	"\x04slot\x18\b \x01(\rR\x04slot\x12\x1b\n" +
+	"\tself_mute\x18\t \x01(\bR\bselfMute\x12\x1b\n" +
+	"\tself_deaf\x18\n" +
+	" \x01(\bR\bselfDeaf\x12\x16\n" +
+	"\x06camera\x18\v \x01(\bR\x06camera\x12\x16\n" +
+	"\x06screen\x18\f \x01(\bR\x06screen\x12\x14\n" +
+	"\x05video\x18\r \x01(\bR\x05video*\xa5\x01\n" +
 	"\vStatusState\x12\x1c\n" +
 	"\x18STATUS_STATE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13STATUS_STATE_ONLINE\x10\x01\x12\x15\n" +
 	"\x11STATUS_STATE_IDLE\x10\x02\x12\x14\n" +
 	"\x10STATUS_STATE_DND\x10\x03\x12\x18\n" +
 	"\x14STATUS_STATE_OFFLINE\x10\x04\x12\x18\n" +
-	"\x14STATUS_STATE_CLEARED\x10\x05B8Z6github.com/hyperkubeorg/openarcanum/internal/wire;wireb\x06proto3"
+	"\x14STATUS_STATE_CLEARED\x10\x05*\x89\x01\n" +
+	"\n" +
+	"DmCallKind\x12\x1c\n" +
+	"\x18DM_CALL_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12DM_CALL_KIND_START\x10\x01\x12\x15\n" +
+	"\x11DM_CALL_KIND_JOIN\x10\x02\x12\x16\n" +
+	"\x12DM_CALL_KIND_STATE\x10\x03\x12\x16\n" +
+	"\x12DM_CALL_KIND_LEAVE\x10\x04B8Z6github.com/hyperkubeorg/openarcanum/internal/wire;wireb\x06proto3"
 
 var (
 	file_openarcanum_v1_dm_proto_rawDescOnce sync.Once
@@ -3105,86 +3351,90 @@ func file_openarcanum_v1_dm_proto_rawDescGZIP() []byte {
 	return file_openarcanum_v1_dm_proto_rawDescData
 }
 
-var file_openarcanum_v1_dm_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_openarcanum_v1_dm_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_openarcanum_v1_dm_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_openarcanum_v1_dm_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_openarcanum_v1_dm_proto_goTypes = []any{
 	(StatusState)(0),           // 0: openarcanum.v1.StatusState
-	(*DmDevice)(nil),           // 1: openarcanum.v1.DmDevice
-	(*DmDeviceList)(nil),       // 2: openarcanum.v1.DmDeviceList
-	(*SignedDmDeviceList)(nil), // 3: openarcanum.v1.SignedDmDeviceList
-	(*OneTimeKey)(nil),         // 4: openarcanum.v1.OneTimeKey
-	(*ContactCard)(nil),        // 5: openarcanum.v1.ContactCard
-	(*DeviceInbox)(nil),        // 6: openarcanum.v1.DeviceInbox
-	(*SignedContactCard)(nil),  // 7: openarcanum.v1.SignedContactCard
-	(*GroupMember)(nil),        // 8: openarcanum.v1.GroupMember
-	(*GroupState)(nil),         // 9: openarcanum.v1.GroupState
-	(*SignedGroupState)(nil),   // 10: openarcanum.v1.SignedGroupState
-	(*DmFileRef)(nil),          // 11: openarcanum.v1.DmFileRef
-	(*DmFileStored)(nil),       // 12: openarcanum.v1.DmFileStored
-	(*DeviceToken)(nil),        // 13: openarcanum.v1.DeviceToken
-	(*DmFileReceived)(nil),     // 14: openarcanum.v1.DmFileReceived
-	(*DmFileChunk)(nil),        // 15: openarcanum.v1.DmFileChunk
-	(*DmEvent)(nil),            // 16: openarcanum.v1.DmEvent
-	(*DmText)(nil),             // 17: openarcanum.v1.DmText
-	(*DmEdit)(nil),             // 18: openarcanum.v1.DmEdit
-	(*DmDelete)(nil),           // 19: openarcanum.v1.DmDelete
-	(*DmReaction)(nil),         // 20: openarcanum.v1.DmReaction
-	(*DmTyping)(nil),           // 21: openarcanum.v1.DmTyping
-	(*DmPin)(nil),              // 22: openarcanum.v1.DmPin
-	(*DmInboxes)(nil),          // 23: openarcanum.v1.DmInboxes
-	(*OlmPayload)(nil),         // 24: openarcanum.v1.OlmPayload
-	(*RoomKey)(nil),            // 25: openarcanum.v1.RoomKey
-	(*GroupInvite)(nil),        // 26: openarcanum.v1.GroupInvite
-	(*DmStatus)(nil),           // 27: openarcanum.v1.DmStatus
-	(*StatusKey)(nil),          // 28: openarcanum.v1.StatusKey
-	(*StatusDevice)(nil),       // 29: openarcanum.v1.StatusDevice
-	(*SignedStatusDevice)(nil), // 30: openarcanum.v1.SignedStatusDevice
-	(*OlmDummy)(nil),           // 31: openarcanum.v1.OlmDummy
-	(*Envelope)(nil),           // 32: openarcanum.v1.Envelope
-	(*OlmEnvelope)(nil),        // 33: openarcanum.v1.OlmEnvelope
-	(*MegolmEnvelope)(nil),     // 34: openarcanum.v1.MegolmEnvelope
+	(DmCallKind)(0),            // 1: openarcanum.v1.DmCallKind
+	(*DmDevice)(nil),           // 2: openarcanum.v1.DmDevice
+	(*DmDeviceList)(nil),       // 3: openarcanum.v1.DmDeviceList
+	(*SignedDmDeviceList)(nil), // 4: openarcanum.v1.SignedDmDeviceList
+	(*OneTimeKey)(nil),         // 5: openarcanum.v1.OneTimeKey
+	(*ContactCard)(nil),        // 6: openarcanum.v1.ContactCard
+	(*DeviceInbox)(nil),        // 7: openarcanum.v1.DeviceInbox
+	(*SignedContactCard)(nil),  // 8: openarcanum.v1.SignedContactCard
+	(*GroupMember)(nil),        // 9: openarcanum.v1.GroupMember
+	(*GroupState)(nil),         // 10: openarcanum.v1.GroupState
+	(*SignedGroupState)(nil),   // 11: openarcanum.v1.SignedGroupState
+	(*DmFileRef)(nil),          // 12: openarcanum.v1.DmFileRef
+	(*DmFileStored)(nil),       // 13: openarcanum.v1.DmFileStored
+	(*DeviceToken)(nil),        // 14: openarcanum.v1.DeviceToken
+	(*DmFileReceived)(nil),     // 15: openarcanum.v1.DmFileReceived
+	(*DmFileChunk)(nil),        // 16: openarcanum.v1.DmFileChunk
+	(*DmEvent)(nil),            // 17: openarcanum.v1.DmEvent
+	(*DmText)(nil),             // 18: openarcanum.v1.DmText
+	(*DmEdit)(nil),             // 19: openarcanum.v1.DmEdit
+	(*DmDelete)(nil),           // 20: openarcanum.v1.DmDelete
+	(*DmReaction)(nil),         // 21: openarcanum.v1.DmReaction
+	(*DmTyping)(nil),           // 22: openarcanum.v1.DmTyping
+	(*DmPin)(nil),              // 23: openarcanum.v1.DmPin
+	(*DmInboxes)(nil),          // 24: openarcanum.v1.DmInboxes
+	(*OlmPayload)(nil),         // 25: openarcanum.v1.OlmPayload
+	(*RoomKey)(nil),            // 26: openarcanum.v1.RoomKey
+	(*GroupInvite)(nil),        // 27: openarcanum.v1.GroupInvite
+	(*DmStatus)(nil),           // 28: openarcanum.v1.DmStatus
+	(*StatusKey)(nil),          // 29: openarcanum.v1.StatusKey
+	(*StatusDevice)(nil),       // 30: openarcanum.v1.StatusDevice
+	(*SignedStatusDevice)(nil), // 31: openarcanum.v1.SignedStatusDevice
+	(*OlmDummy)(nil),           // 32: openarcanum.v1.OlmDummy
+	(*Envelope)(nil),           // 33: openarcanum.v1.Envelope
+	(*OlmEnvelope)(nil),        // 34: openarcanum.v1.OlmEnvelope
+	(*MegolmEnvelope)(nil),     // 35: openarcanum.v1.MegolmEnvelope
+	(*DmCall)(nil),             // 36: openarcanum.v1.DmCall
 }
 var file_openarcanum_v1_dm_proto_depIdxs = []int32{
-	1,  // 0: openarcanum.v1.DmDeviceList.devices:type_name -> openarcanum.v1.DmDevice
-	3,  // 1: openarcanum.v1.ContactCard.devices:type_name -> openarcanum.v1.SignedDmDeviceList
-	4,  // 2: openarcanum.v1.ContactCard.fallback_keys:type_name -> openarcanum.v1.OneTimeKey
-	6,  // 3: openarcanum.v1.ContactCard.inboxes:type_name -> openarcanum.v1.DeviceInbox
-	8,  // 4: openarcanum.v1.GroupState.members:type_name -> openarcanum.v1.GroupMember
-	8,  // 5: openarcanum.v1.GroupState.invited:type_name -> openarcanum.v1.GroupMember
-	11, // 6: openarcanum.v1.GroupState.icon:type_name -> openarcanum.v1.DmFileRef
-	13, // 7: openarcanum.v1.DmFileStored.tokens:type_name -> openarcanum.v1.DeviceToken
-	17, // 8: openarcanum.v1.DmEvent.text:type_name -> openarcanum.v1.DmText
-	18, // 9: openarcanum.v1.DmEvent.edit:type_name -> openarcanum.v1.DmEdit
-	19, // 10: openarcanum.v1.DmEvent.delete:type_name -> openarcanum.v1.DmDelete
-	20, // 11: openarcanum.v1.DmEvent.reaction:type_name -> openarcanum.v1.DmReaction
-	21, // 12: openarcanum.v1.DmEvent.typing:type_name -> openarcanum.v1.DmTyping
-	22, // 13: openarcanum.v1.DmEvent.pin:type_name -> openarcanum.v1.DmPin
-	10, // 14: openarcanum.v1.DmEvent.state:type_name -> openarcanum.v1.SignedGroupState
-	23, // 15: openarcanum.v1.DmEvent.inboxes:type_name -> openarcanum.v1.DmInboxes
-	7,  // 16: openarcanum.v1.DmEvent.card:type_name -> openarcanum.v1.SignedContactCard
-	12, // 17: openarcanum.v1.DmEvent.stored:type_name -> openarcanum.v1.DmFileStored
-	14, // 18: openarcanum.v1.DmEvent.received:type_name -> openarcanum.v1.DmFileReceived
-	27, // 19: openarcanum.v1.DmEvent.status:type_name -> openarcanum.v1.DmStatus
-	10, // 20: openarcanum.v1.DmEvent.state_tail:type_name -> openarcanum.v1.SignedGroupState
-	11, // 21: openarcanum.v1.DmText.files:type_name -> openarcanum.v1.DmFileRef
-	7,  // 22: openarcanum.v1.OlmPayload.sender_card:type_name -> openarcanum.v1.SignedContactCard
-	25, // 23: openarcanum.v1.OlmPayload.room_key:type_name -> openarcanum.v1.RoomKey
-	26, // 24: openarcanum.v1.OlmPayload.invite:type_name -> openarcanum.v1.GroupInvite
-	7,  // 25: openarcanum.v1.OlmPayload.card:type_name -> openarcanum.v1.SignedContactCard
-	31, // 26: openarcanum.v1.OlmPayload.dummy:type_name -> openarcanum.v1.OlmDummy
-	10, // 27: openarcanum.v1.OlmPayload.state_update:type_name -> openarcanum.v1.SignedGroupState
-	28, // 28: openarcanum.v1.OlmPayload.status_key:type_name -> openarcanum.v1.StatusKey
-	10, // 29: openarcanum.v1.GroupInvite.chain:type_name -> openarcanum.v1.SignedGroupState
-	7,  // 30: openarcanum.v1.GroupInvite.cards:type_name -> openarcanum.v1.SignedContactCard
-	0,  // 31: openarcanum.v1.DmStatus.state:type_name -> openarcanum.v1.StatusState
-	4,  // 32: openarcanum.v1.StatusDevice.fallback_key:type_name -> openarcanum.v1.OneTimeKey
-	33, // 33: openarcanum.v1.Envelope.olm:type_name -> openarcanum.v1.OlmEnvelope
-	34, // 34: openarcanum.v1.Envelope.megolm:type_name -> openarcanum.v1.MegolmEnvelope
-	35, // [35:35] is the sub-list for method output_type
-	35, // [35:35] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	2,  // 0: openarcanum.v1.DmDeviceList.devices:type_name -> openarcanum.v1.DmDevice
+	4,  // 1: openarcanum.v1.ContactCard.devices:type_name -> openarcanum.v1.SignedDmDeviceList
+	5,  // 2: openarcanum.v1.ContactCard.fallback_keys:type_name -> openarcanum.v1.OneTimeKey
+	7,  // 3: openarcanum.v1.ContactCard.inboxes:type_name -> openarcanum.v1.DeviceInbox
+	9,  // 4: openarcanum.v1.GroupState.members:type_name -> openarcanum.v1.GroupMember
+	9,  // 5: openarcanum.v1.GroupState.invited:type_name -> openarcanum.v1.GroupMember
+	12, // 6: openarcanum.v1.GroupState.icon:type_name -> openarcanum.v1.DmFileRef
+	14, // 7: openarcanum.v1.DmFileStored.tokens:type_name -> openarcanum.v1.DeviceToken
+	18, // 8: openarcanum.v1.DmEvent.text:type_name -> openarcanum.v1.DmText
+	19, // 9: openarcanum.v1.DmEvent.edit:type_name -> openarcanum.v1.DmEdit
+	20, // 10: openarcanum.v1.DmEvent.delete:type_name -> openarcanum.v1.DmDelete
+	21, // 11: openarcanum.v1.DmEvent.reaction:type_name -> openarcanum.v1.DmReaction
+	22, // 12: openarcanum.v1.DmEvent.typing:type_name -> openarcanum.v1.DmTyping
+	23, // 13: openarcanum.v1.DmEvent.pin:type_name -> openarcanum.v1.DmPin
+	11, // 14: openarcanum.v1.DmEvent.state:type_name -> openarcanum.v1.SignedGroupState
+	24, // 15: openarcanum.v1.DmEvent.inboxes:type_name -> openarcanum.v1.DmInboxes
+	8,  // 16: openarcanum.v1.DmEvent.card:type_name -> openarcanum.v1.SignedContactCard
+	13, // 17: openarcanum.v1.DmEvent.stored:type_name -> openarcanum.v1.DmFileStored
+	15, // 18: openarcanum.v1.DmEvent.received:type_name -> openarcanum.v1.DmFileReceived
+	28, // 19: openarcanum.v1.DmEvent.status:type_name -> openarcanum.v1.DmStatus
+	36, // 20: openarcanum.v1.DmEvent.call:type_name -> openarcanum.v1.DmCall
+	11, // 21: openarcanum.v1.DmEvent.state_tail:type_name -> openarcanum.v1.SignedGroupState
+	12, // 22: openarcanum.v1.DmText.files:type_name -> openarcanum.v1.DmFileRef
+	8,  // 23: openarcanum.v1.OlmPayload.sender_card:type_name -> openarcanum.v1.SignedContactCard
+	26, // 24: openarcanum.v1.OlmPayload.room_key:type_name -> openarcanum.v1.RoomKey
+	27, // 25: openarcanum.v1.OlmPayload.invite:type_name -> openarcanum.v1.GroupInvite
+	8,  // 26: openarcanum.v1.OlmPayload.card:type_name -> openarcanum.v1.SignedContactCard
+	32, // 27: openarcanum.v1.OlmPayload.dummy:type_name -> openarcanum.v1.OlmDummy
+	11, // 28: openarcanum.v1.OlmPayload.state_update:type_name -> openarcanum.v1.SignedGroupState
+	29, // 29: openarcanum.v1.OlmPayload.status_key:type_name -> openarcanum.v1.StatusKey
+	11, // 30: openarcanum.v1.GroupInvite.chain:type_name -> openarcanum.v1.SignedGroupState
+	8,  // 31: openarcanum.v1.GroupInvite.cards:type_name -> openarcanum.v1.SignedContactCard
+	0,  // 32: openarcanum.v1.DmStatus.state:type_name -> openarcanum.v1.StatusState
+	5,  // 33: openarcanum.v1.StatusDevice.fallback_key:type_name -> openarcanum.v1.OneTimeKey
+	34, // 34: openarcanum.v1.Envelope.olm:type_name -> openarcanum.v1.OlmEnvelope
+	35, // 35: openarcanum.v1.Envelope.megolm:type_name -> openarcanum.v1.MegolmEnvelope
+	1,  // 36: openarcanum.v1.DmCall.kind:type_name -> openarcanum.v1.DmCallKind
+	37, // [37:37] is the sub-list for method output_type
+	37, // [37:37] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_openarcanum_v1_dm_proto_init() }
@@ -3206,6 +3456,7 @@ func file_openarcanum_v1_dm_proto_init() {
 		(*DmEvent_Stored)(nil),
 		(*DmEvent_Received)(nil),
 		(*DmEvent_Status)(nil),
+		(*DmEvent_Call)(nil),
 	}
 	file_openarcanum_v1_dm_proto_msgTypes[23].OneofWrappers = []any{
 		(*OlmPayload_RoomKey)(nil),
@@ -3225,8 +3476,8 @@ func file_openarcanum_v1_dm_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openarcanum_v1_dm_proto_rawDesc), len(file_openarcanum_v1_dm_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   34,
+			NumEnums:      2,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

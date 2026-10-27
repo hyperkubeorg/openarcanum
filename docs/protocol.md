@@ -1952,6 +1952,38 @@ posts online again. Do not disturb suppresses desktop notifications
 (badges still count). The status itself travels between the user's devices
 as a `status` sync event (§10.2; the newest wins).
 
+### 9.9 Calls
+
+A call in a conversation (1:1 or group) has no server. Its members run it
+with `DmCall` events in the conversation's Megolm session, so only members
+see them:
+
+- **START**: whoever starts the call makes a signing key (`signing_seed`, 32
+  bytes), `call_nonce` (16), a media key `call_key` (32) and picks the
+  relay (the conversation's own, `GroupState.relay`); `call_id =
+  SHA-256("openarcanum/call-id/v1" || 0x00 || signing public key ||
+  call_nonce)[:16]`. Members check that the id commits to the key. If two
+  STARTs cross, the earlier one wins.
+- **JOIN** and **STATE** (the sender's `participant`, random per join, its
+  SFrame `slot` and mute, deafen, camera and screen state), and **LEAVE**.
+  STATE goes out again every 20 seconds while in the call (live only); a
+  participant not heard from for 70 seconds has left. START, JOIN and LEAVE
+  also go to the mailboxes.
+- Each participant signs its own `CallGrant` (`openarcanum/call-grant/v1`)
+  with the call's key, as a community server would (§12): the relay checks
+  only that the grant verifies under the key its call id commits to. Grants
+  last at most 10 minutes; a reconnect signs a new one. Media is
+  SFrame-encrypted under `call_key` as in voice channels, and the relay
+  forwards it without the key.
+- `slot` is the device's place (1-based) among the curve25519 keys of every
+  device of the conversation's members, sorted, so no two devices send under
+  the same SFrame key id.
+- A client is in one call at a time: joining a conversation's call leaves a
+  voice channel, and the other way round.
+
+Everyone in the conversation can join; a member who leaves the conversation
+keeps the key of a call already started, as with any message sent before.
+
 ## 10. Devices
 
 ### 10.1 Linking

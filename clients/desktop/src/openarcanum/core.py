@@ -304,6 +304,7 @@ class Core:
         self.hosting = HostManager(lambda: self.paths.data / "hosted", lambda: self.paths.log, self._hosting_changed)
         from openarcanum.devices import DeviceManager
         from openarcanum.dm import DMManager
+        from openarcanum.dmcalls import DmCalls
         from openarcanum.moderation import Moderation
         from openarcanum.statuses import Statuses
         from openarcanum.voice import VoiceManager
@@ -311,6 +312,7 @@ class Core:
         self.devices = DeviceManager(self)
         self.dms = DMManager(self)
         self.voice = VoiceManager(self)
+        self.dmcalls = DmCalls(self)
         self.moderation = Moderation(self)
         # User statuses, end-to-end encrypted (statuses.py).
         self.statuses = Statuses(self)

@@ -237,6 +237,8 @@ message DmEvent {
     // A status (docs/protocol.md §9.8): only in a status audience's Megolm
     // session, never in a group's.
     DmStatus status = 24;
+    // A voice or video call in the conversation (docs/protocol.md §9.9).
+    DmCall call = 25;
   }
   // With `state`: the states just before it (up to 16), so a member who
   // missed one catches up from the next change.
@@ -408,3 +410,38 @@ message MegolmEnvelope {
   string session_id = 2;
   bytes ciphertext = 3;
 }
+
+// A call in a direct message or group DM (docs/protocol.md §9.9). There is
+// no server: the member who starts it makes the call's signing key and media
+// key and sends them in START (end-to-end encrypted, like every event);
+// each participant signs its own relay grant with that key, so the relay
+// (which only checks that the grant's call id commits to its signer) admits
+// it. Who is in the call comes from these events: JOIN, STATE (also every
+// 20 seconds while in it) and LEAVE.
+enum DmCallKind {
+  DM_CALL_KIND_UNSPECIFIED = 0;
+  DM_CALL_KIND_START = 1;
+  DM_CALL_KIND_JOIN = 2;
+  DM_CALL_KIND_STATE = 3;
+  DM_CALL_KIND_LEAVE = 4;
+}
+
+message DmCall {
+  DmCallKind kind = 1;
+  // SHA-256("openarcanum/call-id/v1" || 0x00 || signing key || call_nonce)[:16].
+  bytes call_id = 2;
+  // START only: what every member needs to join.
+  bytes call_nonce = 3;
+  bytes signing_seed = 4;
+  bytes call_key = 5;
+  string relay = 6;
+  // The sender's place in the call (random per join) and SFrame slot.
+  bytes participant = 7;
+  uint32 slot = 8;
+  bool self_mute = 9;
+  bool self_deaf = 10;
+  bool camera = 11;
+  bool screen = 12;
+  bool video = 13;
+}
+

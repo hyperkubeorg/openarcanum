@@ -52,8 +52,10 @@ RELAY_RETRY_SECONDS = 8.0
 class Call:
     """One call this device is in."""
 
-    def __init__(self, cid: str, session: cp.VoiceSession):
+    def __init__(self, cid: str, session: cp.VoiceSession, gid: str = ""):
         self.cid = cid
+        # A call in a direct message (dmcalls.py) instead of a community.
+        self.gid = gid
         self.session = session
         self.relay: Relay | None = None
         self.relay_url = ""
@@ -146,6 +148,32 @@ class VoiceManager:
             self._emit_state()
             return self.state()
 
+    async def join_dm(self, gid: str, video: bool = False) -> dict:
+        """Join (or start) the call in a conversation; one call at a time,
+        so a voice channel is left first."""
+        async with self._lock:
+            if self.call is not None:
+                await self._leave_locked()
+            session = await self.core.dmcalls.join(gid, video)
+            self.call = Call("", session, gid)
+            self.core.gui_media_access(True)
+            self._page({"type": "start", "session": self._js_session(self.call)})
+            self._watch_ptt()
+            self._emit_state()
+            return self.state()
+
+    async def dm_update(self, gid: str) -> None:
+        """Who is in the DM call changed (dmcalls.py)."""
+        call = self.call
+        if call is None or call.gid != gid or call.rejoining:
+            return
+        try:
+            call.session = self.core.dmcalls.session(gid)
+        except UserError:
+            return
+        self._page({"type": "update", "generation": call.generation, "session": self._js_session(call)})
+        self._emit_state()
+
     async def leave(self) -> dict:
         async with self._lock:
             await self._leave_locked()
@@ -163,7 +191,9 @@ class VoiceManager:
             with contextlib.suppress(RelayError):
                 await call.relay.call_leave(call.call_id)
             await call.relay.close()
-        if tell_server:
+        if call.gid:
+            await self.core.dmcalls.leave()
+        elif tell_server:
             conn = self.core.conns.get(call.cid)
             if conn is not None:
                 with contextlib.suppress(RpcError, Offline):
@@ -215,8 +245,11 @@ class VoiceManager:
                     screen=bool(st.get("screen")),
                     priority=bool(st.get("priority")),
                 )
-                with contextlib.suppress(RpcError, Offline):
-                    await self.core.conn(call.cid).call(voice_state=call.state)
+                if call.gid:
+                    await self.core.dmcalls.set_state(call.state)
+                else:
+                    with contextlib.suppress(RpcError, Offline):
+                        await self.core.conn(call.cid).call(voice_state=call.state)
                 self._emit_state()
             elif kind == "listen":
                 deaf, no_audio, screen_audio = _listen_args(args)
@@ -277,6 +310,13 @@ class VoiceManager:
         which may move the call (docs/protocol.md §12.4)."""
         if call is not self.call:
             return
+        if call.gid:
+            # No server to move the call: reconnect to its relay with a
+            # fresh grant for as long as it takes, or until left.
+            await asyncio.sleep(1)
+            if call is self.call:
+                await self._rejoin(call, cp.VoiceJoin(rejoin=True))
+            return
         deadline = time.monotonic() + RELAY_RETRY_SECONDS
         while time.monotonic() < deadline and call is self.call:
             try:
@@ -301,8 +341,11 @@ class VoiceManager:
         call.rejoining += 1
         try:
             try:
-                vs = (await self.core.conn(call.cid).call(voice_join=req)).voice_session
-            except (RpcError, Offline) as e:
+                if call.gid:
+                    vs = self.core.dmcalls.session(call.gid)
+                else:
+                    vs = (await self.core.conn(call.cid).call(voice_join=req)).voice_session
+            except (RpcError, Offline, UserError) as e:
                 log.info("call: couldn't rejoin: %s", e)
                 return
             if call is not self.call:
@@ -505,6 +548,7 @@ class VoiceManager:
         return {
             "active": True,
             "community": call.cid,
+            "dm": call.gid,
             "channel": call.channel,
             "participant": s.participant.hex(),
             "participants": [self._participant(p) for p in s.participants],

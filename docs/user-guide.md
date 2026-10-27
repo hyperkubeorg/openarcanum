@@ -1369,6 +1369,17 @@ Moderators (see below) can act on you during a call:
 If you lose the right to connect (a role or override changes), the call
 ends with "You can no longer connect to this voice channel."
 
+### Calls in direct messages
+
+In a conversation, **Start a voice call** (the phone) or **Start a video
+call** (the camera) at the top. Everyone in the conversation hears it ring
+("… is calling", with **Join**); while a call is on, the header shows
+**Join call (n)**. The call works like a voice channel: the same controls
+in the voice bar, the same end-to-end encryption, and **Show messages** (at
+the top of the call) to go back to the conversation while it goes on. You're
+in one call at a time: joining a conversation's call leaves a voice channel,
+and joining a voice channel leaves the call.
+
 ## Admins: voice moderation
 
 A voice channel's text chat has the same settings as a text channel's

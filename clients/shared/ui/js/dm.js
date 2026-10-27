@@ -105,6 +105,7 @@ function renderDmSidebar(side) {
   if (waiting.length && rest.length) body.appendChild(h('div', { class: 'cat', text: t('Conversations') }));
   for (const c of rest) body.appendChild(dmListItem(c));
   side.appendChild(body);
+  if (voiceUI.barVisible()) side.appendChild(voiceUI.bar());
   side.appendChild(userPanel(null));
 }
 
@@ -163,6 +164,7 @@ function renderDmMain(main) {
     renderDmHome(main);
     return;
   }
+  if (st.stage && voiceUI.inDmCall(c.id)) { voiceUI.renderStage(); return; }
   const view = h('div', { id: 'dm-view', class: 'dm-view', 'data-gid': c.id, 'data-status': info.status },
     h('div', { id: 'dm-head' }), h('div', { id: 'dm-banners' }),
     h('div', { class: 'messages', id: 'dm-messages', role: 'log', 'aria-live': 'polite' }),
@@ -181,8 +183,16 @@ function fillDmView(first = false) {
     info.direct ? null : h('span', { class: 'small muted', text: t('{n} members', { n: info.members.length }) }),
     h('div', { class: 'spacer' }),
     h('span', { class: 'small muted', text: t('End-to-end encrypted') }),
+    info.status === 'active' ? dmCallButtons(c.id) : null,
     h('button', { class: 'icon-btn', title: t('Conversation details'), 'aria-label': t('Conversation details'), icon: 'info', onclick: () => dmInfoDialog() })));
   dmBanners(clear($('#dm-banners')), c, info, others);
+  const ring = dmCallUI.ringing[c.id];
+  if (ring && !voiceUI.inDmCall(c.id)) {
+    $('#dm-banners').appendChild(h('div', { class: 'banner info dm-ring' }, icon('phone'),
+      h('span', { class: 'spacer', text: t('{name} is calling', { name: ring.from || c.name }) }),
+      h('button', { class: 'btn small primary', text: t('Join'), onclick: () => voiceUI.joinDm(c.id) }),
+      h('button', { class: 'btn small', text: t('Dismiss'), onclick: () => dmCallUI.dismiss(c.id) })));
+  }
   // The owner can turn attachments on and off while the composer is open.
   const attach = $('#dm-attach');
   if (attach) attach.classList.toggle('hidden', !info.allow_attachments);
@@ -731,6 +741,52 @@ async function renderDmHome(main) {
   }
   body.appendChild(list);
 }
+
+// ---------------------------------------------------------------- calls (dmcalls.py)
+
+// Calls going on in conversations (who is in each) and the ones ringing.
+const dmCallUI = {
+  calls: {},
+  ringing: {},
+  ringTimer: null,
+  dismiss(gid) {
+    delete this.ringing[gid];
+    if (!Object.keys(this.ringing).length) { clearInterval(this.ringTimer); this.ringTimer = null; }
+    if (st.view === 'dms') render();
+  },
+};
+
+// In a conversation's header: start a call (voice or video), join the one
+// going on, or show it when you're in it.
+function dmCallButtons(gid) {
+  if (voiceUI.inDmCall(gid)) {
+    return h('button', { class: 'btn small', text: t('Show call'), onclick: () => voiceUI.showStage() });
+  }
+  const c = dmCallUI.calls[gid];
+  if (c && c.participants.length) {
+    return h('button', { class: 'btn small primary', text: t('Join call ({n})', { n: c.participants.length }), onclick: () => voiceUI.joinDm(gid) });
+  }
+  return h('span', { class: 'row' },
+    h('button', { class: 'icon-btn', title: t('Start a voice call'), 'aria-label': t('Start a voice call'), icon: 'phone', onclick: () => voiceUI.joinDm(gid) }),
+    h('button', { class: 'icon-btn', title: t('Start a video call'), 'aria-label': t('Start a video call'), icon: 'video', onclick: () => voiceUI.joinDm(gid, true) }));
+}
+
+on('dm_call', (c) => {
+  if (c.ended || !c.participants || !c.participants.length) {
+    delete dmCallUI.calls[c.id];
+    if (dmCallUI.ringing[c.id]) dmCallUI.dismiss(c.id);
+  } else {
+    dmCallUI.calls[c.id] = c;
+  }
+  if (c.ringing) {
+    dmCallUI.ringing[c.id] = { from: c.from };
+    playSound('join');
+    if (!dmCallUI.ringTimer) dmCallUI.ringTimer = setInterval(() => { if (Object.keys(dmCallUI.ringing).length) playSound('join'); }, 3000);
+    // It rings for a minute, then the banner stays as "Join call" in the header.
+    setTimeout(() => { if (dmCallUI.ringing[c.id]) dmCallUI.dismiss(c.id); }, 60000);
+  }
+  if (st.view === 'dms') render();
+});
 
 // ---------------------------------------------------------------- events
 
