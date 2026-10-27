@@ -266,7 +266,7 @@ look wrong, restarting the service fixes them.
 ### Checking registration
 
 ```sh
-curl -s https://maintainer-01.openarcanum.org/v1/relays | grep -ao 'wss://[a-z0-9.:/-]*'
+curl -s -H 'OpenArcanum-Protocol: 1' https://maintainer-01.openarcanum.org/v1/relays | grep -ao 'wss://[a-z0-9.:/-]*'
 ```
 
 `wss://relay-01.openarcanum.org/ws` must be in the list. The relay sends a

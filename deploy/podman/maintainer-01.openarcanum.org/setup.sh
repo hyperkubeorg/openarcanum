@@ -31,7 +31,7 @@ host_checks() {
     check_public "https://$FQDN/healthz"
 
     say "Check: relay registry answers (GET /v1/relays)"
-    curl -fsS -o /dev/null --max-time 10 --resolve "$FQDN:443:127.0.0.1" "https://$FQDN/v1/relays"
+    curl -fsS -o /dev/null --max-time 10 -H "OpenArcanum-Protocol: 1" --resolve "$FQDN:443:127.0.0.1" "https://$FQDN/v1/relays"
     info "ok (relays appear here once they register)"
 
     say "Node facts"

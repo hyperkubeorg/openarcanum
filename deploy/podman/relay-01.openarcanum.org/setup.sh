@@ -43,7 +43,7 @@ host_checks() {
     info "the maintainer lists it after a heartbeat and a proof-of-control fetch of https://$FQDN/ws (up to 3 minutes)"
     local _
     for _ in $(seq 1 36); do
-        if curl -fsS --max-time 10 "https://$MAINTAINER/v1/relays" 2>/dev/null | grep -aF "$FQDN" >/dev/null; then
+        if curl -fsS --max-time 10 -H "OpenArcanum-Protocol: 1" "https://$MAINTAINER/v1/relays" 2>/dev/null | grep -aF "$FQDN" >/dev/null; then
             info "listed"
             say "Calls"
             info "media port 7000/udp is open in firewalld; test a call from two clients on different networks"

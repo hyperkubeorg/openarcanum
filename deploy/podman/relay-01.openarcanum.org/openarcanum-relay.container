@@ -39,9 +39,16 @@ NoNewPrivileges=true
 DropCapability=ALL
 Ulimit=nofile=65536:65536
 LogDriver=journald
-# The image's health check asks http://127.0.0.1:7000/healthz: the status
-# listener (metrics_listen in relay.json, TCP; media uses UDP 7000).
+# Health check: asks http://127.0.0.1:7000/healthz: the status listener
+# (metrics_listen in relay.json, TCP; media uses UDP 7000).
+# Set here because the images are pushed in OCI format, which has no
+# HEALTHCHECK field, so the one in the Containerfile doesn't reach podman.
 # Restart the service when it fails.
+HealthCmd=["/usr/local/bin/relay", "healthcheck", "http://127.0.0.1:7000/healthz"]
+HealthInterval=30s
+HealthTimeout=6s
+HealthStartPeriod=10s
+HealthRetries=3
 HealthOnFailure=kill
 PodmanArgs=--stop-timeout=15
 

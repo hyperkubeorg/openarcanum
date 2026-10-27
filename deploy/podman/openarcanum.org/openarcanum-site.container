@@ -40,8 +40,15 @@ NoNewPrivileges=true
 DropCapability=ALL
 Ulimit=nofile=65536:65536
 LogDriver=journald
-# The image's health check asks http://127.0.0.1:7301/healthz, the status
-# listener. Restart the service when it fails.
+# Health check: asks http://127.0.0.1:7301/healthz, the status listener.
+# Set here because the images are pushed in OCI format, which has no
+# HEALTHCHECK field, so the one in the Containerfile doesn't reach podman.
+# Restart the service when it fails.
+HealthCmd=["/usr/local/bin/site", "healthcheck", "http://127.0.0.1:7301/healthz"]
+HealthInterval=30s
+HealthTimeout=6s
+HealthStartPeriod=30s
+HealthRetries=3
 HealthOnFailure=kill
 PodmanArgs=--stop-timeout=30
 

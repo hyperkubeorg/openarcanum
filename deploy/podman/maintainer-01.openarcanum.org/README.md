@@ -376,7 +376,7 @@ Reasons stay on this node. They are for your records.
 Relays that registered, as clients see them:
 
 ```sh
-curl -s https://maintainer-01.openarcanum.org/v1/relays | grep -ao 'wss://[a-z0-9.:/-]*'
+curl -s -H 'OpenArcanum-Protocol: 1' https://maintainer-01.openarcanum.org/v1/relays | grep -ao 'wss://[a-z0-9.:/-]*'
 ```
 
 ### Enabling the public directory later
