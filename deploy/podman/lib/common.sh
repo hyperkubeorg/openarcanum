@@ -5,12 +5,15 @@
 # The caller sets, before calling setup_main:
 #   SERVICE      systemd unit and container name, e.g. openarcanum-relay
 #   APP_DIR      the service's directory under /home/openarcanum, e.g. relay
-#   CONFIG_NAME  the JSON config file name, e.g. relay.json
+#   CONFIG_NAME  the JSON config file name, e.g. relay.json; empty for a
+#                service that writes its own (the community server's init)
 #   DATA_DIRS    subdirectories of APP_DIR the container writes (data keys acme ...)
 #   TCP_PORTS    ports to open in firewalld, e.g. "443/tcp"
 #   EXTRA_UNITS  optional extra user units (backup .service/.timer) in HOST_DIR
 #   EXTRA_TIMERS optional timers to enable
-# and defines host_checks (run after the service is up).
+# and defines host_checks (run after the service is up), optionally
+# host_prechecks (before the image is pulled) and host_before_start (after
+# the image is pulled and verified, before the service starts).
 
 OA_USER=openarcanum
 OA_HOME=/home/$OA_USER
@@ -235,12 +238,13 @@ ensure_firewall() {
     info "zone $(firewall-cmd --get-default-zone): services $(firewall-cmd --list-services), ports $(firewall-cmd --list-ports)"
 }
 
-# The droplet image starts the Cockpit web console (9090/tcp). Only sshd and
-# the service set up here listen on this machine, so it is stopped and masked.
+# Cloud images often start the Cockpit web console (9090/tcp) and rpcbind
+# (111). Only sshd and the service set up here listen on this machine, so
+# they are stopped and masked.
 disable_extras() {
     say "Turning off services this machine doesn't need"
     local u
-    for u in cockpit.socket cockpit.service; do
+    for u in cockpit.socket cockpit.service rpcbind.socket rpcbind.service; do
         if systemctl list-unit-files -q "$u" 2>/dev/null | grep -q .; then
             if [ "$(systemctl is-enabled "$u" 2>/dev/null)" != masked ]; then
                 systemctl mask -q --now "$u"
@@ -320,7 +324,9 @@ EOF
 
 install_files() {
     say "Placing the config, the Quadlet file and the README"
-    put_file "$HOST_DIR/$CONFIG_NAME" "$OA_HOME/$APP_DIR/config/$CONFIG_NAME" 0640
+    if [ -n "${CONFIG_NAME:-}" ]; then
+        put_file "$HOST_DIR/$CONFIG_NAME" "$OA_HOME/$APP_DIR/config/$CONFIG_NAME" 0640
+    fi
     put_file "$HOST_DIR/$SERVICE.container" "$QUADLET_DIR/$SERVICE.container" 0640
     local u
     for u in ${EXTRA_UNITS:-}; do
@@ -513,6 +519,7 @@ setup_main() {
     check_quadlet
     if declare -F host_prechecks >/dev/null; then host_prechecks; fi
     pull_image
+    if declare -F host_before_start >/dev/null; then host_before_start; fi
     start_service
     check_active
     host_checks
