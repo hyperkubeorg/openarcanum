@@ -30,8 +30,20 @@ window.result = {};
     }
     const o = await pc1.createOffer(); await pc1.setLocalDescription(o); await pc2.setRemoteDescription(o);
     const a = await pc2.createAnswer(); await pc2.setLocalDescription(a); await pc1.setRemoteDescription(a);
-    await new Promise(res => setTimeout(res, 4000));
+    // A slow encoder or ICE setup takes a while on a loaded runner: wait for
+    // the frames the test asks for, up to 20 s, and report the count reached.
+    const until = Date.now() + 20000;
+    while (frames <= 50 && Date.now() < until) await new Promise(res => setTimeout(res, 250));
     r.framesThroughTransform = frames;
+    // Why frames might not flow: the connection, and what the sender encoded.
+    r.ice = [pc1.iceConnectionState, pc2.iceConnectionState, pc1.connectionState, pc2.connectionState];
+    r.encoded = {};
+    try {
+      for (const st of await pc1.getStats()) {
+        if (st.type === 'outbound-rtp') r.encoded[st.kind] = { frames: st.framesEncoded ?? null, packets: st.packetsSent };
+        if (st.type === 'candidate-pair' && st.state === 'succeeded') r.pair = st.id;
+      }
+    } catch (err) { r.statsErr = String(err); }
     r.codecs = RTCRtpSender.getCapabilities('video').codecs.map(c => c.mimeType).filter((v,i,a)=>a.indexOf(v)===i);
     r.audioCodecs = RTCRtpSender.getCapabilities('audio').codecs.map(c => c.mimeType).filter((v,i,a)=>a.indexOf(v)===i);
   } catch (e) { r.err = String(e); }

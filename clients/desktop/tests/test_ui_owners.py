@@ -11,7 +11,7 @@ from test_e2e_community import WIZARD, general
 from uidriver import App
 from uiflows import create_profile, join
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(360)]
 
 
 async def owner_names(app: App) -> str:

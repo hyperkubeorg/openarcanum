@@ -41,7 +41,7 @@ def parse_unit(path: Path) -> dict[str, list[tuple[str, str]]]:
     repeat (Volume=, Environment=). Raises on anything that isn't one."""
     sections: dict[str, list[tuple[str, str]]] = {}
     current = None
-    for n, raw in enumerate(path.read_text().splitlines(), 1):
+    for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith(("#", ";")):
             continue
@@ -68,7 +68,7 @@ def one(sec: list[tuple[str, str]], key: str) -> str:
 
 
 def go_tags(kind: str, *files: str) -> set[str]:
-    return {t for f in files for t in re.findall(rf'{kind}:"([A-Za-z0-9_]+)"', (ROOT / f).read_text())}
+    return {t for f in files for t in re.findall(rf'{kind}:"([A-Za-z0-9_]+)"', (ROOT / f).read_text(encoding="utf-8"))}
 
 
 def config_files(pkg: str) -> tuple[str, ...]:
@@ -77,19 +77,20 @@ def config_files(pkg: str) -> tuple[str, ...]:
 
 def env_prefixes(binary: str) -> set[str]:
     """The environment prefix the binary reads."""
-    src = "\n".join(p.read_text() for p in (ROOT / "cmd" / binary).glob("*.go") if not p.name.endswith("_test.go"))
+    sources = [p for p in (ROOT / "cmd" / binary).glob("*.go") if not p.name.endswith("_test.go")]
+    src = "\n".join(p.read_text(encoding="utf-8") for p in sources)
     found = set(re.findall(r'(?:config\.Load\([^,]+, |EnvPrefix\s*=\s*)"([A-Z_]+_)"', src))
     assert found, f"no env prefix found in cmd/{binary}"
     return found
 
 
 def setup_vars(host: str) -> dict[str, str]:
-    text = (KIT / host / "setup.sh").read_text()
+    text = (KIT / host / "setup.sh").read_text(encoding="utf-8")
     return dict(re.findall(r'^([A-Z_]+)="?([^"\n]*)"?$', text, re.M))
 
 
 def image_stage(stage: str) -> str:
-    text = CONTAINERFILE.read_text()
+    text = CONTAINERFILE.read_text(encoding="utf-8")
     m = re.search(rf"^FROM \S+ AS {stage}\n(.*?)(?=^FROM |\Z)", text, re.M | re.S)
     assert m, f"no stage {stage}"
     return m.group(1)
@@ -154,7 +155,7 @@ def test_environment_variables_exist(host):
 @pytest.mark.parametrize("host", sorted(HOSTS))
 def test_config_file(host):
     _, _, _, stage, cfg, pkg = HOSTS[host]
-    conf = json.loads((KIT / host / cfg).read_text())
+    conf = json.loads((KIT / host / cfg).read_text(encoding="utf-8"))
     known = go_tags("json", *config_files(pkg))
     unknown = set(conf) - known
     assert not unknown, f"{cfg}: keys the server refuses: {unknown}"
@@ -174,11 +175,11 @@ def test_config_file(host):
 
 
 def test_maintainer_and_relay_settings():
-    meta = json.loads((KIT / "maintainer-01.openarcanum.org" / "meta.json").read_text())
+    meta = json.loads((KIT / "maintainer-01.openarcanum.org" / "meta.json").read_text(encoding="utf-8"))
     assert meta["directory_enabled"] is False
     assert meta["relay_proof"] is True
     assert meta["allow_private_relays"] is False
-    relay = json.loads((KIT / "relay-01.openarcanum.org" / "relay.json").read_text())
+    relay = json.loads((KIT / "relay-01.openarcanum.org" / "relay.json").read_text(encoding="utf-8"))
     assert relay["public_url"] == "wss://relay-01.openarcanum.org/ws"
     assert relay["registry_urls"] == ["https://maintainer-01.openarcanum.org"]
     assert relay["calls"] is True
@@ -218,11 +219,12 @@ def test_scripts_parse():
     for h in HOSTS:
         s = KIT / h / "setup.sh"
         assert os.access(s, os.X_OK), f"{s} must be executable"
-        text = s.read_text()
+        text = s.read_text(encoding="utf-8")
         assert "set -Eeuo pipefail" in text and "setup_main" in text
         assert setup_vars(h)["SERVICE"] == HOSTS[h][0]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the deployment scripts run on Linux")
 def test_scripts_pass_shellcheck():
     sc = shutil.which("shellcheck")
     if not sc:
@@ -244,7 +246,7 @@ PLACEHOLDERS = [r"example\.(?:invalid|com|org)", r"\bTODO\b", r"\bFIXME\b", r"(?
 
 def test_no_secrets_placeholders_or_old_names():
     for p in kit_files():
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         # Declared checksums (COSIGN_SHA256_...=) are the one hex blob allowed.
         checked = "\n".join(line for line in text.splitlines() if not re.match(r"\w*SHA256\w*=[0-9a-f]{64}$", line))
         for pat in SECRET_PATTERNS:
@@ -258,10 +260,10 @@ def test_no_secrets_placeholders_or_old_names():
 def test_readmes():
     readmes = [KIT / "README.md", *(KIT / h / "README.md" for h in HOSTS)]
     for r in readmes:
-        text = r.read_text()
+        text = r.read_text(encoding="utf-8")
         assert "—" not in text and "–" not in text, f"{r}: em or en dash"
     for h in HOSTS:
-        text = (KIT / h / "README.md").read_text()
+        text = (KIT / h / "README.md").read_text(encoding="utf-8")
         for heading in (
             "## Where everything lives",
             "## How it was set up",

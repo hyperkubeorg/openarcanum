@@ -10,6 +10,11 @@ import (
 	"testing"
 )
 
+// posixModes: Windows has no POSIX mode bits (files there report 0666, or
+// 0444 when read-only; privacy comes from the profile's ACLs), so mode
+// assertions only hold elsewhere.
+const posixModes = runtime.GOOS != "windows"
+
 func TestMigrateIsIncremental(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "s.db")
@@ -118,9 +123,6 @@ func TestFTS5Available(t *testing.T) {
 
 // A database file (and so its WAL) is created readable by its owner only.
 func TestOpenCreatesPrivateFile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("file modes")
-	}
 	path := filepath.Join(t.TempDir(), "s.db")
 	db, err := Open(path)
 	if err != nil {
@@ -135,7 +137,7 @@ func TestOpenCreatesPrivateFile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if m := st.Mode().Perm(); m != 0o600 {
+		if m := st.Mode().Perm(); posixModes && m != 0o600 {
 			t.Fatalf("%s has mode %o", f, m)
 		}
 	}

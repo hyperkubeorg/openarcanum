@@ -624,6 +624,12 @@ def test_checks_every_24_hours(tmp_path, server, key):
 # ---------------------------------------------------------------- Windows and macOS installers
 
 
+def tampered(data: bytes) -> bytes:
+    """The same size with the first byte flipped (a fixed byte could equal
+    the original: a zlib stream, as in a UDZO dmg, starts with "x")."""
+    return bytes([data[0] ^ 1]) + data[1:]
+
+
 def _asset(data: bytes, platform: str) -> updates.Asset:
     return updates.Asset(
         platform,
@@ -649,7 +655,7 @@ def test_windows_installer_plan(tmp_path):
         import shutil
 
         shutil.rmtree(exe.parent, ignore_errors=True)
-    src.write_bytes(b"x" + data[1:])
+    src.write_bytes(tampered(data))
     with pytest.raises(UpdateError, match="changed after"):
         updates.install_windows(src, _asset(data, "windows-x86_64"), "2.0.0")
 
@@ -708,7 +714,8 @@ def test_macos_dmg_install(tmp_path):
     assert sorted(p.name for p in apps.iterdir()) == ["OpenArcanum.app"]
     assert plan.command == ["/usr/bin/open", "-n", str(apps / "OpenArcanum.app"), "--args", "--home", "/h"]
     # A dmg changed after verification is refused before mounting.
-    dmg.write_bytes(b"x" + data[1:])
+    dmg.write_bytes(tampered(data))
+    assert hashlib.sha256(dmg.read_bytes()).hexdigest() != _asset(data, "macos-universal").sha256, "not tampered"
     with pytest.raises(UpdateError, match="changed after"):
         updates.install_macos(dmg, _asset(data, "macos-universal"), apps / "OpenArcanum.app", [])
 

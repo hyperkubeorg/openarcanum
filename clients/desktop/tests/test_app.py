@@ -20,6 +20,16 @@ from openarcanum.paths import Paths, atomic_write, ensure_dir
 HEADLESS = GUI
 
 
+def os_owned(f: Path) -> bool:
+    """A file in the home folder that Windows itself keeps writing while the
+    user is logged in (the registry hive NTUSER.DAT and its logs): hidden
+    and system, never an app's."""
+    if os.name != "nt":
+        return False
+    hidden_or_system = stat.FILE_ATTRIBUTE_HIDDEN | stat.FILE_ATTRIBUTE_SYSTEM
+    return bool(f.stat().st_file_attributes & hidden_or_system)
+
+
 @pytest.mark.gui
 def test_smoke_writes_nothing_outside_home(tmp_path):
     home = Path.home()
@@ -34,7 +44,7 @@ def test_smoke_writes_nothing_outside_home(tmp_path):
         timeout=150,
     )
     assert p.returncode == 0, p.stderr[-2000:]
-    log = (run_home / "log" / "client.log").read_text()
+    log = (run_home / "log" / "client.log").read_text(encoding="utf-8")
     assert "smoke: UI loaded" in log
     assert (run_home / "config" / "preferences.toml").exists()
     assert not (home / ".pywebview").exists() or (home / ".pywebview").stat().st_mtime < marker.stat().st_mtime
@@ -49,7 +59,9 @@ def test_smoke_writes_nothing_outside_home(tmp_path):
     own = Paths.default()
     roots = [own.config, own.data, own.cache, own.log, home / ".pywebview"]
     roots += [Path(platformdirs.user_documents_dir()), Path(platformdirs.user_downloads_dir())]
-    newer = [str(f) for f in home.iterdir() if f.is_file() and f.stat().st_mtime > marker.stat().st_mtime]
+    newer = [
+        str(f) for f in home.iterdir() if f.is_file() and f.stat().st_mtime > marker.stat().st_mtime and not os_owned(f)
+    ]
     for root, _dirs, files in (w for r in roots if r.is_dir() for w in os.walk(r)):
         for f in files:
             fp = os.path.join(root, f)
@@ -264,7 +276,8 @@ def test_bridge_call_left_returning_to_a_closed_window_does_not_block_exit(fixed
     unfixed case proves the test reproduces the hang)."""
     script = BRIDGE_HANG.format(setup="daemon_bridge_threads()" if fixed else "")
     try:
-        p = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=10)
+        # Well over a cold start (Qt loads for the import), far under the hang.
+        p = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=20)
     except subprocess.TimeoutExpired:
         assert not fixed, "the process hung at exit with a bridge thread stuck in evaluate_js"
         return

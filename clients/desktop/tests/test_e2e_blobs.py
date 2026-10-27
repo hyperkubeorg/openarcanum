@@ -3,16 +3,11 @@
 import hashlib
 import os
 import subprocess
-import sys
 
 import pytest
 from conftest import META_DIRS, binary, run, run_meta
 
 from openarcanum.meta import MetaClient, MetaError
-
-# The maintainer node is Linux server software; its blob store isn't made
-# to run on Windows.
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="the maintainer node runs on Linux")
 
 
 def meta_blobs(url: str, *args: str) -> str:

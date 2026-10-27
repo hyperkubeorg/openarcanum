@@ -23,6 +23,11 @@ import (
 	"github.com/hyperkubeorg/openarcanum/internal/wire"
 )
 
+// posixModes: Windows has no POSIX mode bits (files there report 0666, or
+// 0444 when read-only; privacy comes from the profile's ACLs), so mode
+// assertions only hold elsewhere.
+const posixModes = runtime.GOOS != "windows"
+
 type env struct {
 	t      *testing.T
 	relay  *testutil.Relay
@@ -837,9 +842,6 @@ func TestSessionsCappedPerDeviceAndMember(t *testing.T) {
 
 // The database (and so its WAL) is readable by its owner only.
 func TestInitCreatesPrivateDatabase(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("file modes")
-	}
 	dir := t.TempDir()
 	cfg := community.DefaultConfig(dir)
 	cfg.Relays = []string{"ws://relay.invalid/ws"}
@@ -850,7 +852,7 @@ func TestInitCreatesPrivateDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m := st.Mode().Perm(); m != 0o600 {
+	if m := st.Mode().Perm(); posixModes && m != 0o600 {
 		t.Fatalf("community.db has mode %o", m)
 	}
 }

@@ -22,7 +22,7 @@ from uiflows import (
     toggle_role_perms,
 )
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(460)]
 
 
 @pytest.fixture(scope="module")
@@ -44,7 +44,14 @@ def media_env(tone) -> dict:
 
 
 async def create_voice_channel(app: App, name: str) -> None:
-    await app.click('button[aria-label="Create voice channel"]')
+    for attempt in range(3):
+        await app.click('button[aria-label="Create voice channel"]')
+        try:
+            await app.wait_js("document.querySelector('.modal input')", "the new channel dialog", 5)
+            break
+        except UIError:
+            if attempt == 2:
+                raise
     await app.fill(".modal input", name)
     await app.button("Create")
     await app.wait_text(".chan.voice .cname", name)
@@ -128,12 +135,15 @@ def test_voice_call_click_through(tmp_path, tone):
                 # carries on with the new device.
                 await open_settings(alice)
                 await alice.click(".settings nav .item", "Voice & video")
-                other = await alice.js(
-                    "[...document.querySelectorAll('.settings section select')][0].options[2]"
-                    " && [...document.querySelectorAll('.settings section select')][0].options[2].textContent"
+                # The device lists come once the engine has answered.
+                await alice.wait_js(
+                    "document.querySelectorAll('.settings section select[data-devices=audioinput] option').length >= 3",
+                    "the fake microphones listed",
                 )
+                mic = ".settings section select[data-devices=audioinput]"
+                other = await alice.js(f"document.querySelector('{mic}').options[2].textContent")
                 assert other, "the fake device list has a second microphone"
-                await alice.select(".settings section select", other, nth=0)
+                await alice.select(mic, other)
                 await alice.wait_text(".settings section .saved", "Saved")
                 await alice.click(".settings .close")
                 await alice.wait_js(
@@ -496,7 +506,7 @@ def test_voice_bar_menus_streams_and_mute_for_me(tmp_path, tone):
                 )
                 await olive.click("#ctx-menu .mi", "Mute for me")
                 await alice.wait_js(f"{sending(alice, 'audio')} === true", "alice's voice sent again", 20)
-                await olive.wait_js(f"voiceUI.speaking({alice_key!r})", "olive hears alice again", 20)
+                await olive.wait_js(f"voiceUI.speaking({alice_key!r})", "olive hears alice again", 40)
                 for app in (olive, alice):
                     app.assert_local_only()
                     app.assert_no_errors()

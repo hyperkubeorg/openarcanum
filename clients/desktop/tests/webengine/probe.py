@@ -34,7 +34,8 @@ def main() -> None:
     timer = QTimer()
     timer.timeout.connect(lambda: page.runJavaScript("JSON.stringify(window.result || {})", 0, check))
     timer.start(500)
-    QTimer.singleShot(25000, lambda: (print(json.dumps({"timeout": True})), app.quit()))
+    # The page waits up to 20 s for frames (probe.html), then asks for a screen.
+    QTimer.singleShot(60000, lambda: (print(json.dumps({"timeout": True})), app.quit()))
     app.exec()
 
 

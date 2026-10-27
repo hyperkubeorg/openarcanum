@@ -90,7 +90,7 @@ def test_kind_values_render_one_relay_url_everywhere():
     assert env(relay, "OPENARCANUM_RELAY_MEDIA_PUBLIC_IPS") == "127.0.0.1"
     assert env(relay, "OPENARCANUM_RELAY_MEDIA_UDP_PORT") == "7000"
     assert "protocol: UDP" in relay
-    kind_cfg = (ROOT / "deploy/kind/cluster.yaml").read_text()
+    kind_cfg = (ROOT / "deploy/kind/cluster.yaml").read_text(encoding="utf-8")
     for line in ("containerPort: 7000", "protocol: UDP", 'listenAddress: "127.0.0.1"'):
         assert line in kind_cfg, line
     for d in docs:
@@ -102,9 +102,9 @@ def test_kind_values_render_one_relay_url_everywhere():
 def test_default_images_are_the_released_ones():
     """Without overrides the chart runs the GHCR images of its own release
     (appVersion, kept equal to VERSION by scripts/version)."""
-    chart = (CHART / "Chart.yaml").read_text()
+    chart = (CHART / "Chart.yaml").read_text(encoding="utf-8")
     app = re.search(r'^appVersion: "([^"]+)"$', chart, re.M).group(1)
-    assert app == (ROOT / "VERSION").read_text().strip()
+    assert app == (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     docs = render("--set", "relay.publicURL=wss://relay.example.invalid/ws")
     images = {m for d in docs for m in re.findall(r"image: (\S+)", d)}
     repo = "ghcr.io/hyperkubeorg/openarcanum"
@@ -143,7 +143,7 @@ def test_default_values_keep_the_node_network_off():
 def known_env() -> dict[str, set[str]]:
     """Each server's OPENARCANUM_* variables, from the env tags of its Go config
     (the servers ignore unknown ones, so a typo would do nothing)."""
-    tags = lambda f: set(re.findall(r'env:"([A-Z0-9_]+)"', (ROOT / f).read_text()))  # noqa: E731
+    tags = lambda f: set(re.findall(r'env:"([A-Z0-9_]+)"', (ROOT / f).read_text(encoding="utf-8")))  # noqa: E731
     shared = tags("internal/ops/settings.go")
     return {
         "relay": {f"OPENARCANUM_RELAY_{t}" for t in tags("internal/relay/config.go") | shared},
@@ -274,7 +274,7 @@ def test_servers_accept_what_the_kind_values_render(tmp_path):
                 [str(binary("community")), *args], capture_output=True, text=True, env={**os.environ, **image_env}
             )
             assert r.returncode == 0, r.stderr
-        claim = (keys / "claim.txt").read_text().strip()
+        claim = (keys / "claim.txt").read_text(encoding="utf-8").strip()
         assert claim in r.stdout and "already initialized" in r.stdout
         community_env = {**image_env, **local(container_env(sts, "community"))}
         assert community_env["OPENARCANUM_COMMUNITY_RELAYS"] == relay_url
@@ -320,10 +320,10 @@ def cluster_values(tmp_path) -> Path:
 def test_kind_script_parses():
     r = subprocess.run(["bash", "-n", str(KIND_SH)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    make = (ROOT / "Makefile").read_text()
+    make = (ROOT / "Makefile").read_text(encoding="utf-8")
     for target, cmd in (("kind-partition", "partition"), ("kind-heal", "heal"), ("kind-failover", "failover")):
         assert re.search(rf"^{target}:.*\n\tscripts/kind.sh {cmd}$", make, re.M), target
-        assert re.search(rf"^\s+{cmd}\) cmd_{cmd} ;;$", KIND_SH.read_text(), re.M), cmd
+        assert re.search(rf"^\s+{cmd}\) cmd_{cmd} ;;$", KIND_SH.read_text(encoding="utf-8"), re.M), cmd
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the kind script runs on Linux and macOS")

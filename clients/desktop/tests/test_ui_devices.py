@@ -12,7 +12,7 @@ from test_ui_dm import open_dms, two_people
 from uidriver import App
 from uiflows import close_settings, open_settings, replace_maintainers
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(420)]
 
 
 async def devices_section(app: App) -> None:

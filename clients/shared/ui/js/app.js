@@ -70,6 +70,11 @@ async function enterApp(status) {
   $('#app').classList.remove('hidden');
   updateAfterUnlock();
   if (status.remember && status.remember.offer) lockUI.offerStaySignedIn(status.remember.offer);
+  // Where the app was left is restored below. Until then the rail and the
+  // sidebar are still being drawn, so clicks wait (styles.css #app.loading).
+  const view0 = st.view;
+  const cid0 = st.cid;
+  $('#app').classList.add('loading');
   try {
     chat.drafts = (await api('ui_state_get', 'drafts')) || {};
     st.showMembers = !!(await api('ui_state_get', 'show_members'));
@@ -77,12 +82,13 @@ async function enterApp(status) {
     await refreshCommunities();
     // The conversation list (and the direct messages icon's unread count) from this device's store.
     dmUI.refresh();
+    if (st.view !== view0 || st.cid !== cid0) return;
     if (last.view === 'dms') { st.view = 'dms'; render(); return; }
     if (last.cid && st.communities.find((c) => c.id === last.cid)) { await selectCommunity(last.cid, last.channel); return; }
     if (st.communities.length) await selectCommunity(st.communities[0].id);
     else render();
   } catch (e) { toastError(e); render(); }
-  finally { openPendingInviteLink().catch(toastError); }
+  finally { $('#app').classList.remove('loading'); openPendingInviteLink().catch(toastError); }
 }
 
 async function refreshStatus() {

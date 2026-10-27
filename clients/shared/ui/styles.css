@@ -108,6 +108,8 @@ a { color: var(--link); }
 /* Thin scrollbars in the theme's colours, everywhere. */
 * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
 .hidden { display: none !important; }
+/* While the last view is being restored after unlock, nothing takes clicks. */
+#app.loading { pointer-events: none; }
 .muted { color: var(--muted); }
 .small { font-size: var(--fs-sm); }
 .mono { font-family: var(--mono); font-size: var(--fs-sm); word-break: break-all; }

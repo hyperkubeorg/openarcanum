@@ -381,13 +381,19 @@ class Gui(GuiHooks):
         log.info("developer tools opened")
         self._devtools_view = view  # keep a reference so it isn't collected
 
-    def copy_text(self, text: str) -> None:
+    def copy_text(self, text: str) -> bool:
+        """Put text on the clipboard from the Qt main thread (the only one
+        that may touch it). False when there is no window to run it on."""
+
         def do():
             from qtpy.QtWidgets import QApplication
 
-            QApplication.clipboard().setText(text)
+            try:
+                QApplication.clipboard().setText(text)
+            except Exception as e:
+                log.warning("clipboard: couldn't set the text (%s)", type(e).__name__)
 
-        self.on_main(do)
+        return self.on_main(do)
 
     def open_folder(self, path: str) -> None:
         """Show one of the app's folders in the system's file manager, where

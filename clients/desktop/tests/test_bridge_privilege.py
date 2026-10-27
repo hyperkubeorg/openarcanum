@@ -241,7 +241,8 @@ def test_the_save_dialog_suggests_only_a_safe_name_in_the_save_folder(monkeypatc
     ((_kind, kw),) = gui.window.calls
     suggested = kw["save_filename"]
     assert suggested == str(tmp_path / safe_name(name))
-    assert "/" not in suggested[len(str(tmp_path)) + 1 :] and "\\" not in suggested
+    leaf = suggested[len(str(tmp_path)) + 1 :]
+    assert "/" not in leaf and "\\" not in leaf
     assert granted == [str(tmp_path / "chosen")]
     assert bus.events == [
         ("dialog", {"id": "1", "path": str(tmp_path / "chosen"), "paths": [str(tmp_path / "chosen")]})

@@ -1,5 +1,7 @@
 """DMs and group DMs, clicked through in two real client windows."""
 
+import asyncio
+
 import pytest
 from conftest import network, run
 from uidriver import App
@@ -28,11 +30,27 @@ async def set_maintainer(app: App, url: str) -> None:
 
 
 async def publish_card(app: App) -> None:
+    """The community menu's "Your profile here", tick "Publish a contact card
+    here", Save, and then make sure the server really holds the card: a click
+    that didn't tick the box, or a publish that didn't stick, would otherwise
+    only show up later and in the other window ("hasn't published a contact
+    card")."""
     await app.click(".side-head")
     await app.click(".menu .mi", "Your profile here")
+    box = "document.querySelector('.modal input[type=checkbox][aria-label=\"Publish a contact card here\"]').checked"
     await app.click(".modal input[type=checkbox]", "Publish a contact card here")
+    for _ in range(20):
+        if await app.js(box):
+            break
+        await asyncio.sleep(0.1)
+    else:
+        # The click went nowhere (something moved under it): once more.
+        await app.click(".modal input[type=checkbox]", "Publish a contact card here")
+        await app.wait_js(box, "the contact card box ticked")
     await app.button("Save")
     await app.wait_gone(".modal")
+    status = await app.js("api('dm_card_status', st.cid)")
+    assert status and status.get("published") and status.get("mine"), f"{app.name}: card not on the server: {status}"
 
 
 async def two_people(tmp_path, meta, node):

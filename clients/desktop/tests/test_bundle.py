@@ -35,7 +35,8 @@ def smoke(cmd: list[str], home: Path) -> None:
         text=True,
         timeout=300,
     )
-    log = (home / "log" / "client.log").read_text() if (home / "log" / "client.log").exists() else ""
+    log_file = home / "log" / "client.log"
+    log = log_file.read_text(encoding="utf-8") if log_file.exists() else ""
     assert p.returncode == 0, f"exit {p.returncode}\n{p.stderr[-3000:]}\n{log[-3000:]}"
     assert "smoke: UI loaded" in log, log[-3000:]
     # The page came from inside the bundle, as a file:// URI (no loopback server).

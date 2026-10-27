@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from conftest import PASS
-from uidriver import App
+from uidriver import App, UIError
 
 
 async def create_profile(app: App) -> None:
@@ -139,10 +141,32 @@ async def walk_settings(app: App, label: str) -> None:
 
 
 async def community_member_menu(app: App, name: str) -> None:
-    """Open the member list (if closed) and a member's menu."""
+    """Open the member list (if closed) and a member's menu.
+
+    The list is redrawn whenever presence or the members change, and a
+    redraw between the press and the release of a click swallows the click
+    (or, if rows moved, opens someone else's menu). The menu is named after
+    its person, so the click is repeated until that person's menu is open."""
     if await app.js("document.querySelector('#members').classList.contains('hidden')"):
         await app.click('button[title="Members"]')
-    await app.click("#members .member", name)
+    menu = "(document.querySelector('#ctx-menu') || { getAttribute: () => null }).getAttribute('aria-label')"
+    got: list[str | None] = []
+    for _ in range(3):
+        await app.click("#members .member", name)
+        # The entries are gathered first (a few API calls), so the menu
+        # opens a little after the click.
+        label = None
+        for _ in range(40):
+            label = await app.js(menu)
+            if label == name:
+                return
+            await asyncio.sleep(0.1)
+        got.append(label)
+        if label is not None:
+            await app.key("Escape")
+            await app.wait_gone("#ctx-menu")
+    await app._fail_shot(f"menu of {name}")
+    raise UIError(f"{app.name}: the menu for {name!r} never opened (menus seen: {got})")
 
 
 # ---------------------------------------------------------------- community administration

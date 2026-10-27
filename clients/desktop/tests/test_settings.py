@@ -2,6 +2,7 @@
 persistence, and the live effect of each setting."""
 
 import asyncio
+import os
 import re
 import time
 
@@ -485,6 +486,8 @@ def test_save_folder_is_downloads_or_home(tmp_path, monkeypatch):
     from openarcanum import paths
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    if os.name == "nt":
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))  # what Path.home() reads there
     monkeypatch.setattr(paths.platformdirs, "user_downloads_dir", lambda: str(tmp_path / "Downloads"))
     assert paths.save_folder() == tmp_path
     (tmp_path / "Downloads").mkdir()

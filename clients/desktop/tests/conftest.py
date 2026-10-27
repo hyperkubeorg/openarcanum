@@ -102,18 +102,24 @@ def thaw(pid: int) -> None:
 
 def _nt_process_call(fn: str, pid: int) -> None:
     import ctypes
+    from ctypes import wintypes
 
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.OpenProcess.restype = ctypes.c_void_p
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
     h = k32.OpenProcess(0x0800, False, pid)  # PROCESS_SUSPEND_RESUME
     if not h:
         raise OSError(ctypes.get_last_error(), f"OpenProcess({pid})")
     try:
-        status = getattr(ctypes.WinDLL("ntdll"), fn)(ctypes.c_void_p(h))
-        if status != 0:
-            raise OSError(status, f"{fn}({pid})")
+        call = getattr(ctypes.WinDLL("ntdll"), fn)
+        call.restype = ctypes.c_long  # NTSTATUS: negative on failure
+        call.argtypes = [wintypes.HANDLE]
+        status = call(h)
+        if status < 0:
+            raise OSError(status & 0xFFFFFFFF, f"{fn}({pid})")
     finally:
-        k32.CloseHandle(ctypes.c_void_p(h))
+        k32.CloseHandle(h)
 
 
 def free_port() -> int:
@@ -147,8 +153,9 @@ class Proc:
         full_env.update(env or {})
         self.args = args
         # Logs go to a file, never a pipe nobody reads: a full pipe blocks
-        # the child's next write (the servers log to stderr).
-        self.err = tempfile.TemporaryFile(mode="w+")  # noqa: SIM115 (open for the child's lifetime; closed in stop)
+        # the child's next write (the servers log to stderr). The servers
+        # write UTF-8 whatever the locale (Windows' is cp1252).
+        self.err = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")  # noqa: SIM115 (closed in stop)
         self.p = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -156,7 +163,8 @@ class Proc:
             stdin=subprocess.DEVNULL,
             env=full_env,
             cwd=cwd,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
     def json_line(self, timeout: float = 15.0) -> dict:
@@ -269,7 +277,7 @@ class CommunityNode:
             args += ["-maintainer", m]
         if automatic:
             args.append("-automatic-relays")
-        out = subprocess.run(args, capture_output=True, text=True, check=True).stdout
+        out = subprocess.run(args, capture_output=True, encoding="utf-8", check=True).stdout
         self.claim_code = next(line for line in out.splitlines() if line.startswith("openarcanum-claim:"))
         self.proc: Proc | None = None
 

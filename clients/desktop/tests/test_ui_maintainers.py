@@ -14,7 +14,7 @@ from uiflows import ask_for_passphrase_at_start, create_profile, open_settings, 
 from openarcanum import settings as S
 from openarcanum.settings import Preferences
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(300)]
 
 DEAD = "http://127.0.0.1:1"  # nothing listens there
 

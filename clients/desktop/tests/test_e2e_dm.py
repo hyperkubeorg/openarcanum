@@ -16,6 +16,8 @@ from openarcanum.core import Core, UserError
 from openarcanum.dm import b64, unb64
 from openarcanum.paths import Paths
 
+pytestmark = pytest.mark.timeout(300)
+
 
 async def join_as(tmp_path, meta, owner, cid, name):
     core, ev = await new_core(tmp_path / name.lower(), maintainers=[meta])

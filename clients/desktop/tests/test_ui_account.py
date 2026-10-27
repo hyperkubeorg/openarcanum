@@ -13,7 +13,7 @@ from uiflows import claim, close_settings, create_profile, join, open_members, o
 from openarcanum import keychain, keys
 from openarcanum.paths import Paths
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(360)]
 
 NEW_PASS = "another horse battery staple"
 BACKUP_PASS = "backup pass phrase one"

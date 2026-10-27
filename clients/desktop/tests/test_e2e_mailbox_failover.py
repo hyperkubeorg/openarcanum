@@ -10,6 +10,7 @@ import os
 import subprocess
 import time
 
+import pytest
 from conftest import (
     META_PROCS,
     PASS,
@@ -33,6 +34,8 @@ from openarcanum.dm import unb64
 from openarcanum.meta import MetaClient, inbox_address
 from openarcanum.paths import Paths
 from openarcanum.wire import meta_pb2 as mp
+
+pytestmark = pytest.mark.timeout(300)
 
 
 def inbox_tokens(core):

@@ -150,7 +150,7 @@ class GuiHooks(Protocol):
         start: str = "",
         grant: Callable[[list[str]], None] | None = None,
     ) -> None: ...
-    def copy_text(self, text: str) -> None: ...
+    def copy_text(self, text: str) -> bool | None: ...
     def open_folder(self, path: str) -> None: ...
     def open_devtools(self) -> None: ...
     def smoke_ready(self, info: dict) -> None: ...
@@ -335,7 +335,10 @@ class JsApi:
         return {"ok": True, "value": True}
 
     def copy_text(self, text: str) -> dict:
-        self._gui.copy_text(str(text)[:100_000])
+        # The window layer says when it couldn't hand the text on (no
+        # window yet): the page then shows that instead of "Copied".
+        if self._gui.copy_text(str(text)[:100_000]) is False:
+            return {"ok": False, "error": _("Couldn't reach the clipboard.")}
         return {"ok": True, "value": True}
 
     def open_folder(self, location: str) -> dict:
@@ -598,6 +601,11 @@ class JsApi:
 
     def set_contact_card(self, cid: str, enabled: bool) -> dict:
         return self._a(lambda: self._core.dms.set_contact_card(cid, bool(enabled)))
+
+    def dm_card_status(self, cid: str) -> dict:
+        """Whether the community's server holds my contact card right now
+        (what "Publish a contact card here" put there)."""
+        return self._a(lambda: self._core.dms.card_status(cid))
 
     def read_image(self, path: str) -> dict:
         """Read a small image (icon) and return it base64-encoded."""

@@ -13,19 +13,19 @@ GO = Path(__file__).resolve().parents[3] / "internal" / "community"
 
 
 def go_bits() -> dict[str, int]:
-    src = (GO / "perms.go").read_text()
+    src = (GO / "perms.go").read_text(encoding="utf-8")
     return {name: 1 << int(n) for name, n in re.findall(r"^\s+(Perm\w+)\s+uint64 = 1 << (\d+)", src, re.M)}
 
 
 def go_mask(name: str) -> int:
-    src = (GO / "perms.go").read_text()
+    src = (GO / "perms.go").read_text(encoding="utf-8")
     body = re.search(rf"{name} = (.*?)\n\n", src, re.S).group(1)
     bits = go_bits()
     return sum(bits[b] for b in re.findall(r"Perm\w+", body))
 
 
 def test_permission_names_and_bits_match_go():
-    src = (GO / "perms.go").read_text()
+    src = (GO / "perms.go").read_text(encoding="utf-8")
     bits = go_bits()
     pairs = re.findall(r'\{"(\w+)", (Perm\w+)\}', src)
     assert len(pairs) == len(P.CATALOG) == 31
@@ -59,7 +59,7 @@ def test_names_round_trip():
 
 
 def test_features_match_go():
-    src = (GO / "features.go").read_text()
+    src = (GO / "features.go").read_text(encoding="utf-8")
     go = re.findall(
         r'Feature\w+: \{"(\w+)", "[^"]*", (true|false),\s*\n'
         r"\s*func\(s \*wire.CommunitySettings\) \*bool \{ return &?s\.(\w+) \}",

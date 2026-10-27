@@ -30,7 +30,8 @@ def test_engine_supports_the_call_media_path():
     assert '"width":1280' in video and '"height":720' in video
     # SFrame goes in through encoded transforms on both ends.
     assert r["createEncodedStreams"] == "function" and r["sendEncoded"] == "ok" and r["recvEncoded"] == "ok"
-    assert r["framesThroughTransform"] > 50
+    why = {k: r.get(k) for k in ("framesThroughTransform", "ice", "pair", "encoded", "statsErr")}
+    assert r["framesThroughTransform"] > 50, why
     assert "audio/opus" in r["audioCodecs"] and "video/VP8" in r["codecs"]
     # Screen share, with system audio where the platform offers it.
     assert any(t.startswith("video:") for t in r["gdm"]), r.get("gdmErr")

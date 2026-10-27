@@ -44,7 +44,10 @@ FIND = """
   const e = els[nth < 0 ? els.length + nth : nth];
   if (!e) return null;
   e.scrollIntoView({ block: 'center', inline: 'center' });
-  const r = e.getBoundingClientRect();
+  // Inline text that wraps has a gap between its lines at the middle of its
+  // bounding box: aim at its first line instead.
+  const rects = e.getClientRects();
+  const r = rects.length > 1 ? rects[0] : e.getBoundingClientRect();
   const x = r.left + r.width / 2, y = r.top + r.height / 2;
   // Something on top (a toast over a modal's buttons) would get the click:
   // report it as not clickable yet, as a user would wait for it to go.
@@ -122,7 +125,7 @@ class App:
         self.requests: list[str] = []
         self.reader: asyncio.Task | None = None
 
-    async def start(self, timeout: float = 60.0) -> App:
+    async def start(self, timeout: float = 90.0) -> App:
         RUNNING.add(self)
         cmd = [sys.executable, "-m", "openarcanum", "--home", str(self.home), "--allow-remote-debugging", *self.args]
         if self.session_helper:
@@ -155,7 +158,7 @@ class App:
         url = None
         while time.monotonic() < deadline and url is None:
             if self.proc.poll() is not None:
-                err = self.stderr_log.read_text(errors="replace")[-2000:]
+                err = self.stderr_log.read_text(encoding="utf-8", errors="replace")[-2000:]
                 raise UIError(f"{self.name} exited at start: {err}")
             with (
                 contextlib.suppress(OSError, ValueError),
@@ -291,18 +294,25 @@ class App:
         await self.js("document.activeElement && document.activeElement.select && document.activeElement.select()")
         await self.type(text)
 
-    async def select(self, sel: str, label: str, nth: int = 0) -> None:
+    async def select(self, sel: str, label: str, nth: int = 0, timeout: float = 20.0) -> None:
         """Choose an option in a <select> with the keyboard, as a user would:
-        open it, move to the option, press Enter."""
-        pos = await self.call(
-            "(s, n, l) => { const e = [...document.querySelectorAll(s)][n];"
-            " return [e.selectedIndex, [...e.options].findIndex((o) => o.textContent.trim() === l)]; }",
-            sel,
-            nth,
-            label,
-        )
-        if pos is None or pos[1] < 0:
-            raise UIError(f"{self.name}: no option {label!r} in {sel}")
+        open it, move to the option, press Enter. Waits for the select and
+        its option (a settings page lists devices after asking the engine)."""
+        deadline = time.monotonic() + timeout
+        while True:
+            pos = await self.call(
+                "(s, n, l) => { const e = [...document.querySelectorAll(s)][n]; if (!e) return null;"
+                " return [e.selectedIndex, [...e.options].findIndex((o) => o.textContent.trim() === l)]; }",
+                sel,
+                nth,
+                label,
+            )
+            if pos is not None and pos[1] >= 0:
+                break
+            if time.monotonic() > deadline:
+                await self._fail_shot(sel)
+                raise UIError(f"{self.name}: no option {label!r} in {sel}" + ("" if pos else " (no such select)"))
+            await asyncio.sleep(0.1)
         await self.click(sel, None, nth)
         step = "ArrowDown" if pos[1] >= pos[0] else "ArrowUp"
         for _ in range(abs(pos[1] - pos[0])):
@@ -460,6 +470,18 @@ def _close_windows(pid: int) -> None:
     from ctypes import wintypes
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.SendMessageTimeoutW.argtypes = [
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+        wintypes.UINT,
+        wintypes.UINT,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
     wm_close = 0x0010
     wm_queryendsession, wm_endsession = 0x0011, 0x0016
     endsession_logoff = 0x80000000

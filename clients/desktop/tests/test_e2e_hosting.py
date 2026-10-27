@@ -31,6 +31,8 @@ from test_e2e_community import WIZARD, general, online
 from openarcanum import hosting
 from openarcanum.core import UserError
 
+pytestmark = pytest.mark.timeout(300)
+
 
 @pytest.fixture
 def hosted_env(monkeypatch):
@@ -51,6 +53,23 @@ def alive(pid: int) -> bool:
                 return "zombie" not in f.read().lower()
         except OSError:
             return False
+    if os.name == "nt":
+        # os.kill(pid, 0) would end the process here (TerminateProcess).
+        import ctypes
+        from ctypes import wintypes
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        try:
+            code = wintypes.DWORD()
+            k32.GetExitCodeProcess(h, ctypes.byref(code))
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
     try:
         os.kill(pid, 0)
     except OSError:

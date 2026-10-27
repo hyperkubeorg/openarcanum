@@ -93,6 +93,24 @@ func TestBlobLastChunkSurvivesDisconnect(t *testing.T) {
 	}
 }
 
+// Finishing an upload syncs the blob directory, which must work on every OS
+// the node builds for (Windows can't fsync a directory handle).
+func TestSyncDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "a"), filepath.Join(dir, "b")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncDir(dir); err != nil {
+		t.Fatalf("syncDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "b")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The migration to never-reused mailbox ids keeps what's waiting, and new
 // items get ids above the old ones.
 func TestMailboxMigrationKeepsItems(t *testing.T) {

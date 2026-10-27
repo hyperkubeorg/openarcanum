@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -248,7 +249,7 @@ func TestMoveToNewHardware(t *testing.T) {
 	cfg.Relays = []string{r.URL}
 	cfg.Maintainers = []string{m.URL}
 	cfg.BackupInterval.Duration = 0
-	mv, err := community.Restore(ctx, cfg, backup, c.Dir+"/storage.key")
+	mv, err := community.Restore(ctx, cfg, backup, filepath.Join(c.Dir, "storage.key"))
 	if err != nil {
 		t.Fatal(err)
 	}

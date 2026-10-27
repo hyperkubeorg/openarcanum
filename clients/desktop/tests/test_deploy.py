@@ -54,9 +54,9 @@ def test_current_deploy_files_pass(deploy_copy):
 
 
 def edit(path: Path, old: str, new: str) -> None:
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     assert old in text, old
-    path.write_text(text.replace(old, new, 1))
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
 RELAY, META, COMMUNITY = (
@@ -113,7 +113,8 @@ def test_exposure_over_threshold_fails(deploy_copy):
             "ProtectHome=", "PrivateTmp=", "PrivateDevices=", "ProtectKernelTunables=", "ProtectKernelModules=",
             "ProtectControlGroups=", "RestrictSUIDSGID=", "MemoryDenyWriteExecute=", "LockPersonality=",
             "SystemCallArchitectures=", "SystemCallFilter=@system-service")  # fmt: skip
-    unit.write_text("\n".join(ln for ln in unit.read_text().splitlines() if ln.startswith(keep)) + "\n")
+    kept = "\n".join(ln for ln in unit.read_text(encoding="utf-8").splitlines() if ln.startswith(keep))
+    unit.write_text(kept + "\n", encoding="utf-8")
     r = run_check(deploy_copy)
     assert r.returncode == 1 and "openarcanum-relay.service: systemd-analyze security over" in r.stderr, r.stderr
 

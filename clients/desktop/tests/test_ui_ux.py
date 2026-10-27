@@ -12,7 +12,7 @@ from conftest import network, run, run_community, run_relay
 from uidriver import App
 from uiflows import claim, close_settings, community_section, create_profile, open_settings
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(360)]
 
 # Records what the page hands to copy_text (the real call still runs).
 SPY_COPY = (
@@ -97,8 +97,15 @@ def test_theme_passphrases_toasts_fields_and_storage(tmp_path):
                 assert await app.js("document.querySelector('#lock .passphrase-field input').type") == "text"
                 assert await app.js("document.querySelectorAll('#lock input[type=password]')[0].value") == generated
                 await app.wait_text("#lock .generated-note", "password manager")
+                # The button says Copied for a moment: record its labels as
+                # they change (a poll can miss the moment on a busy machine).
+                await app.js(
+                    "(() => { const b = document.querySelector('#lock .generated-note button'); window.__labels = [];"
+                    " new MutationObserver(() => window.__labels.push(b.textContent))"
+                    ".observe(b, { childList: true, characterData: true, subtree: true }); return 0; })()"
+                )
                 await app.button("Copy passphrase")
-                await app.wait_text("#lock .generated-note button", "Copied")
+                await app.wait_js("window.__labels.includes('Copied')", "the Copied label")
                 assert await app.js("window.__copied") == [generated]
                 await app.wait_text("#lock .passphrase-field .hint", "trong")  # Strong or Very strong
                 # Hide and Show again.
@@ -127,21 +134,22 @@ def test_theme_passphrases_toasts_fields_and_storage(tmp_path):
                 await app.js(SPY_COPY)
                 await app.click('.rail-item[title="Direct messages"]')
                 await app.click('button[aria-label="New group DM"]')
-                await app.wait_text("#toasts .toast.error", "Join a community first")
-                await app.click("#toasts .toast.error .toast-text")
+                joined = "Join a community first: people are found through communities."
+                await app.wait_text("#toasts .toast.error", joined)
+                # That toast (other errors may stack with it): its text, then
+                # its own buttons, by its position among the error toasts.
+                await app.click("#toasts .toast.error .toast-text", joined)
                 await asyncio.sleep(6)
-                assert await app.exists("#toasts .toast.error"), "the error toast went away by itself or on a click"
-                assert (
-                    await app.js(
-                        "getComputedStyle(document.querySelector('#toasts .toast.error .toast-text')).userSelect"
-                    )
-                    != "none"
-                )
-                assert await app.js("document.querySelector('#toasts .toast.error').getAttribute('role')") == "alert"
-                await app.click("#toasts .toast.error button", "Copy the error")
+                errors = "[...document.querySelectorAll('#toasts .toast.error')]"
+                nth = await app.js(f"{errors}.findIndex((t) => t.textContent.includes({joined!r}))")
+                assert nth >= 0, "the error toast went away by itself or on a click"
+                that = f"{errors}[{nth}]"
+                assert await app.js(f"getComputedStyle({that}.querySelector('.toast-text')).userSelect") != "none"
+                assert await app.js(f"{that}.getAttribute('role')") == "alert"
+                await app.click("#toasts .toast.error button", "Copy the error", nth=nth)
                 assert "Join a community first" in (await app.js("window.__copied"))[-1]
-                await app.click("#toasts .toast.error button", "Dismiss")
-                await app.wait_gone("#toasts .toast.error")
+                await app.click("#toasts .toast.error button", "Dismiss", nth=nth)
+                await app.wait_gone("#toasts .toast.error .toast-text", joined)
 
                 # Settings → Data & storage: every path, full and copyable.
                 await open_settings(app)
@@ -151,16 +159,16 @@ def test_theme_passphrases_toasts_fields_and_storage(tmp_path):
                     "() => Object.fromEntries([...document.querySelectorAll('.storage-row')]"
                     ".map((r) => [r.dataset.location, r.querySelector('.code-text').textContent]))"
                 )
-                root = str(home.resolve())
-                assert paths["vault"] == f"{root}/data/vault.bin"
-                assert paths["preferences"] == f"{root}/config/preferences.toml"
-                assert paths["logs"] == f"{root}/log" and paths["crash"] == f"{root}/log/crash.log"
-                assert paths["dm_files"] == f"{root}/cache/dm-files"
-                assert paths["update_cache"] == f"{root}/cache/updates"
+                root = home.resolve()
+                assert paths["vault"] == str(root / "data" / "vault.bin")
+                assert paths["preferences"] == str(root / "config" / "preferences.toml")
+                assert paths["logs"] == str(root / "log") and paths["crash"] == str(root / "log" / "crash.log")
+                assert paths["dm_files"] == str(root / "cache" / "dm-files")
+                assert paths["update_cache"] == str(root / "cache" / "updates")
                 assert paths["keychain"].startswith("OpenArcanum profile key / ")
                 assert {"config", "data", "state", "dms", "olm", "cache", "community_cache", "log"} <= set(paths)
                 await app.click(".storage-row[data-location=vault] button", "Copy the path of Profile")
-                assert (await app.js("window.__copied"))[-1] == f"{root}/data/vault.bin"
+                assert (await app.js("window.__copied"))[-1] == str(root / "data" / "vault.bin")
                 assert await app.exists(".storage-row[data-location=data] button", "Open the folder of Data folder")
                 assert not await app.exists(
                     ".storage-row[data-location=keychain] button", "Open the folder of Keychain entry"

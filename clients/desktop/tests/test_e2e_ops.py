@@ -113,11 +113,12 @@ def test_logs_and_metrics_carry_no_content(tmp_path):
     # Structured: every line of every log is one JSON record.
     records = {}
     for n in ("relay", "meta", "community"):
-        lines = (logs / f"{n}.log").read_text().splitlines()
+        lines = (logs / f"{n}.log").read_text(encoding="utf-8").splitlines()
         assert lines, n
         records[n] = [json.loads(ln) for ln in lines]
         assert all({"time", "level", "msg"} <= r.keys() for r in records[n]), n
-        assert (logs / f"{n}.log").stat().st_mode & 0o777 == 0o600
+        if os.name == "posix":  # file modes are a POSIX thing
+            assert (logs / f"{n}.log").stat().st_mode & 0o777 == 0o600
     assert any(r["msg"] == "admin action" for r in records["community"])
     assert any(r["msg"] == "relay listening" for r in records["relay"])
 
@@ -141,7 +142,8 @@ def test_logs_and_metrics_carry_no_content(tmp_path):
             secrets.append(base64.urlsafe_b64decode(k + "=" * (-len(k) % 4)))
         except ValueError:
             pass
-    everything = "\n".join((logs / f"{n}.log").read_text() for n in records) + "\n".join(metrics.values())
+    everything = "\n".join((logs / f"{n}.log").read_text(encoding="utf-8") for n in records)
+    everything += "\n".join(metrics.values())
     for secret in secrets:
         for form in encodings(secret):
             assert form not in everything, f"logs or metrics contain {form!r}"
@@ -221,7 +223,8 @@ def test_log_file_rotation_at_start(tmp_path):
     rotated = sorted(p.name for p in tmp_path.glob("relay.log.*"))
     assert len(rotated) == 2 and rotated[0] == "relay.log.20250103T000000.000Z", rotated
     assert (tmp_path / rotated[1]).read_text() == '{"msg":"from the last run"}\n'
-    records = [json.loads(ln) for ln in log.read_text().splitlines()]
+    records = [json.loads(ln) for ln in log.read_text(encoding="utf-8").splitlines()]
     assert any(r["msg"] == "relay listening" for r in records)
     assert all(r.get("msg") != "from the last run" for r in records)
-    assert log.stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":
+        assert log.stat().st_mode & 0o777 == 0o600

@@ -548,7 +548,10 @@ function menuRange(r) {
     h('div', { class: 'mi-range-head', 'aria-hidden': 'true' }, h('span', { text: r.label }), out), input);
 }
 
-function openMenu(x, y, items) {
+// opts.label names the menu (a person's menu is named after them), so
+// assistive technology and the UI tests know whose it is; a popup without
+// one is named after its slider or note.
+function openMenu(x, y, items, opts = {}) {
   closeMenu();
   const opener = focusTarget(document.activeElement);
   // A slider can't be a menu entry (ARIA menus hold only items), so a menu
@@ -556,7 +559,8 @@ function openMenu(x, y, items) {
   // a menu with a note (a person's status, { note: text }) above its entries.
   const ranged = items.some((it) => it && (it.range || it.note));
   const head = items.find((it) => it && (it.range || it.note));
-  const m = h('div', { class: 'menu', id: 'ctx-menu', role: ranged ? 'dialog' : 'menu', 'aria-label': ranged ? (head.range ? head.range.label : head.note) : null });
+  const name = opts.label || (ranged ? (head.range ? head.range.label : head.note) : null);
+  const m = h('div', { class: 'menu', id: 'ctx-menu', role: ranged ? 'dialog' : 'menu', 'aria-label': name });
   const list = ranged ? h('div', { class: 'menu-list', role: 'menu' }) : m;
   const done = (it) => {
     // Focus goes back first, so a dialog the entry opens returns it there
@@ -698,16 +702,16 @@ function passphraseField(label, opts = {}) {
   const msg = h('div', { class: 'hint' });
   const note = h('div', { class: 'notice generated-note hidden', role: 'status' });
   let timer = null;
-  const meter = () => {
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
+  const rate = async () => {
+    try {
       const s = await api('passphrase_strength', input.value);
       const colors = ['#d83c3e', '#e67e22', '#f0b232', '#23a55a', '#1e8e4f'];
       bar.style.width = (20 + s.score * 20) + '%';
       bar.style.background = colors[s.score];
       msg.textContent = s.label + (s.message ? ': ' + s.message : '');
-    }, 120);
+    } catch (e) { msg.textContent = ''; }
   };
+  const meter = () => { clearTimeout(timer); timer = setTimeout(rate, 120); };
   input.addEventListener('input', meter);
   const show = h('button', { class: 'btn small reveal-btn', type: 'button', text: t('Show'), 'aria-controls': id });
   const reveal = (on) => {
@@ -724,7 +728,10 @@ function passphraseField(label, opts = {}) {
         input.value = r.passphrase;
         if (opts.repeat) opts.repeat.value = r.passphrase;
         reveal(true);
-        meter();
+        // The meter's line is in place before the note under it appears,
+        // so nothing moves while Copy is being clicked.
+        clearTimeout(timer);
+        await rate();
         clear(note).appendChild(h('div', { class: 'stack' },
           h('div', { text: opts.saveNote || t('Save this passphrase in your password manager now. There is no reset: without it, nobody can open this profile.') }),
           h('div', { class: 'small', text: t('Six random words, about {bits} bits: strong enough even if someone copies the encrypted file.', { bits: r.bits }) }),

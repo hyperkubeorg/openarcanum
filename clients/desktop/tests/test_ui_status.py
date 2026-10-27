@@ -50,9 +50,23 @@ async def wait_member_status(app: App, name: str, want: str) -> None:
 
 
 async def add_contact(app: App, name: str) -> None:
-    await community_member_menu(app, name)
-    await app.click(".menu .mi", "Add as contact")
-    await app.wait_text("#toasts .toast", "Added to contacts.")
+    """Member menu → Add as contact. The other person's card was just
+    published (two_people): on a slow machine it may not have reached the
+    server yet, so the error toast gets dismissed and the add tried again."""
+    for _ in range(30):
+        await community_member_menu(app, name)
+        await app.click(".menu .mi", "Add as contact")
+        await app.wait_js(
+            "[...document.querySelectorAll('#toasts .toast')]"
+            ".some((t) => /Added to contacts|contact card/.test(t.textContent))",
+            "the add's outcome",
+        )
+        if any("Added to contacts." in t for t in await app.texts("#toasts .toast")):
+            return
+        await app.click("#toasts .toast.error button", "Dismiss")
+        await app.wait_gone("#toasts .toast.error")
+        await asyncio.sleep(1)
+    raise AssertionError(f"{app.name}: {name}'s contact card never became available")
 
 
 def test_status_picker_audiences_and_do_not_disturb(tmp_path):

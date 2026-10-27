@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	"google.golang.org/protobuf/proto"
@@ -365,7 +366,7 @@ func (s *Server) opCommitRotation(ctx context.Context, actor *memberRec, c *wire
 	if v.Cert.Seq <= s.certSeq() {
 		return errInvalid("the new certificate must have a higher sequence number")
 	}
-	if err := identity.WriteSeed(s.cfg.DataDir+"/server.key", s.pendingKey); err != nil {
+	if err := identity.WriteSeed(filepath.Join(s.cfg.DataDir, "server.key"), s.pendingKey); err != nil {
 		return err
 	}
 	b, _ := proto.Marshal(cert)

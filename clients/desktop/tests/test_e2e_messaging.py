@@ -16,6 +16,8 @@ from openarcanum import keys
 from openarcanum.core import UserError, image_mime
 from openarcanum.wire import community_pb2 as cp
 
+pytestmark = pytest.mark.timeout(210)
+
 
 class _Counting(http.server.BaseHTTPRequestHandler):
     hits = 0

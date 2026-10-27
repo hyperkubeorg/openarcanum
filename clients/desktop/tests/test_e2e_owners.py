@@ -18,6 +18,8 @@ from openarcanum.session import IdentityError
 from openarcanum.wire import community_pb2 as cp
 from openarcanum.wire import session_pb2 as sp
 
+pytestmark = pytest.mark.timeout(210)
+
 
 async def add_owner(owner, member, cid: str) -> None:
     """The UI flow without the clicks: invite, accept on the member's

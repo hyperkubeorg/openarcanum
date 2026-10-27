@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -331,11 +332,11 @@ func TestBackupAndRestoreRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := community.DefaultConfig(dir)
 	cfg.Relays = []string{e.relay.URL}
-	if _, err := community.Restore(ctx, cfg, path, e.comm.Dir+"/storage.key"); err != nil {
+	if _, err := community.Restore(ctx, cfg, path, filepath.Join(e.comm.Dir, "storage.key")); err != nil {
 		t.Fatal(err)
 	}
 	// The wrong storage key can't open it.
-	other := t.TempDir() + "/k"
+	other := filepath.Join(t.TempDir(), "k")
 	writeKey(t, other)
 	cfg2 := community.DefaultConfig(t.TempDir())
 	cfg2.Relays = cfg.Relays

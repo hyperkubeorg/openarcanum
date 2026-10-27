@@ -42,13 +42,14 @@ type TLSOptions struct {
 // ListenPublic listens on addr and, unless tls_mode is off, serves TLS
 // there. With acme, certificates are requested in the background (the
 // listener is already up, so the CA's challenge connections reach it) until
-// ctx ends; handshakes before the first certificate arrives fail.
+// ctx ends or the listener is closed, which also waits for that work to
+// finish; handshakes before the first certificate arrives fail.
 func ListenPublic(ctx context.Context, addr string, s TLSSettings, o TLSOptions) (net.Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
-	tc, err := ServerTLS(ctx, s, o)
+	tc, stop, err := ServerTLS(ctx, s, o)
 	if err != nil {
 		_ = ln.Close()
 		return nil, err
@@ -56,14 +57,30 @@ func ListenPublic(ctx context.Context, addr string, s TLSSettings, o TLSOptions)
 	if tc == nil {
 		return ln, nil
 	}
-	return tls.NewListener(ln, tc), nil
+	return tls.NewListener(&stopListener{Listener: ln, stop: stop}, tc), nil
+}
+
+// stopListener runs stop once, when the listener is closed.
+type stopListener struct {
+	net.Listener
+	stop func()
+	once sync.Once
+}
+
+func (l *stopListener) Close() error {
+	err := l.Listener.Close()
+	l.once.Do(l.stop)
+	return err
 }
 
 // ServerTLS is the public listener's TLS configuration, or nil when
-// tls_mode is off. See ListenPublic.
-func ServerTLS(ctx context.Context, s TLSSettings, o TLSOptions) (*tls.Config, error) {
+// tls_mode is off, and stop, which ends the ACME issuers and waits for them
+// (they write to the cache directory, so call it before removing that; a
+// no-op in the other modes). See ListenPublic.
+func ServerTLS(ctx context.Context, s TLSSettings, o TLSOptions) (*tls.Config, func(), error) {
+	stop := func() {}
 	if err := s.Validate(); err != nil {
-		return nil, err
+		return nil, stop, err
 	}
 	if o.Log == nil {
 		o.Log = slog.New(slog.DiscardHandler)
@@ -75,19 +92,19 @@ func ServerTLS(ctx context.Context, s TLSSettings, o TLSOptions) (*tls.Config, e
 	src := &certSource{}
 	switch s.TLSMode {
 	case TLSOff:
-		return nil, nil
+		return nil, stop, nil
 	case TLSFiles:
 		fc, err := newFileCert(s.TLSCertFile, s.TLSKeyFile, o.Log)
 		if err != nil {
-			return nil, err
+			return nil, stop, err
 		}
 		src.files = fc
 	case TLSACME:
 		if o.CacheDir == "" {
-			return nil, errors.New("acme_cache_dir is required with tls_mode acme")
+			return nil, stop, errors.New("acme_cache_dir is required with tls_mode acme")
 		}
 		if err := privateDir(o.CacheDir); err != nil {
-			return nil, fmt.Errorf("acme_cache_dir: %w", err)
+			return nil, stop, fmt.Errorf("acme_cache_dir: %w", err)
 		}
 		var names, ips []string
 		for _, d := range s.TLSDomains {
@@ -99,13 +116,26 @@ func ServerTLS(ctx context.Context, s TLSSettings, o TLSOptions) (*tls.Config, e
 			}
 		}
 		src.acme = newACMECerts(s.ACMEDirectoryURL, s.ACMEEmail, o.CacheDir, o.Log)
+		ctx, cancel := context.WithCancel(ctx)
+		var wg sync.WaitGroup
+		start := func(i *issuer) {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				i.run(ctx)
+			}()
+		}
 		if len(names) > 0 {
 			src.names = newIssuer(src.acme, names, false)
-			go src.names.run(ctx)
+			start(src.names)
 		}
 		if len(ips) > 0 {
 			src.ips = newIssuer(src.acme, ips, true)
-			go src.ips.run(ctx)
+			start(src.ips)
+		}
+		stop = func() {
+			cancel()
+			wg.Wait()
 		}
 		protos = append(protos, acme.ALPNProto)
 	}
@@ -113,7 +143,7 @@ func ServerTLS(ctx context.Context, s TLSSettings, o TLSOptions) (*tls.Config, e
 		MinVersion:     tls.VersionTLS12,
 		NextProtos:     protos,
 		GetCertificate: src.get,
-	}, nil
+	}, stop, nil
 }
 
 // certSource picks the certificate for a handshake.

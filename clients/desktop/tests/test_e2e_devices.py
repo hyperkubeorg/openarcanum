@@ -15,6 +15,8 @@ from openarcanum.devices import LinkSession
 from openarcanum.paths import Paths
 from openarcanum.wire import community_pb2 as cp
 
+pytestmark = pytest.mark.timeout(240)
+
 
 async def dm_pair(tmp_path, meta, node):
     owner, oev = await new_core(tmp_path / "owner", "owner-desktop", maintainers=[meta])

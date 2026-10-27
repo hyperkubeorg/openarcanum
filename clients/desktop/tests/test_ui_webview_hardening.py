@@ -39,9 +39,13 @@ def _browser(tmp_path):
     """A stand-in system browser (webbrowser honours $BROWSER) that records
     being started."""
     opened = tmp_path / "browser-opened"
-    script = tmp_path / "browser.sh"
-    script.write_text(f'#!/bin/sh\necho "$@" >> "{opened}"\n')
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    if os.name == "nt":
+        script = tmp_path / "browser.cmd"
+        script.write_text(f'@echo %* >> "{opened}"\n')
+    else:
+        script = tmp_path / "browser.sh"
+        script.write_text(f'#!/bin/sh\necho "$@" >> "{opened}"\n')
+        script.chmod(script.stat().st_mode | stat.S_IEXEC)
     return {"BROWSER": str(script)}, opened
 
 
@@ -99,7 +103,7 @@ def test_the_window_stays_on_the_apps_page(tmp_path):
             for kind in ("dragEnter", "dragOver", "drop"):
                 await app.send("Input.dispatchDragEvent", type=kind, x=200, y=200, data=data)
             await _still_home(app, index)
-            log = (tmp_path / "olive" / "log" / "client.log").read_text()
+            log = (tmp_path / "olive" / "log" / "client.log").read_text(encoding="utf-8")
             assert "refused a navigation away from the app's page" in log
             assert "refused a new window from the page" in log
             app.assert_no_errors()
@@ -145,7 +149,7 @@ def test_the_page_reads_no_local_file_outside_its_own_folder(tmp_path):
             # before any request is made: the outside image is the one
             # request the interceptor refuses.)
             assert r == ["loaded", "error", "failed", "failed"], r
-            log = (tmp_path / "olive" / "log" / "client.log").read_text()
+            log = (tmp_path / "olive" / "log" / "client.log").read_text(encoding="utf-8")
             assert log.count("refused a request for a local file outside the app's page") == 1
         finally:
             await app.stop()
@@ -162,16 +166,17 @@ def test_devtools_only_when_asked_for(tmp_path, enabled):
         app = await App(tmp_path / "olive", name="olive", env=env).start()
         try:
             await app.wait_js("document.querySelector('#lock')", "the lock screen")
+            await app.wait_js("window.pywebview && window.pywebview.api", "the bridge")
             r = await app.js("window.pywebview.api.open_devtools().then((v) => v.ok, () => false)")
             assert r is True
             # Ctrl+Shift+I, as the page sees it.
             await app.key("I", modifiers=2 | 8)
             want = "developer tools opened" if enabled else "developer tools are off"
             for _ in range(50):
-                if want in log_file.read_text():
+                if want in log_file.read_text(encoding="utf-8"):
                     break
                 await asyncio.sleep(0.2)
-            text = log_file.read_text()
+            text = log_file.read_text(encoding="utf-8")
             assert want in text
             assert ("developer tools opened" in text) == enabled
         finally:

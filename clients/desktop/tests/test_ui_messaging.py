@@ -27,7 +27,7 @@ from uiflows import (
     send_message,
 )
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(480)]
 
 
 async def two_members(tmp_path, node) -> tuple[App, App]:

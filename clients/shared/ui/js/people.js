@@ -27,7 +27,13 @@ function userMenu(e, who, opts = {}) {
 async function openUserMenu(x, y, who, opts = {}) {
   let items;
   try { items = await userMenuItems(who, opts); } catch (err) { toastError(err); return; }
-  openMenu(x, y, items);
+  openMenu(x, y, items, { label: personName(who) });
+}
+
+// The name a person's menu carries (its accessible name).
+function personName(who) {
+  const m = who.member || (who.cid && who.key ? findMember(who.cid, who.key) : null);
+  return who.name || (m ? shownName(m) : '') || (who.person && who.person.name) || (who.contact && who.contact.name) || '';
 }
 
 // Who reacted with one emoji (a right-click on the reaction): pick someone
@@ -68,6 +74,12 @@ async function memberMenuItems(who, opts) {
   // Permissions as Community Admin's Members section checks them.
   const can = (admin && adminUI.s ? adminUI.s.can : summary && summary.can) || {};
   const here = !!(m && summary && summary.status === 'active');
+  // Without the member and an active community the menu has little in it:
+  // say why in the engine's log (the stderr log in CI) when that happens.
+  if (!here || !self) {
+    const why = !m ? 'no-member' : !summary ? 'no-community' : summary.status !== 'active' ? `status-${summary.status}` : 'no-state';
+    console.warn(`person-menu ${String(who.key).slice(0, 8)}: ${why}`);
+  }
   const contacts = me ? [] : await api('dm_contacts').catch(() => []);
   const contact = contacts.find((c) => c.community === cid && c.member === who.key);
   const cards = !!summary && featureOn(summary, 'contact_cards');

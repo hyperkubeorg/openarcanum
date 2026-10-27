@@ -7,7 +7,7 @@ from test_ui_voice import create_voice_channel, join_voice, media_env, tone  # n
 from uidriver import App
 from uiflows import claim, close_settings, community_section, create_profile, join, send_message, set_feature
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(460)]
 
 
 def test_voice_channel_text_chat(tmp_path, tone):  # noqa: F811

@@ -16,7 +16,7 @@ from openarcanum.paths import Paths
 
 
 def log_of(home: Path) -> str:
-    return (home / "log" / "client.log").read_text()
+    return (home / "log" / "client.log").read_text(encoding="utf-8")
 
 
 @pytest.mark.gui

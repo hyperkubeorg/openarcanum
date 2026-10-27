@@ -14,7 +14,7 @@ from test_ui_voice import create_voice_channel, debug, join_voice, media_env, to
 from uidriver import App
 from uiflows import claim, create_profile, join
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(460)]
 
 # A computer without a microphone or camera (or one where the system
 # refuses them): getUserMedia rejects for that kind with the error the

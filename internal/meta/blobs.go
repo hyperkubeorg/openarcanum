@@ -40,6 +40,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -504,7 +505,13 @@ func (b *blobStore) completeIfReady(ctx context.Context, r *blobRow) error {
 	return b.finish(ctx, r, src)
 }
 
+// syncDir makes a rename in dir durable. Windows has no directory fsync:
+// os.Open gives a read-only directory handle and FlushFileBuffers on it
+// fails with "Access is denied", and NTFS journals renames anyway.
 func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	d, err := os.Open(dir)
 	if err != nil {
 		return err

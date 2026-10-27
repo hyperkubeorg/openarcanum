@@ -399,7 +399,7 @@ def test_the_catalog_is_current_and_the_tree_is_clean():
 
 
 def test_every_ui_script_loads_after_i18n():
-    html = (ROOT / "clients" / "shared" / "ui" / "index.html").read_text()
+    html = (ROOT / "clients" / "shared" / "ui" / "index.html").read_text(encoding="utf-8")
     scripts = [line.split('"')[1] for line in html.splitlines() if line.startswith("<script src=")]
     assert scripts[0] == "js/i18n.js"
     assert set(scripts) == {f"js/{p.name}" for p in (ROOT / "clients" / "shared" / "ui" / "js").glob("*.js")}

@@ -751,6 +751,12 @@ class DMManager:
             res = (await conn.call(get_contact_card=cp.GetContactCard(member=self._member_key(cid)))).contact_card
             mine = self.olm.curve(label)
             left = next((c.left for c in res.left if c.device == mine), 0)
+            log.info(
+                "contact card published in %s: %d devices listed, %d one-time keys left for this device",
+                cid[:8],
+                len(curves),
+                left,
+            )
             if left < OTK_LOW:
                 otks = self.olm.new_one_time_keys(label, olm.ONE_TIME_KEYS)
                 await conn.call(
@@ -791,9 +797,36 @@ class DMManager:
                 await self.core.conn(cid).call(publish_contact_card=cp.PublishContactCard(card=b""))
             except (RpcError, Offline) as e:
                 raise UserError(str(e)) from None
+            log.info("contact card withdrawn from %s", cid[:8])
         self.core.save_vault()
         self.core.community_changed(cid)
         return {"ok": True}
+
+    async def card_status(self, cid: str) -> dict:
+        """What the community's server holds as my contact card right now:
+        whether one is published there and, if so, how many one-time keys
+        this device has left (the owner's own fetch only learns counts)."""
+        self.core.require_unlocked()
+        rec = self.core.vault.data["communities"].get(cid)
+        if rec is None:
+            raise UserError(_("Unknown community."))
+        conn = self.core.conn(cid)
+        try:
+            res = (await conn.call(get_contact_card=cp.GetContactCard(member=self._member_key(cid)))).contact_card
+        except Offline as e:
+            raise UserError(str(e)) from None
+        except RpcError as e:
+            return {"published": False, "wanted": bool(rec.get("publish_card")), "reason": str(e)}
+        card = open_card(dm.SignedContactCard.FromString(res.card))
+        pub = self._ident(cid, create=False)
+        mine = self.olm.curve(self._label(pub)) if pub else b""
+        return {
+            "published": True,
+            "wanted": bool(rec.get("publish_card")),
+            "mine": pub is not None and card.card.identity == unb64(pub),
+            "devices": len(card.devices.devices),
+            "keys_left": next((c.left for c in res.left if c.device == mine), 0),
+        }
 
     async def community_online(self, cid: str) -> None:
         rec = self.core.vault.data["communities"].get(cid, {}) if self.core.vault else {}
@@ -808,6 +841,7 @@ class DMManager:
         try:
             res = (await conn.call(get_contact_card=cp.GetContactCard(member=member))).contact_card
         except (RpcError, Offline) as e:
+            log.info("contact card of member %s in %s not fetched: %s", b64(member)[:8], cid[:8], e)
             raise UserError(str(e)) from None
         card = open_card(dm.SignedContactCard.FromString(res.card))
         if card.card.member != member:

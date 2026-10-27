@@ -13,7 +13,7 @@ from uiflows import create_profile, open_settings
 from openarcanum import codes
 from openarcanum.wire import invite_pb2 as ip
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(300)]
 
 
 def test_local_directory_search_and_outdated_relay(tmp_path):

@@ -87,8 +87,10 @@ func serveTLS(t *testing.T, ctx context.Context, s TLSSettings, o TLSOptions) st
 }
 
 // serveACME is serveTLS with ca checking challenges on the listener, as
-// ListenPublic does it (listen first, then start the issuers).
-func serveACME(t *testing.T, ctx context.Context, ca *testCA, s TLSSettings, o TLSOptions) string {
+// ListenPublic does it (listen first, then start the issuers). The issuers
+// are stopped (and waited for) with stop, at the latest at cleanup: they
+// write to the cache directory, which the test's TempDir removes last.
+func serveACME(t *testing.T, ctx context.Context, ca *testCA, s TLSSettings, o TLSOptions) (addr string, stop func()) {
 	t.Helper()
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -97,11 +99,12 @@ func serveACME(t *testing.T, ctx context.Context, ca *testCA, s TLSSettings, o T
 	ca.mu.Lock()
 	ca.Target = raw.Addr().String()
 	ca.mu.Unlock()
-	tc, err := ServerTLS(ctx, s, o)
+	tc, stop, err := ServerTLS(ctx, s, o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return serveOn(t, tls.NewListener(raw, tc))
+	t.Cleanup(stop)
+	return serveOn(t, tls.NewListener(raw, tc)), stop
 }
 
 func serveOn(t *testing.T, ln net.Listener) string {
@@ -157,10 +160,11 @@ func TestACMECertificatesForNamesAndIPs(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	addr := serveACME(t, ctx, ca, s, TLSOptions{CacheDir: cache})
+	addr, stop := serveACME(t, ctx, ca, s, TLSOptions{CacheDir: cache})
 
 	byName := waitHandshake(t, addr, "relay.example.invalid", ca.Roots(), nil)
 	byIP := waitHandshake(t, addr, "", ca.Roots(), nil)
+	stop() // the issuers finish caching what they got
 	if !slices.Equal(byName.DNSNames, []string{"relay.example.invalid"}) || len(byName.IPAddresses) != 0 {
 		t.Fatalf("name certificate: %v %v", byName.DNSNames, byName.IPAddresses)
 	}
@@ -198,10 +202,7 @@ func TestACMECertificatesForNamesAndIPs(t *testing.T) {
 	}
 
 	// A restart serves the cached certificates at once, with no new order.
-	cancel()
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
-	addr2 := serveTLS(t, ctx2, s, TLSOptions{CacheDir: cache})
+	addr2 := serveTLS(t, ctx, s, TLSOptions{CacheDir: cache})
 	again := waitHandshake(t, addr2, "relay.example.invalid", ca.Roots(), nil)
 	if !again.Equal(byName) {
 		t.Fatal("restart got a new certificate instead of the cached one")
@@ -220,7 +221,7 @@ func TestACMERenewsShortLivedCertificates(t *testing.T) {
 	s := TLSSettings{TLSMode: TLSACME, TLSDomains: []string{"127.0.0.1"}, ACMEDirectoryURL: ca.URL()}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	addr := serveACME(t, ctx, ca, s, TLSOptions{CacheDir: t.TempDir()})
+	addr, _ := serveACME(t, ctx, ca, s, TLSOptions{CacheDir: t.TempDir()})
 	first := waitHandshake(t, addr, "", ca.Roots(), nil)
 	next := waitHandshake(t, addr, "", ca.Roots(), func(c *x509.Certificate) bool { return c.SerialNumber.Cmp(first.SerialNumber) != 0 })
 	if !next.NotAfter.After(first.NotAfter) {
@@ -234,7 +235,7 @@ func TestACMEWithoutProfiles(t *testing.T) {
 	s := TLSSettings{TLSMode: TLSACME, TLSDomains: []string{"127.0.0.1"}, ACMEDirectoryURL: ca.URL()}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	addr := serveACME(t, ctx, ca, s, TLSOptions{CacheDir: t.TempDir()})
+	addr, _ := serveACME(t, ctx, ca, s, TLSOptions{CacheDir: t.TempDir()})
 	waitHandshake(t, addr, "", ca.Roots(), nil)
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
@@ -251,16 +252,18 @@ func TestACMECacheDirIsMadePrivate(t *testing.T) {
 	s := TLSSettings{TLSMode: TLSACME, TLSDomains: []string{"relay.example.invalid"}, ACMEDirectoryURL: "http://127.0.0.1:1/dir"}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if _, err := ServerTLS(ctx, s, TLSOptions{CacheDir: dir}); err != nil {
+	_, stop, err := ServerTLS(ctx, s, TLSOptions{CacheDir: dir})
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer stop() // before TempDir goes: the issuer writes the account key there
 	if st, _ := os.Stat(dir); posixModes && st.Mode().Perm() != 0o700 {
 		t.Fatalf("mode %v", st.Mode())
 	}
-	if _, err := ServerTLS(ctx, s, TLSOptions{}); err == nil || !strings.Contains(err.Error(), "acme_cache_dir") {
+	if _, _, err := ServerTLS(ctx, s, TLSOptions{}); err == nil || !strings.Contains(err.Error(), "acme_cache_dir") {
 		t.Fatalf("no cache dir: %v", err)
 	}
-	if tc, err := ServerTLS(ctx, DefaultTLSSettings(), TLSOptions{}); tc != nil || err != nil {
+	if tc, _, err := ServerTLS(ctx, DefaultTLSSettings(), TLSOptions{}); tc != nil || err != nil {
 		t.Fatalf("off: %v %v", tc, err)
 	}
 }

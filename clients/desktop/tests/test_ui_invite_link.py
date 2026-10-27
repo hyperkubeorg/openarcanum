@@ -13,7 +13,7 @@ from test_instance import LINK
 from uidriver import App
 from uiflows import create_profile
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(300)]
 
 PREFILLED = "[...document.querySelectorAll('#main .add-page textarea')].map((e) => e.value)"
 
@@ -59,7 +59,7 @@ def test_invite_link_prefills_join_dialog_and_second_launch_hands_over(tmp_path)
             app.assert_local_only()
         finally:
             await app.stop()
-        log = (home / "log" / "client.log").read_text()
+        log = (home / "log" / "client.log").read_text(encoding="utf-8")
         assert "another launch handed over an invite link" in log
         assert LINK not in log and second_link not in log
 

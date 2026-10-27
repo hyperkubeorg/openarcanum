@@ -32,7 +32,7 @@ from uiflows import (
 
 from openarcanum.core import UserError
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(460)]
 
 
 def chan(core, cid, name):

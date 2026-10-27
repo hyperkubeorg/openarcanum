@@ -73,6 +73,7 @@ def test_macos_spec_and_entitlements():
     }
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="an AppDir needs the executable bit and a symlink")
 def test_appdir_layout(tmp_path):
     bundle = tmp_path / "OpenArcanum"
     (bundle / "_internal").mkdir(parents=True)

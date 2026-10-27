@@ -30,6 +30,8 @@ from openarcanum.core import UserError
 from openarcanum.moderation import rule_from_dict
 from openarcanum.relay import Relay, RelayBlocked
 
+pytestmark = pytest.mark.timeout(240)
+
 
 def png(width: int, height: int) -> bytes:
     """A valid PNG of the given size (one colour)."""

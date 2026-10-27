@@ -8,7 +8,7 @@ from conftest import run, run_community, run_relay
 from uidriver import App
 from uiflows import claim, create_channel, create_profile, open_settings, send_message, unlock, walk_settings
 
-pytestmark = pytest.mark.gui
+pytestmark = [pytest.mark.gui, pytest.mark.timeout(300)]
 
 
 def test_first_run_claim_chat_settings_lock(tmp_path):
@@ -54,7 +54,7 @@ def test_first_run_claim_chat_settings_lock(tmp_path):
                 app.assert_no_errors()
             finally:
                 await app.stop()
-            log = (tmp_path / "home" / "log" / "client.log").read_text()
+            log = (tmp_path / "home" / "log" / "client.log").read_text(encoding="utf-8")
             # Logs never carry message content.
             assert "hello from the ui" not in log
 

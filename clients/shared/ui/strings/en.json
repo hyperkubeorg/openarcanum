@@ -1776,6 +1776,11 @@
     "voice.py"
    ]
   },
+  "Couldn't reach the clipboard.": {
+   "used_in": [
+    "api.py"
+   ]
+  },
   "Couldn't reach the community. {error}": {
    "vars": [
     "error"
