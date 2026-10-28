@@ -264,6 +264,17 @@ dmUI.setChatHidden = function (hidden) {
   voiceUI.renderStage();
 };
 
+// Puts `nodes` in `box` unless it already shows exactly that (handlers
+// aren't markup: a box left as it was keeps its own, for the same things).
+function sameOrReplace(box, ...nodes) {
+  const shape = (n) => (n.nodeType !== 1 ? n.textContent
+    : [n.tagName, [...n.attributes].map((x) => [x.name, x.value]), [...n.childNodes].map(shape)]);
+  const sig = JSON.stringify(nodes.map(shape));
+  if (box.dataset.drawn === sig) return;
+  box.dataset.drawn = sig;
+  box.replaceChildren(...nodes);
+}
+
 function fillDmView(first = false) {
   const c = dmUI.list.find((x) => x.id === dmUI.current) || { id: dmUI.current, name: dmUI.info.name || t('Conversation') };
   const info = dmUI.info;
@@ -273,20 +284,31 @@ function fillDmView(first = false) {
     ? h('button', { class: 'title title-btn', title: t('Options for {name}', { name: c.name }), text: c.name,
       onclick: (e) => userMenu(e, { person: others[0] }, { dm: info }) })
     : h('span', { class: 'title', text: c.name });
-  clear($('#dm-head')).appendChild(h('div', { class: 'main-head' },
+  // The header and banners are replaced only when what they show changed: a
+  // refresh every few seconds would otherwise swap the buttons out from
+  // under a click.
+  sameOrReplace($('#dm-head'), h('div', { class: 'main-head' },
     title,
     info.direct ? null : h('span', { class: 'small muted', text: t('{n} members', { n: info.members.length }) }),
     h('div', { class: 'spacer' }),
     h('span', { class: 'small muted', text: t('End-to-end encrypted') }),
     info.status === 'active' ? dmCallButtons(c.id) : null,
     h('button', { class: 'icon-btn', title: t('Conversation details'), 'aria-label': t('Conversation details'), icon: 'info', onclick: () => dmInfoDialog() })));
-  dmBanners(clear($('#dm-banners')), c, info, others);
+  const banners = h('div');
+  dmBanners(banners, c, info, others);
   const ring = dmCallUI.ringing[c.id];
   if (ring && !voiceUI.inDmCall(c.id)) {
-    $('#dm-banners').appendChild(h('div', { class: 'banner info dm-ring' }, icon('phone'),
+    banners.appendChild(h('div', { class: 'banner info dm-ring' }, icon('phone'),
       h('span', { class: 'spacer', text: t('{name} is calling', { name: ring.from || c.name }) }),
       h('button', { class: 'btn small primary', text: t('Join'), onclick: () => voiceUI.joinDm(c.id) }),
       h('button', { class: 'btn small', text: t('Dismiss'), onclick: () => dmCallUI.dismiss(c.id) })));
+  }
+  sameOrReplace($('#dm-banners'), ...banners.childNodes);
+  // A rename shows in the composer too.
+  const input = $('#dm-input');
+  if (input && input.getAttribute('aria-label') !== t('Message {name}', { name: c.name })) {
+    input.placeholder = t('Message {name}', { name: c.name });
+    input.setAttribute('aria-label', t('Message {name}', { name: c.name }));
   }
   // The owner can turn attachments on and off while the composer is open.
   const attach = $('#dm-attach');
