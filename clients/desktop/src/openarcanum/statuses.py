@@ -259,7 +259,13 @@ class Statuses:
         if self.core.vault is None:
             return {"mine": {**self.mine(), "effective": "online", "idle": False}, "communities": {}, "people": {}}
         people = {ident: {**r, "source": "contacts"} for ident, r in self.d.get("recv", {}).items()}
-        for ident, cid, member in self._known_people():
+        known = self._known_people()
+        # Online in no shared community, and seen offline in one: offline.
+        online_somewhere = {ident for ident, cid, member in known if self._online(cid, member)}
+        for ident, cid, member in known:
+            if ident not in online_somewhere and self._seen_offline(cid, member):
+                people.pop(ident, None)
+        for ident, cid, member in known:
             r = self.received.get(cid, {}).get(member)
             online = self._online(cid, member)
             if not online:
@@ -281,6 +287,15 @@ class Statuses:
 
     def _online(self, cid: str, member: str) -> bool:
         return any(m.get("key") == member and m.get("online") for m in self.core._members.get(cid, []))
+
+    def _seen_offline(self, cid: str, member: str) -> bool:
+        """A community I'm connected to lists them, not online: they're gone
+        now, whatever their last contacts status says (it stays fresh for
+        FRESH_SECONDS, and nothing is posted when an app closes)."""
+        conn = self.core.conns.get(cid)
+        if conn is None or not conn.connected.is_set():
+            return False
+        return any(m.get("key") == member and not m.get("online") for m in self.core._members.get(cid, []))
 
     def _known_people(self) -> list[tuple[str, str, str]]:
         """(DM identity, community, member key) for the people in my DM

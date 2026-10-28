@@ -197,6 +197,16 @@ def test_contacts_status_through_mailboxes_and_removal_rotates(tmp_path):
                 await seen_by(core, lambda r: r is not None and r["text"] == CONTACT_TEXT and r["state"] == "idle")
             # Fresh for a while: contacts have no presence to go by.
             assert owner.statuses.d["recv"][alice_ident]["fresh_until"] > time.time() * 1000
+            # Unless a community we share says otherwise: Alice is online
+            # there, and Bob's view has her status; once that community sees
+            # her offline, so does Bob, fresh contacts status or not.
+            await bob.members(cid)
+            assert bob.statuses.view()["people"][alice_ident]["state"] == "idle"
+            alice_online = next(m for m in bob._members[cid] if m["key"] == a)
+            alice_online["online"] = False
+            assert alice_ident not in bob.statuses.view()["people"]
+            alice_online["online"] = True
+            assert bob.statuses.view()["people"][alice_ident]["state"] == "idle"
             # The maintainer node carried only ciphertext.
             assert_absent("pangolin", files_under(conftest.META_DIRS[meta]))
 
