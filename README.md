@@ -1,4 +1,13 @@
-# OpenArcanum
+<p align="center">
+  <img src="clients/shared/ui/brand/openarcanum.svg" width="128" height="128" alt="The OpenArcanum logo">
+</p>
+
+<h1 align="center">OpenArcanum</h1>
+
+<p align="center">
+  <strong>Use it today: open <a href="https://openarcanum.org/app/">openarcanum.org</a> in your browser.</strong><br>
+  Nothing to install and no account to make. Or <a href="https://github.com/hyperkubeorg/openarcanum/releases/latest">download the desktop app</a> for Linux, Windows or macOS.
+</p>
 
 OpenArcanum is chat for communities, in the style of Discord, without
 accounts and without a company in the middle. You sign in with a key the app
