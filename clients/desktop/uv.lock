@@ -272,7 +272,7 @@ wheels = [
 
 [[package]]
 name = "openarcanum"
-version = "2026.10.5"
+version = "2026.10.6"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
