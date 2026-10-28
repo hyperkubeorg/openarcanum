@@ -271,6 +271,59 @@ wheels = [
 ]
 
 [[package]]
+name = "openarcanum"
+version = "2026.10.7"
+source = { editable = "." }
+dependencies = [
+    { name = "cryptography" },
+    { name = "jeepney", marker = "sys_platform == 'linux'" },
+    { name = "keyring" },
+    { name = "platformdirs" },
+    { name = "protobuf" },
+    { name = "pyside6" },
+    { name = "pywebview" },
+    { name = "qtpy" },
+    { name = "spake2" },
+    { name = "vodozemac" },
+    { name = "websockets" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "hypothesis" },
+    { name = "pip-audit" },
+    { name = "pyinstaller" },
+    { name = "pytest" },
+    { name = "pytest-timeout" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", specifier = ">=50.0.2" },
+    { name = "jeepney", marker = "sys_platform == 'linux'", specifier = ">=0.9" },
+    { name = "keyring", specifier = ">=25" },
+    { name = "platformdirs", specifier = ">=4.13.5" },
+    { name = "protobuf", specifier = ">=7.36,<7.37" },
+    { name = "pyside6", specifier = ">=6.11.0" },
+    { name = "pywebview", specifier = ">=6.2.1" },
+    { name = "qtpy", specifier = ">=2.4.3" },
+    { name = "spake2", specifier = "==0.9" },
+    { name = "vodozemac", specifier = "==0.10.0" },
+    { name = "websockets", specifier = ">=17.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "hypothesis", specifier = ">=6.170.9" },
+    { name = "pip-audit", specifier = ">=2.10.1" },
+    { name = "pyinstaller", specifier = ">=6.22.3" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "ruff", specifier = ">=0.17.2" },
+]
+
+[[package]]
 name = "hypothesis"
 version = "6.170.9"
 source = { registry = "https://pypi.org/simple" }
@@ -492,59 +545,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/37/cd/4ce5809b9ab3b114d7cca64863e436820fa1614b49d55ccb93d49824ac2d/msgpack-1.2.3-cp314-cp314t-win32.whl", hash = "sha256:7995a7c6a62a1d6e7df211b4a16de513bd99fd053525050a319f80f44fb8015e", size = 75983, upload-time = "2026-09-29T02:33:10.023Z" },
     { url = "https://files.pythonhosted.org/packages/8a/31/853bb580744c24be0dbd8b090c3e6987dce466a1fc840fe50c0ac2ef9044/msgpack-1.2.3-cp314-cp314t-win_amd64.whl", hash = "sha256:bfe7d5b62cbe7aa664f0b3e2c49077f10fcdd06183d3014f8271ff3c5edbfbf9", size = 83757, upload-time = "2026-09-29T02:33:11.441Z" },
     { url = "https://files.pythonhosted.org/packages/0d/49/9f1b2ee484414eef9e21ee2b2b23b482bb71433ab9bac1da03cbda15ebf5/msgpack-1.2.3-cp314-cp314t-win_arm64.whl", hash = "sha256:1f585407f740a9eac04a3bb82c61d68a0ea78f90e29e670bfb086b9ce3a518dd", size = 78128, upload-time = "2026-09-29T02:33:13.063Z" },
-]
-
-[[package]]
-name = "openarcanum"
-version = "2026.10.7"
-source = { editable = "." }
-dependencies = [
-    { name = "cryptography" },
-    { name = "jeepney", marker = "sys_platform == 'linux'" },
-    { name = "keyring" },
-    { name = "platformdirs" },
-    { name = "protobuf" },
-    { name = "pyside6" },
-    { name = "pywebview" },
-    { name = "qtpy" },
-    { name = "spake2" },
-    { name = "vodozemac" },
-    { name = "websockets" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "hypothesis" },
-    { name = "pip-audit" },
-    { name = "pyinstaller" },
-    { name = "pytest" },
-    { name = "pytest-timeout" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "cryptography", specifier = ">=50.0.2" },
-    { name = "jeepney", marker = "sys_platform == 'linux'", specifier = ">=0.9" },
-    { name = "keyring", specifier = ">=25" },
-    { name = "platformdirs", specifier = ">=4.13.5" },
-    { name = "protobuf", specifier = ">=7.36,<7.37" },
-    { name = "pyside6", specifier = ">=6.11.0" },
-    { name = "pywebview", specifier = ">=6.2.1" },
-    { name = "qtpy", specifier = ">=2.4.3" },
-    { name = "spake2", specifier = "==0.9" },
-    { name = "vodozemac", specifier = "==0.10.0" },
-    { name = "websockets", specifier = ">=17.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "hypothesis", specifier = ">=6.170.9" },
-    { name = "pip-audit", specifier = ">=2.10.1" },
-    { name = "pyinstaller", specifier = ">=6.22.3" },
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "pytest-timeout", specifier = ">=2.4.0" },
-    { name = "ruff", specifier = ">=0.17.2" },
 ]
 
 [[package]]
