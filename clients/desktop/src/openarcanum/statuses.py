@@ -921,7 +921,15 @@ class Statuses:
                 continue
             if ident in dms.d["blocked"]:
                 continue
-            pub = communities.get(c.get("community", ""), {}).get("dm_identity", "")
+            # The identity they know me by: our 1:1 conversation's, else the
+            # one of the community they're a contact from, else (added with a
+            # contact code, no community) my contact-code identity.
+            gid = dms._direct_with(ident)
+            pub = (
+                (dms.d["groups"][gid]["me"] if gid else "")
+                or communities.get(c.get("community", ""), {}).get("dm_identity", "")
+                or ("" if c.get("community") else dms.d.get("contact_identity", ""))
+            )
             if not pub or pub not in dms.d["ids"]:
                 continue
             for dev in dms._devices_of(ident):

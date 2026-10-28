@@ -83,6 +83,7 @@ async function enterApp(status) {
     chat.drafts = (await api('ui_state_get', 'drafts')) || {};
     st.showMembers = !!(await api('ui_state_get', 'show_members'));
     setSidebarWidth(await api('ui_state_get', 'sidebar_width'));
+    await loadRailLayout();
     const last = (await api('ui_state_get', 'last')) || {};
     await refreshCommunities();
     // The conversation list (and the direct messages icon's unread count) from this device's store.
@@ -114,28 +115,232 @@ function renderRailNow() {
   rail.appendChild(h('button', { class: 'rail-item' + (st.view === 'dms' ? ' sel' : ''), title: t('Direct messages'), onclick: () => { leavePage(); st.view = 'dms'; saveLast(); render(); } }, icon('messages-square'),
     dmUI.unreadTotal() ? h('span', { class: 'badge', text: String(dmUI.unreadTotal()) }) : null));
   rail.appendChild(h('div', { class: 'rail-sep' }));
-  for (const c of st.communities) {
-    // Mention badge (a count) and unread marker (a dot), from the client's
-    // read markers; for moderators, the moderator badge (top left, square):
-    // reports, AutoMod alerts and join requests waiting, the first step of
-    // the trail to them (community menu → Community Admin → the queue).
-    const mentions = c.mentions || 0;
-    const unread = !mentions && c.unread && !c.muted;
-    const waiting = modQueue(c).total;
-    const dot = ['removed', 'banned', 'device_revoked', 'device_limit', 'error', 'shut_down'].includes(c.connection) ? 'bad' : c.connection === 'pending' ? 'pending' : c.connection === 'online' ? '' : 'offline';
-    rail.appendChild(h('button', { class: 'rail-item' + (st.view === 'community' && c.id === st.cid ? ' sel' : '') + (unread ? ' has-unread' : ''),
-      title: t('{community}: {status}', { community: c.name, status: connectionLabel(c) })
-        + (mentions ? ' · ' + tn('{n} mention', '{n} mentions', mentions) : unread ? ' · ' + t('unread messages') : '')
-        + (waiting ? ' · ' + tn('{n} waiting for review', '{n} waiting for review', waiting) : ''),
-      'data-community': c.id, onclick: () => selectCommunity(c.id),
-      oncontextmenu: (e) => { e.preventDefault(); communityMenu(e, c, true); } },
-      c.icon ? h('img', { src: 'data:image/png;base64,' + c.icon, alt: '' }) : initials(c.name),
-      dot ? h('span', { class: 'dot ' + dot }) : null,
-      mentions ? h('span', { class: 'badge mention-badge', text: String(Math.min(mentions, 99)) }) : null,
-      modBadge(waiting)));
+  const byId = new Map(st.communities.map((c) => [c.id, c]));
+  for (const e of railEntries()) {
+    if (typeof e === 'string') rail.appendChild(railCommunity(byId.get(e)));
+    else rail.appendChild(railFolder(e, e.items.map((id) => byId.get(id))));
   }
   rail.appendChild(h('button', { class: 'rail-item rail-add' + (st.view === 'add' ? ' sel' : ''), title: t('Add a community'), icon: 'plus', onclick: () => openAddCommunity() }));
   reportAttention();
+}
+
+function railCommunity(c, folder = null) {
+  // Mention badge (a count) and unread marker (a dot), from the client's
+  // read markers; for moderators, the moderator badge (top left, square):
+  // reports, AutoMod alerts and join requests waiting, the first step of
+  // the trail to them (community menu → Community Admin → the queue).
+  const mentions = c.mentions || 0;
+  const unread = !mentions && c.unread && !c.muted;
+  const waiting = modQueue(c).total;
+  const dot = ['removed', 'banned', 'device_revoked', 'device_limit', 'error', 'shut_down'].includes(c.connection) ? 'bad' : c.connection === 'pending' ? 'pending' : c.connection === 'online' ? '' : 'offline';
+  return railDraggable(h('button', { class: 'rail-item' + (st.view === 'community' && c.id === st.cid ? ' sel' : '') + (unread ? ' has-unread' : ''),
+    title: t('{community}: {status}', { community: c.name, status: connectionLabel(c) })
+      + (mentions ? ' · ' + tn('{n} mention', '{n} mentions', mentions) : unread ? ' · ' + t('unread messages') : '')
+      + (waiting ? ' · ' + tn('{n} waiting for review', '{n} waiting for review', waiting) : ''),
+    'data-community': c.id, onclick: () => selectCommunity(c.id),
+    oncontextmenu: (e) => { e.preventDefault(); communityMenu(e, c, true, folder); } },
+    c.icon ? h('img', { src: 'data:image/png;base64,' + c.icon, alt: '' }) : initials(c.name),
+    dot ? h('span', { class: 'dot ' + dot }) : null,
+    mentions ? h('span', { class: 'badge mention-badge', text: String(Math.min(mentions, 99)) }) : null,
+    modBadge(waiting)), c.id);
+}
+
+// ---------------------------------------------------------------- the rail's order and folders
+
+// How the communities are arranged on the rail, kept on this device
+// (ui_state "rail"): a list of community ids and folders, { folder: id,
+// name, items: [community ids], open }. Communities not in it (new ones)
+// go at the end; folders left empty go away.
+const railUI = { layout: [], drag: null };
+
+async function loadRailLayout() {
+  try { const v = await api('ui_state_get', 'rail'); railUI.layout = Array.isArray(v) ? v : []; } catch (e) { railUI.layout = []; }
+}
+
+function railEntries() {
+  const ids = new Set(st.communities.map((c) => c.id));
+  const seen = new Set();
+  const out = [];
+  for (const e of railUI.layout) {
+    if (typeof e === 'string') {
+      if (ids.has(e) && !seen.has(e)) { seen.add(e); out.push(e); }
+    } else if (e && typeof e.folder === 'string' && Array.isArray(e.items)) {
+      const items = e.items.filter((id) => ids.has(id) && !seen.has(id));
+      items.forEach((id) => seen.add(id));
+      if (items.length) out.push({ folder: e.folder, name: String(e.name || ''), items, open: !!e.open });
+    }
+  }
+  for (const c of st.communities) if (!seen.has(c.id)) out.push(c.id);
+  return out;
+}
+
+function setRailLayout(layout) {
+  railUI.layout = layout.filter((e) => typeof e === 'string' || e.items.length);
+  api('ui_state_set', 'rail', railUI.layout).catch(() => {});
+  renderRail();
+}
+
+function folderName(f) {
+  if (f.name) return f.name;
+  const names = f.items.map((id) => (st.communities.find((c) => c.id === id) || {}).name).filter(Boolean);
+  return names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '');
+}
+
+// Where something is: [list it's in, index], the list being the rail or a folder's items.
+function railFind(layout, id) {
+  for (let i = 0; i < layout.length; i++) {
+    const e = layout[i];
+    if (e === id || (e.folder && e.folder === id)) return [layout, i];
+    if (e.folder) { const j = e.items.indexOf(id); if (j >= 0) return [e.items, j, e]; }
+  }
+  return [null, -1];
+}
+
+// Move a community or folder `id` before, after or into (a folder, or a
+// community: a new folder of the two) `target`. Folders don't nest.
+function railMove(id, target, where) {
+  if (id === target) return;
+  const layout = railEntries();
+  const [from, i] = railFind(layout, id);
+  if (!from) return;
+  const [moving] = from.splice(i, 1);
+  const isFolder = typeof moving !== 'string';
+  let [list, j, parent] = railFind(layout, target);
+  if (!list) return;
+  if (isFolder && parent) { [list, j] = railFind(layout, parent.folder); where = where === 'into' ? 'after' : where; }
+  const there = list[j];
+  if (where === 'into' && !isFolder) {
+    if (there.folder) there.items.push(moving);
+    else if (parent) list.splice(j + 1, 0, moving);
+    else list.splice(j, 1, { folder: 'f' + Date.now().toString(36), name: '', items: [there, moving], open: true });
+  } else {
+    list.splice(where === 'after' ? j + 1 : j, 0, moving);
+  }
+  setRailLayout(layout);
+}
+
+// One step up or down within its list (the rail, or its folder).
+function railStep(id, delta) {
+  const layout = railEntries();
+  const [list, i] = railFind(layout, id);
+  if (!list || i + delta < 0 || i + delta >= list.length) return;
+  [list[i], list[i + delta]] = [list[i + delta], list[i]];
+  setRailLayout(layout);
+}
+
+function railToFolder(id, folder) {
+  const layout = railEntries();
+  const [from, i] = railFind(layout, id);
+  if (!from) return;
+  from.splice(i, 1);
+  if (folder) {
+    const f = layout.find((e) => e.folder === folder);
+    if (f) f.items.push(id);
+  } else {
+    layout.push({ folder: 'f' + Date.now().toString(36), name: '', items: [id], open: true });
+  }
+  setRailLayout(layout);
+}
+
+function railOutOfFolder(id) {
+  const layout = railEntries();
+  const [from, i, parent] = railFind(layout, id);
+  if (!parent) return;
+  from.splice(i, 1);
+  layout.splice(layout.indexOf(parent) + 1, 0, id);
+  setRailLayout(layout);
+}
+
+function railUngroup(folder) {
+  const layout = railEntries();
+  const i = layout.findIndex((e) => e.folder === folder);
+  if (i < 0) return;
+  layout.splice(i, 1, ...layout[i].items);
+  setRailLayout(layout);
+}
+
+function railEditFolder(folder, edit) {
+  const layout = railEntries();
+  const f = layout.find((e) => e.folder === folder);
+  if (f) { edit(f); setRailLayout(layout); }
+}
+
+// Rail menu entries for a community (communityMenu, fromRail): its place.
+function railMenuItems(id, folder) {
+  const layout = railEntries();
+  const [list, i] = railFind(layout, id);
+  const folders = layout.filter((e) => e.folder && e.folder !== (folder && folder.folder));
+  return [
+    { separator: true },
+    list && i > 0 ? { label: t('Move up'), run: () => railStep(id, -1) } : null,
+    list && i < list.length - 1 ? { label: t('Move down'), run: () => railStep(id, 1) } : null,
+    folder ? { label: t('Remove from folder'), run: () => railOutOfFolder(id) } : { label: t('New folder'), run: () => railToFolder(id, '') },
+    folders.length ? { group: t('Add to folder'), items: folders.map((f) => ({ label: folderName(f), run: () => railToFolder(id, f.folder) })) } : null,
+  ];
+}
+
+function folderMenu(e, f) {
+  e.preventDefault();
+  const layout = railEntries();
+  const i = layout.findIndex((x) => x.folder === f.folder);
+  openMenu(e.clientX, e.clientY, tidyMenu([
+    { label: f.open ? t('Close folder') : t('Open folder'), run: () => railEditFolder(f.folder, (x) => { x.open = !x.open; }) },
+    { label: t('Rename folder…'), run: async () => {
+      const name = await promptModal(t('Rename folder'), t('Name'), f.name, { placeholder: folderName(f), hint: t('Leave it empty to show the names of its communities.') });
+      if (name !== null) railEditFolder(f.folder, (x) => { x.name = name.trim().slice(0, 64); });
+    } },
+    i > 0 ? { label: t('Move up'), run: () => railStep(f.folder, -1) } : null,
+    i < layout.length - 1 ? { label: t('Move down'), run: () => railStep(f.folder, 1) } : null,
+    { separator: true },
+    { label: t('Ungroup'), run: () => railUngroup(f.folder) },
+  ]), { label: folderName(f) });
+}
+
+function railFolder(f, cs) {
+  const name = folderName(f);
+  const mentions = cs.reduce((n, c) => n + (c.mentions || 0), 0);
+  const unread = !mentions && cs.some((c) => c.unread && !c.muted);
+  const waiting = cs.reduce((n, c) => n + modQueue(c).total, 0);
+  const sel = st.view === 'community' && cs.some((c) => c.id === st.cid);
+  const btn = railDraggable(h('button', { class: 'rail-item rail-folder' + (unread ? ' has-unread' : '') + (sel && !f.open ? ' sel' : ''),
+    title: name + (mentions ? ' · ' + tn('{n} mention', '{n} mentions', mentions) : unread ? ' · ' + t('unread messages') : ''),
+    'aria-label': t('Folder {name}', { name }), 'aria-expanded': String(f.open), 'data-folder': f.folder,
+    onclick: () => railEditFolder(f.folder, (x) => { x.open = !x.open; }), oncontextmenu: (e) => folderMenu(e, f) },
+  f.open ? icon('chevron-down')
+    : h('span', { class: 'folder-grid', 'aria-hidden': 'true' }, ...cs.slice(0, 4).map((c) => (c.icon ? h('img', { src: 'data:image/png;base64,' + c.icon, alt: '' }) : h('span', { text: (c.name || '?').slice(0, 1).toUpperCase() })))),
+  !f.open && mentions ? h('span', { class: 'badge mention-badge', text: String(Math.min(mentions, 99)) }) : null,
+  !f.open ? modBadge(waiting) : null), f.folder);
+  return h('div', { class: 'rail-folder-box' + (f.open ? ' open' : '') }, btn, ...(f.open ? cs.map((c) => railCommunity(c, f)) : []));
+}
+
+// Dragging on the rail: the top or bottom quarter of an icon drops before
+// or after it, the middle into it (a folder, or a new folder of the two).
+function railDraggable(el, id) {
+  const marks = ['drop-before', 'drop-after', 'drop-into'];
+  const unmark = () => el.classList.remove(...marks);
+  el.draggable = true;
+  el.addEventListener('dragstart', (e) => { railUI.drag = id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); });
+  el.addEventListener('dragend', () => { railUI.drag = null; $$('#rail .drop-before, #rail .drop-after, #rail .drop-into').forEach((x) => x.classList.remove(...marks)); });
+  const where = (e) => {
+    const r = el.getBoundingClientRect();
+    const y = (e.clientY - r.top) / r.height;
+    return y < 0.25 ? 'before' : y > 0.75 ? 'after' : 'into';
+  };
+  el.addEventListener('dragover', (e) => {
+    if (!railUI.drag || railUI.drag === id) return;
+    e.preventDefault();
+    unmark();
+    el.classList.add('drop-' + where(e));
+  });
+  el.addEventListener('dragleave', unmark);
+  el.addEventListener('drop', (e) => {
+    e.preventDefault();
+    unmark();
+    const moving = railUI.drag;
+    railUI.drag = null;
+    if (moving) railMove(moving, id, where(e));
+  });
+  return el;
 }
 
 // The tray icon's red dot and tooltip (openarcanum/tray.py) follow the
@@ -231,7 +436,7 @@ on('appearance', applyAppearance);
 // communities are hidden (docs/protocol.md §7.2).
 function directoryAvailable() {
   const m = st.status && st.status.maintainers;
-  return !m || m.directory !== false;
+  return !!m && m.directory === true;
 }
 
 // The note shown where public listing would be offered.

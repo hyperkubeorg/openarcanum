@@ -469,14 +469,14 @@ func TestMentions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := fmt.Sprintf("@everyone @here <@&%d> look", rr.Id)
+	text := fmt.Sprintf("@everyone @here @channel <@&%d> look", rr.Id)
 	m = post(t, alice, gen.Id, text)
-	if m.Text != text || m.MentionEveryone || m.MentionHere || len(m.MentionRoles) != 0 {
+	if m.Text != text || m.MentionEveryone || m.MentionHere || m.MentionChannel || len(m.MentionRoles) != 0 {
 		t.Fatalf("unpermitted mentions marked: %v", m)
 	}
 	// The owner (and anyone with Mention @everyone) can.
 	m = post(t, e.owner, gen.Id, text)
-	if !m.MentionEveryone || !m.MentionHere || len(m.MentionRoles) != 1 || m.MentionRoles[0] != rr.Id {
+	if !m.MentionEveryone || !m.MentionHere || !m.MentionChannel || len(m.MentionRoles) != 1 || m.MentionRoles[0] != rr.Id {
 		t.Fatalf("owner mentions: %v", m)
 	}
 	// Grant it to @everyone: now Alice's mentions count.

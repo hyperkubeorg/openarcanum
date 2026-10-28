@@ -30,6 +30,7 @@ EXPECTED_DEFAULTS = {
     "muted_communities": [],
     "muted_channels": [],
     "community_notify": {},
+    "suppress_mentions": {},
     "sounds": True,
     "sound_volume": 50,
     "sounds_off": [],
@@ -76,6 +77,7 @@ BAD = {
     "muted_communities": ["x", [1]],
     "muted_channels": [[""]],
     "community_notify": [[], {"c": "some"}, {"": "all"}, {"c": True}],
+    "suppress_mentions": [[], {"c": "everyone"}, {"c": ["all"]}, {"": ["roles"]}],
     "sounds": ["on", 1, None],
     "sound_volume": [-1, 101, "loud", True, 2.5],
     "sounds_off": ["message", ["ring"], [1], {}],
@@ -511,6 +513,7 @@ SET_BY_API = {
     "muted_communities": "toggle_mute",
     "muted_channels": "toggle_mute",
     "community_notify": "set_community_notify",
+    "suppress_mentions": "set_community_suppress",
     "status_communities": "set_status_community",
 }
 

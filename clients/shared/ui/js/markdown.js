@@ -109,7 +109,7 @@
         }
       }
       if (c === '@' && !isWord(s[i - 1])) {
-        const m = /^@(everyone|here)(?![\p{L}\p{N}_])/u.exec(rest);
+        const m = /^@(everyone|here|channel)(?![\p{L}\p{N}_])/u.exec(rest);
         if (m) { push({ t: 'mention', kind: m[1], v: m[1] }); i += m[0].length; continue; }
         if (ctx.plainMentions) {
           const pm = /^@[\p{L}\p{N}_.-]+/u.exec(rest);

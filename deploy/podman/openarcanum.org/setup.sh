@@ -19,7 +19,7 @@ UDP_PORTS=""
 # Port 80 only redirects to https; the site listens for it on 7380.
 FORWARD_PORTS="port=80:proto=tcp:toport=7380"
 EXTRA_UNITS="openarcanum-site-backup.service openarcanum-site-backup.timer openarcanum-site-backup-sync.service"
-EXTRA_TIMERS="openarcanum-site-backup.timer"
+BACKUP_TIMERS="openarcanum-site-backup.timer"
 
 host_prechecks() {
     check_dns "$FQDN"
@@ -44,6 +44,10 @@ host_checks() {
     fi
 
     say "Backups"
+    if [ "$(backup_choice)" != on ]; then
+        info "off: nothing is backed up on a schedule (BACKUPS=on bash setup.sh turns it on; README.md, 'Backups and restore')"
+        return
+    fi
     oa_systemctl list-timers --no-pager openarcanum-site-backup.timer | sed 's/^/    /'
     if [ -f "$OA_HOME/site/backup-remote/env" ]; then
         info "copied after each backup ($(grep -o 'BACKUP_REMOTE=.*' "$OA_HOME/site/backup-remote/env"))"

@@ -448,9 +448,29 @@ class JsApi:
         return self._s(self._core.backup_status)
 
     def restore_backup(self, path: str, backup_passphrase: str, new_passphrase: str, device_name: str = "") -> dict:
-        return self._a(
-            lambda: self._core.restore_backup(self._open_path(path), backup_passphrase, new_passphrase, device_name)
-        )
+        """From a backup file picked in the dialog, or backup text pasted in
+        its place (export_backup_text)."""
+        from openarcanum.core import BACKUP_TEXT_PREFIX
+
+        def run():
+            text = "".join(str(path).split()).startswith(BACKUP_TEXT_PREFIX)
+            src = str(path) if text else self._open_path(path)
+            return self._core.restore_backup(src, backup_passphrase, new_passphrase, device_name)
+
+        return self._a(run)
+
+    def export_backup_text(self, passphrase: str, current: str = "") -> dict:
+        """The backup as text to copy, once the profile's passphrase is confirmed."""
+
+        async def run():
+            await self._core.confirm_passphrase(str(current or ""))
+            return await self._core.export_backup_text(passphrase)
+
+        return self._a(run)
+
+    def reset_all(self, current: str) -> dict:
+        """Settings → Reset all data (the passphrase confirms it)."""
+        return self._a(lambda: self._core.reset_all(str(current or "")))
 
     # ---------------------------------------------------------------- communities
 
@@ -695,6 +715,10 @@ class JsApi:
 
     def set_community_notify(self, cid: str, level: str) -> dict:
         return self._a(lambda: self._core.set_community_notify(cid, str(level or "")))
+
+    def set_community_suppress(self, cid: str, kind: str, on: bool) -> dict:
+        """Suppress @everyone/@here/@channel ("everyone") or role mentions ("roles") from a community."""
+        return self._a(lambda: self._core.set_community_suppress(cid, str(kind), bool(on)))
 
     # ---------------------------------------------------------------- statuses (statuses.py)
 

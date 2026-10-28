@@ -464,6 +464,7 @@ KINDS = [
     "dm_read",
     "dm_blocked",
     "dm_verified",
+    "dm_nicknames",
     "contact_added",
     "contact_removed",
     "history_request",

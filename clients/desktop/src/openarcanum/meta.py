@@ -223,10 +223,10 @@ class MetaClient:
         return [u for u in self.urls if self.directory.get(u) is not False]
 
     def directory_available(self) -> bool:
-        """False once every node whose state is known has its directory off:
-        the app then hides finding and listing communities."""
-        known = [self.directory[u] for u in self.urls if u in self.directory]
-        return not known or any(known)
+        """True once a node in use says it serves the public directory:
+        until then (not asked yet, no answer, or every node has it off) the
+        app hides finding and listing communities."""
+        return any(self.directory.get(u, False) for u in self.urls)
 
     def node_groups(self) -> list[list[str]]:
         groups = [[u for u in g if u in self.urls] for g in self.groups]

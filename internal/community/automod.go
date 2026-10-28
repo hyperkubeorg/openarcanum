@@ -259,7 +259,7 @@ var (
 
 // mentionCount is the number of distinct @mentions in text: mention
 // tokens (`<@member>`, `<@&role>`, docs/protocol.md §4.3) and typed @names
-// (@everyone and @here count), outside code.
+// (@everyone, @here and @channel count), outside code.
 func mentionCount(text string) int {
 	text = codeBlockRE.ReplaceAllString(text, " ")
 	seen := map[string]bool{}

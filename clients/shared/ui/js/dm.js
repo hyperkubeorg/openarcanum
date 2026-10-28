@@ -120,7 +120,7 @@ function dmListItem(c) {
     'aria-label': c.unread ? t('{name}, {n} unread', { name: c.name, n: c.unread }) : c.name, onclick: () => dmUI.open(c.id),
     'aria-describedby': desc ? desc.id : null, 'data-status': status ? status.state : null, title: status ? statusSentence(status) : null,
     // A 1:1 conversation's row is the person: their menu (people.js).
-    oncontextmenu: c.direct ? (e) => dmRowMenu(e, c) : null },
+    oncontextmenu: (e) => (c.direct ? dmRowMenu(e, c) : dmGroupRowMenu(e, c)) },
   status ? withStatus(av, status) : av,
   status ? h('span', { class: 'cname-wrap' }, h('span', { class: 'cname', text: c.name }), statusTextEl(status)) : h('span', { class: 'cname', text: c.name }),
   desc,
@@ -140,7 +140,33 @@ async function dmRowMenu(e, c) {
   try { info = await api('dm_info', c.id); } catch (err) { toastError(err); return; }
   const people = [...info.members, ...info.invited];
   const p = people.find((m) => !m.me);
-  if (p) openUserMenu(x, y, { person: p }, { dm: info, invited: info.invited.includes(p), after: () => dmUI.refresh() });
+  if (p) openUserMenu(x, y, { person: p }, { dm: info, row: true, invited: info.invited.includes(p), after: () => dmUI.refresh() });
+}
+
+// Delete a 1:1 conversation (or leave a group) with all its history on my
+// devices, once confirmed. False when not.
+async function leaveConversation(info) {
+  if (!(await confirmModal(info.direct ? t('Delete conversation') : t('Leave group'),
+    info.direct ? t('Delete this conversation and its history from your devices?') : t('Leave this group? You will stop receiving its messages, and its history is deleted from your devices.'),
+    info.direct ? t('Delete') : t('Leave')))) return false;
+  try { await api('dm_leave', info.id); } catch (e) { toastError(e); return false; }
+  if (dmUI.current === info.id) dmUI.current = null;
+  dmUI.refresh();
+  return true;
+}
+
+// A group's row: its details, and leaving it.
+async function dmGroupRowMenu(e, c) {
+  e.preventDefault();
+  const x = e.clientX;
+  const y = e.clientY;
+  let info;
+  try { info = await api('dm_info', c.id); } catch (err) { toastError(err); return; }
+  openMenu(x, y, [
+    { label: t('Open'), run: () => dmUI.open(c.id) },
+    { separator: true },
+    { label: t('Leave group'), danger: true, run: () => leaveConversation(info) },
+  ], { label: c.name });
 }
 
 // The participant a DM message or reaction names, by identity key.
@@ -517,15 +543,7 @@ function dmInfoDialog() {
     title: info.direct ? t('Conversation') : t('Group details'),
     body,
     actions: [
-      { label: info.direct ? t('Delete conversation') : t('Leave group'), kind: 'danger', run: async () => {
-        if (!(await confirmModal(info.direct ? t('Delete conversation') : t('Leave group'),
-          info.direct ? t('Delete this conversation and its history from your devices?') : t('Leave this group? You will stop receiving its messages, and its history is deleted from your devices.'),
-          info.direct ? t('Delete') : t('Leave')))) return false;
-        await api('dm_leave', info.id);
-        dmUI.current = null;
-        dmUI.refresh();
-        return true;
-      } },
+      { label: info.direct ? t('Delete conversation') : t('Leave group'), kind: 'danger', run: () => leaveConversation(info) },
       { label: t('Close'), kind: 'primary' },
     ],
   });

@@ -152,12 +152,12 @@ curl -s http://127.0.0.1:7100/metrics | grep '^openarcanum_meta_'
 
 ## Updating to a new release, and rolling back
 
-The image tag is pinned in the Quadlet file (`Image=...:2026.10.4`). Releases
+The image tag is pinned in the Quadlet file (`Image=...:2026.10.8`). Releases
 are tagged `<version>` (for example `2026.10.1`), `YYYY.MM` and `latest`.
 setup.sh takes a tag only with a valid cosign signature made by the
 repository's Containers workflow for a release tag, and pulls the digest that
 signature covers (it prints it). To pin that digest as well, append it to
-the tag: `Image=...:2026.10.4@sha256:<digest>`.
+the tag: `Image=...:2026.10.8@sha256:<digest>`.
 
 To upgrade:
 
@@ -206,6 +206,20 @@ If the new container fails to start, podman rolls back to the previous image.
 It does not take a backup first. Keep the daily backups if you turn this on.
 
 ## Backups and restore
+
+**Scheduled backups are off** until they're turned on: they need room, and
+a copy somewhere other than this disk, to be worth keeping. setup.sh then
+stops and disables `openarcanum-maintainer-backup.timer`. To turn them on (the
+choice is kept in `/home/openarcanum/maintainer/config/backups`, so later runs
+keep it):
+
+```sh
+cd /root/openarcanum-podman/maintainer-01.openarcanum.org
+BACKUPS=on bash setup.sh      # BACKUPS=off turns them off again
+```
+
+A backup by hand works either way:
+`oa-podman exec openarcanum-maintainer meta backup -data /data -out /data/backups`.
 
 What to keep:
 

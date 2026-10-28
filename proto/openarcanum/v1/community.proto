@@ -401,6 +401,9 @@ message Message {
   // @everyone / @here, only when the author was allowed to mention them.
   bool mention_everyone = 22;
   bool mention_here = 23;
+  // @channel: everyone who can read the channel, as @everyone (and needs
+  // the same permission).
+  bool mention_channel = 31;
   repeated Reaction reactions = 24;
   bool pinned = 25;
   LinkPreview preview = 26;

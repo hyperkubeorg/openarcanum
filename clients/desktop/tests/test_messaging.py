@@ -48,6 +48,14 @@ def test_mentions_me():
     # @here only reaches people online when it was sent.
     here = {**m, "mentions": [], "mention_here": True}
     assert mentions_me(here, ALICE, set(), live=True) and not mentions_me(here, ALICE, set(), live=False)
+    channel = {**m, "mentions": [], "mention_channel": True}
+    assert mentions_me(channel, ALICE, set(), live=False)
+    # Suppressed in that community: @everyone, @here and @channel, or roles;
+    # a mention by name always counts.
+    for x in (everyone, here, channel):
+        assert not mentions_me(x, ALICE, set(), live=True, suppress=frozenset({"everyone"}))
+    assert not mentions_me(role, ALICE, {4}, live=False, suppress=frozenset({"roles"}))
+    assert mentions_me(m, ALICE, set(), live=False, suppress=frozenset({"everyone", "roles"}))
 
 
 def test_channel_counts():

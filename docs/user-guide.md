@@ -156,7 +156,8 @@ is out of date." above the messages, with **Export backup**, and offers
 
 ### Restore from a backup
 
-On a device with no profile: **Restore from backup** → **Choose file…**,
+On a device with no profile: **Restore from backup** → **Choose file…** (or
+paste a recovery backup, `openarcanum-backup:…`, into the same field),
 then the **Backup passphrase**, a **New passphrase for this device** and
 **Name this device** → **Restore**. You get your keys and communities back,
 and this device makes its own device keys. Messages come back from the
@@ -468,6 +469,15 @@ and the dialog lists which communities could then link you. Type your
 After joining, OpenArcanum reminds you that your backup is out of date (**Back
 up your keys**, **Later** or **Export backup…**).
 
+### Arrange your communities
+
+Drag a community's icon up or down the left column to move it. Drop it on
+another community to put both in a folder, or on a folder to add it. Click
+a folder to open or close it. Right-clicking a community also offers **Move
+up**, **Move down**, **New folder**, **Add to folder** and **Remove from
+folder**; right-clicking a folder offers **Rename folder…**, **Move up**,
+**Move down** and **Ungroup**. The arrangement is kept on this device.
+
 ### Leave a community, or delete its local data
 
 - **Leave**: click the community name (or right-click its icon on the
@@ -599,14 +609,18 @@ from showing a preview of it.
 
 Type `@` and the person's name (their nickname here, or display name):
 `@Alice`. OpenArcanum turns it into a mention when you send. You can also
-mention a role (`@Moderators`), `@everyone` or `@here` (everyone who's online
-right now). As you type, a list shows the members and roles whose name
+mention a role (`@Moderators`), `@everyone` or `@channel` (everyone who can
+read the channel) or `@here` (those of them online right now). As you type, a list shows the members and roles whose name
 starts with what you typed: the arrow keys and Enter (or Tab), or a click,
 put the name in.
 
 - A mention shows highlighted; a message that mentions you gets a yellow
   bar, a red **@ badge** on the channel and a number on the community icon.
-- Mentioning `@everyone`, `@here` or a role that isn't marked mentionable
+- Don't want them? Right-click the community's icon: **Suppress @everyone,
+  @here and @channel** and **Suppress role mentions** stop those from
+  notifying you or counting as mentions there (mentions of you by name still
+  do). **Mute community** or **Nothing** silences it entirely.
+- Mentioning `@everyone`, `@here`, `@channel` or a role that isn't marked mentionable
   needs the *Mention @everyone, @here and all roles* permission. Without it
   the message is still sent, but nobody is notified.
 - Mentions inside `` `code` `` don't count.
@@ -864,8 +878,11 @@ the list) can start a group with your contacts or with members of a
 community; a group invitation reaches only people who have you as a
 contact.
 
-**Rename** (on Contacts) gives a contact a name of your own, seen only on
-your devices; empty goes back to the name they set.
+**Rename** (on Contacts, or **Rename…** in anyone's menu in your
+conversations) gives a person a name of your own, seen only on your
+devices; empty goes back to the name they set. Naming someone doesn't make
+them a contact, and the name stays when you remove them from your contacts
+or block them.
 
 The name people see in direct messages and in your code is **Settings →
 Identity → Your name** (it can be empty). A community you join starts with
@@ -968,8 +985,10 @@ change: changes that don't come from the owner are ignored.
   You will stop receiving its messages, and its history is deleted from your
   devices." → **Leave**. The owner must first make someone else the owner
   ("You own this group. Make someone else the owner before leaving.").
-- **1:1:** **Conversation details** → **Delete conversation** deletes it
-  and its history from your devices.
+- **1:1:** **Conversation details** → **Delete conversation** (or
+  right-click the conversation in the list → **Delete conversation**)
+  deletes it and its history from your devices. A group's right-click menu
+  has **Leave group**.
 - If an owner removes you, the conversation says "You were removed from
   this conversation. You can still read what you received before." with
   **Delete conversation**.
@@ -1058,7 +1077,8 @@ their messages and invitations in every conversation; messages they send
 while blocked aren't kept for later. They aren't told. A 1:1 conversation
 with them says "You blocked this person. You won't receive their
 messages." with **Unblock**, and you can't message them or start a
-conversation with them until you unblock. Blocks, verified marks
+conversation with them until you unblock. Blocking keeps what you already
+have: the conversation, its history and your name for them. Blocks, verified marks
 and contacts are shared with your other devices.
 
 ## Your devices
@@ -1610,7 +1630,7 @@ Other notices go away by themselves after a few seconds.
 | **Notifications** | **Desktop notifications**, **Notify me about**, the level for each community, muted communities, **Sounds** (on or off, volume, each sound with a **Play** button) |
 | **Voice & video** | Devices, input mode and push to talk; see "Voice, video and screen share" |
 | **Network** | **Maintainer nodes** with **Change…** (directory, community routes, DM mailboxes, link codes; this device only, also changeable before unlock; see "Maintainer nodes"), **Search the directory on this device**, **Preferred relays**, and **Reconnect** per community |
-| **Data & storage** | **Local cache size (MB)** (1024 by default) and **Clear cache**; **Data folder** (**Choose…** moves the files now, **Use default**); **Where OpenArcanum keeps things**: every folder and file the app writes, with its full path, **Copy** and **Open folder** (see "Where your data is") |
+| **Data & storage** | **Local cache size (MB)** (1024 by default) and **Clear cache**; **Data folder** (**Choose…** moves the files now, **Use default**); **Where OpenArcanum keeps things**: every folder and file the app writes, with its full path, **Copy** and **Open folder** (see "Where your data is"); **Reset all data…** (see "Reset all data") |
 | **Updates** | Version, **Check for updates automatically**, **Check now** (see "Updates") |
 | **About** | Version, system, where the data folder is, and the credits for the word list and the interface icons |
 
@@ -1643,6 +1663,22 @@ previews) and changing your own nickname; mentioning @everyone, @here and
 all roles, and managing others' nicknames are admin-only by default. Channel
 overrides can allow or deny add reactions, embed links and mention
 @everyone per role or member.
+
+### Reset all data
+
+Settings → **Data & storage** → **Reset all data…** starts over: in the
+web app, everything OpenArcanum keeps in that browser is deleted; on the
+desktop, the profile is set aside (not deleted), as with "Forgot your
+passphrase?". Your passphrase confirms it. Your other devices aren't
+affected.
+
+If you own a community, the dialog says which and warns that your owner
+keys are in this profile. **Copy recovery backup** copies a backup of all
+your keys, owner keys included, as text, encrypted with the passphrase you
+choose above it (**Generate** makes one): paste both into your password
+manager. Reset waits until you tick **I saved the recovery backup and its
+passphrase somewhere safe.** To recover, choose **Restore from backup** on
+first run and paste the text in.
 
 ## Where your data is
 

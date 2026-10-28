@@ -44,6 +44,7 @@ from openarcanum.i18n import N_, _
 from openarcanum.keys import SigningKey, StaticKey
 from openarcanum.messaging import (
     MAX_ATTACHMENTS,
+    SUPPRESSIBLE,
     channel_counts,
     encode_mentions,
     mentions_me,
@@ -85,6 +86,8 @@ log = logging.getLogger(__name__)
 DIRECTORY_CHECK_SECONDS = 600
 
 MAX_FILE = 25 * 1024 * 1024
+# A backup as text (Settings → Reset all data → Copy recovery backup).
+BACKUP_TEXT_PREFIX = "openarcanum-backup:"
 MAX_BACKUP_BYTES = 4 * 1024 * 1024  # a backup holds keys and a community list: kilobytes
 # state.bin (drafts, the last open channel and the like): at most this many
 # keys, each value at most this big as JSON.
@@ -398,8 +401,8 @@ class Core:
             "use_cluster": bool(self.prefs.values["maintainer_cluster_nodes"]),
             "clusters": self.clusters.describe(entries),
             "health": {u: self.meta.health.status(u) for u in self.meta.urls},
-            # False once every maintainer node in use has its public
-            # directory switched off: the app hides finding and listing
+            # True once a maintainer node in use says it serves the public
+            # directory; until then the app hides finding and listing
             # communities (docs/protocol.md §7.2).
             "directory": self.meta.directory_available(),
         }
@@ -957,6 +960,27 @@ class Core:
         self.emit("profile", self.profile_status())
         return {"ok": True, "path": str(target)}
 
+    async def export_backup_text(self, passphrase: str) -> dict:
+        """The same backup as export_backup, as text to copy (and paste back
+        into Restore from a backup): every key, owner keys included,
+        encrypted with `passphrase`."""
+        v = self.require_unlocked()
+        check_new_passphrase(passphrase)
+        blob = await asyncio.to_thread(keys.export_backup, v.data, passphrase)
+        v.data["backup_revision"] = v.data.get("keys_revision", 0)
+        v.data["backup_exported_at"] = int(time.time())
+        self.save_vault()
+        self.emit("profile", self.profile_status())
+        return {"ok": True, "text": BACKUP_TEXT_PREFIX + base64.urlsafe_b64encode(blob).decode().rstrip("=")}
+
+    async def reset_all(self, current: str) -> dict:
+        """Settings → Reset all data: once the passphrase is confirmed, lock
+        and start over (reset_profile: the profile is set aside). The web
+        client then deletes everything the browser holds (web.js)."""
+        await self.confirm_passphrase(current)
+        await self.lock()
+        return await self.reset_profile()
+
     def backup_status(self) -> dict:
         v = self.require_unlocked()
         return {
@@ -971,10 +995,23 @@ class Core:
         if Vault.exists(self.paths):
             raise UserError(_("A profile already exists on this device."))
         check_new_passphrase(new_passphrase)
-        try:
-            blob = await asyncio.to_thread(read_at_most, Path(path).expanduser(), MAX_BACKUP_BYTES)
-        except OSError as e:
-            raise UserError(_("Can't read the backup file: {reason}").format(reason=e.strerror)) from None
+        text = "".join(path.split())
+        if text.startswith(BACKUP_TEXT_PREFIX):
+            # Pasted from Copy recovery backup (export_backup_text).
+            try:
+                b = text[len(BACKUP_TEXT_PREFIX) :]
+                blob = (
+                    base64.b64decode(b + "=" * (-len(b) % 4), altchars=b"-_", validate=True)
+                    if len(b) < MAX_BACKUP_BYTES * 2
+                    else None
+                )
+            except ValueError:
+                raise UserError(_("That backup text is damaged; copy all of it.")) from None
+        else:
+            try:
+                blob = await asyncio.to_thread(read_at_most, Path(path).expanduser(), MAX_BACKUP_BYTES)
+            except OSError as e:
+                raise UserError(_("Can't read the backup file: {reason}").format(reason=e.strerror)) from None
         if blob is None:
             raise UserError(_("That isn't a backup file (it's far too large)."))
         try:
@@ -1136,6 +1173,7 @@ class Core:
             # This community's own notification level ("" = the default).
             "notify": self.settings.get("community_notify", {}).get(cid, ""),
             "notify_level": community_notify_level(self.settings, cid),
+            "suppress": list(self.settings.get("suppress_mentions", {}).get(cid, [])),
             # What waits in the moderator queues this member may see
             # (docs/protocol.md §4.9): the badges that lead to it.
             "mod_queue": _mod_queue(st, perms),
@@ -1812,7 +1850,8 @@ class Core:
     def _mark_mentions(self, cid: str, m: dict, live: bool) -> dict:
         my_key, my_roles = self._me(cid)
         old = self.cache(cid).find(m["channel_id"], m["id"])
-        m["mentions_me"] = mentions_me(m, my_key, my_roles, live) or bool(
+        suppress = frozenset(self.settings.get("suppress_mentions", {}).get(cid, []))
+        m["mentions_me"] = mentions_me(m, my_key, my_roles, live, suppress) or bool(
             old and old.get("mentions_me") and not m.get("deleted")
         )
         return m
@@ -3021,6 +3060,27 @@ class Core:
         else:
             levels.pop(cid, None)
         return await self.set_setting("community_notify", levels)
+
+    async def set_community_suppress(self, cid: str, kind: str, on: bool) -> dict:
+        """Suppress (or allow again) one kind of mention from a community:
+        everyone (@everyone, @here, @channel) or roles. Suppressed ones
+        neither notify nor count as mentions of me."""
+        v = self.require_unlocked()
+        if cid not in v.data["communities"]:
+            raise UserError(_("You aren't in that community."))
+        if kind not in SUPPRESSIBLE:
+            raise UserError(_("Unknown kind of mention."))
+        allowed = dict(v.settings.get("suppress_mentions", {}))
+        kinds = set(allowed.get(cid, []))
+        if on:
+            kinds.add(kind)
+        else:
+            kinds.discard(kind)
+        if kinds:
+            allowed[cid] = sorted(kinds)
+        else:
+            allowed.pop(cid, None)
+        return await self.set_setting("suppress_mentions", allowed)
 
     async def set_status_community(self, cid: str, level: str) -> dict:
         """Who in one community sees my status: off, state or full (statuses.py)."""

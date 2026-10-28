@@ -142,6 +142,9 @@ def test_backup_restore_reconnects(tmp_path):
                 await owner.export_backup(str(path), "short")
             await owner.export_backup(str(path), "backup passphrase here")
             assert owner.vault.backup_current
+            # The same backup as text to copy (Settings → Reset all data).
+            text = (await owner.export_backup_text("text backup passphrase"))["text"]
+            assert text.startswith("openarcanum-backup:")
             await owner.shutdown()
 
             # A new device restores from the file and reconnects to the community.
@@ -158,6 +161,16 @@ def test_backup_restore_reconnects(tmp_path):
             # Owner powers survived: the restored profile can still admin.
             await fresh.admin(cid, "create_channel", {"name": "after-restore"})
             await fresh.shutdown()
+
+            # Pasted text restores too (with line breaks a paste may add),
+            # owner powers included.
+            pasted = Core(Paths.under(tmp_path / "pasted"))
+            with pytest.raises(UserError, match="damaged"):
+                await pasted.restore_backup("openarcanum-backup:%%%", "text backup passphrase", PASS)
+            await pasted.restore_backup(text[:40] + "\n" + text[40:], "text backup passphrase", PASS, "pasted-desktop")
+            await online(pasted, cid)
+            await pasted.admin(cid, "create_channel", {"name": "after-paste"})
+            await pasted.shutdown()
 
         run(main(), 90)
 

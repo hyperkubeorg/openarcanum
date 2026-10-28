@@ -21,7 +21,7 @@ def encode_mentions(text: str, members: list[dict], roles: list[dict]) -> str:
     """Turn typed `@Name` mentions into the tokens the server reads:
     `<@member key>` for members (nickname or display name) and `<@&id>` for
     roles. The longest matching name wins; text in code stays as typed;
-    @everyone and @here are already tokens."""
+    @everyone, @here and @channel are already tokens."""
     names: dict[str, str] = {}
     for r in roles:
         if r.get("name") and r["name"] != "@everyone":
@@ -32,6 +32,7 @@ def encode_mentions(text: str, members: list[dict], roles: list[dict]) -> str:
                 names.setdefault(n.lower(), f"<@{m['key']}>")
     names.pop("everyone", None)
     names.pop("here", None)
+    names.pop("channel", None)
     if not names or "@" not in text:
         return text
     pattern = re.compile(
@@ -51,16 +52,24 @@ def encode_mentions(text: str, members: list[dict], roles: list[dict]) -> str:
     return "".join(out)
 
 
-def mentions_me(m: dict, my_key: str, my_roles: set[int], live: bool) -> bool:
+# What a member may suppress in one community (Core.set_community_suppress):
+# "everyone" covers @everyone, @here and @channel; "roles" role mentions.
+SUPPRESSIBLE = ("everyone", "roles")
+
+
+def mentions_me(m: dict, my_key: str, my_roles: set[int], live: bool, suppress: frozenset[str] = frozenset()) -> bool:
     """Whether a message mentions this member: by key, a role they hold,
-    @everyone, or @here when it arrives live (here means "whoever is online")."""
+    @everyone, @channel, or @here when it arrives live (here means "whoever
+    is online"), less what they suppress in that community."""
     if m.get("deleted") or m.get("author") == my_key:
         return False
     if my_key and my_key in m.get("mentions", []):
         return True
-    if m.get("mention_everyone") or (live and m.get("mention_here")):
+    if "everyone" not in suppress and (
+        m.get("mention_everyone") or m.get("mention_channel") or (live and m.get("mention_here"))
+    ):
         return True
-    return any(r in my_roles for r in m.get("mention_roles", []))
+    return "roles" not in suppress and any(r in my_roles for r in m.get("mention_roles", []))
 
 
 def channel_counts(msgs: list[dict], last_read: int, my_key: str) -> tuple[int, int]:

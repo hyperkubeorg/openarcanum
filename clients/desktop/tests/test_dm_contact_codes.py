@@ -194,3 +194,23 @@ def test_a_retired_identity_is_forgotten_and_its_codes_stop(tmp_path):
             await a.shutdown()
 
     asyncio.run(go())
+
+
+def test_my_status_goes_to_a_contact_added_by_code(tmp_path):
+    """A contact with no community in common (added with a contact code)
+    gets my status under my contact-code identity."""
+
+    async def go():
+        a, _ = await new_core(tmp_path / "a", "a", maintainers=[])
+        b, _ = await new_core(tmp_path / "b", "b", maintainers=[])
+        try:
+            await b.dms.add_contact_code(await a.dms.contact_code())
+            b_ident = (await a.dms.add_contact_code(await b.dms.contact_code()))["id"]
+            targets = a.statuses._contact_targets()
+            assert list(targets) == [a.dms.d["contact_identity"]]
+            assert {keys.encode(ident) for ident, _dev in targets[a.dms.d["contact_identity"]]} == {b_ident}
+        finally:
+            await a.shutdown()
+            await b.shutdown()
+
+    asyncio.run(go())

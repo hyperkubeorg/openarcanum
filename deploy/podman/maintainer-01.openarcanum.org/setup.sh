@@ -18,7 +18,7 @@ TCP_PORTS="443/tcp"
 UDP_PORTS=""
 FORWARD_PORTS=""
 EXTRA_UNITS="openarcanum-maintainer-backup.service openarcanum-maintainer-backup.timer openarcanum-maintainer-backup-sync.service"
-EXTRA_TIMERS="openarcanum-maintainer-backup.timer"
+BACKUP_TIMERS="openarcanum-maintainer-backup.timer"
 
 meta_cmd() { oa_podman exec "$SERVICE" meta "$@"; }
 
@@ -39,6 +39,10 @@ host_checks() {
     meta_cmd directory status -data /data -config /etc/openarcanum/meta.json | sed 's/^/    /'
 
     say "Backups"
+    if [ "$(backup_choice)" != on ]; then
+        info "off: nothing is backed up on a schedule (BACKUPS=on bash setup.sh turns it on; README.md, 'Backups and restore')"
+        return
+    fi
     oa_systemctl list-timers --no-pager openarcanum-maintainer-backup.timer | sed 's/^/    /'
     if [ -f "$OA_HOME/maintainer/backup-remote/env" ]; then
         info "backups go to /home/openarcanum/maintainer/data/backups and are copied after each backup ($(grep -o 'BACKUP_REMOTE=.*' "$OA_HOME/maintainer/backup-remote/env"))"

@@ -88,6 +88,21 @@
   if (invite) history.replaceState(null, '', location.pathname);
   worker.postMessage({ type: 'start', lang: navigator.language || '', invite });
 
+  // Settings → Reset all data, once the profile has been set aside: stop the
+  // core and delete everything this site keeps in the browser (the profile
+  // in IndexedDB, any storage and caches), then start fresh.
+  window.openarcanumWebReset = async () => {
+    worker.terminate();
+    const names = indexedDB.databases ? (await indexedDB.databases().catch(() => [])).map((d) => d.name) : [];
+    for (const name of new Set([...names, '/home/web'])) {
+      if (name) await new Promise((resolve) => { const r = indexedDB.deleteDatabase(name); r.onsuccess = r.onerror = r.onblocked = resolve; });
+    }
+    try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* storage blocked */ }
+    if (window.caches) for (const k of await caches.keys().catch(() => [])) await caches.delete(k);
+    if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations().catch(() => [])) await r.unregister();
+    location.replace(location.pathname);
+  };
+
   window.pywebview = {
     api: new Proxy({}, {
       get(_target, method) {

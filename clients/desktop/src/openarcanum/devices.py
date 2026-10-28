@@ -487,6 +487,8 @@ class DeviceManager:
             self.core.dms.apply_read_sync(data["id"], int(data["at"]))
         elif kind == "dm_blocked":
             self.core.dms.apply_blocked_sync(data["blocked"])
+        elif kind == "dm_nicknames":
+            self.core.dms.apply_nicknames_sync(data["nicknames"])
         elif kind == "dm_verified":
             self.core.dms.apply_verified_sync(data["verified"])
         elif kind == "contact_added":

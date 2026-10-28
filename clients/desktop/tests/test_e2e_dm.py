@@ -480,8 +480,17 @@ def test_blocking(tmp_path):
             await alice.dms.send(gid, "before blocking")
             await until_text(olive, gid, "before blocking", alice)
             alice_id = next(m["id"] for m in olive.dms.info(gid)["members"] if not m["me"])
+            # A nickname doesn't make her a contact; removing her as a
+            # contact keeps it, and so does blocking her.
+            await olive.dms.rename_contact(alice_id, "Al")
+            assert olive.dms.contacts() == [] and olive.dms.list()[0]["name"] == "Al"
+            await olive.dms.add_contact(cid, await key_of(olive, cid, "Alice"))
+            await olive.dms.remove_contact(alice_id)
+            await olive.dms.rename_contact(alice_id, "Ally")
+            assert olive.dms.contacts() == [] and olive.dms.list()[0]["name"] == "Ally"
             await olive.dms.set_blocked(alice_id, True)
-            assert olive.dms.list()[0]["blocked"]
+            assert olive.dms.list()[0]["blocked"] and olive.dms.list()[0]["name"] == "Ally"
+            assert "before blocking" in await texts(olive, gid)
             with pytest.raises(UserError, match="blocked"):
                 await olive.dms.send(gid, "to a blocked person")
             await alice.dms.send(gid, "after blocking")

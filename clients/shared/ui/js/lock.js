@@ -200,7 +200,7 @@ lockUI.restore = function (status) {
     h('div', { class: 'stack' },
       h('div', { class: 'field' }, h('span', { text: t('Backup file') }), h('div', { class: 'row' }, file, h('button', { class: 'btn', text: t('Choose file…'), onclick: async () => {
         const p = await pickFile('backup'); if (p) file.value = p;
-      } }))),
+      } })), h('div', { class: 'hint', text: t('Or paste a recovery backup (openarcanum-backup:…) copied from Settings → Data & storage → Reset all data.') })),
       field(t('Backup passphrase'), bpass), npass, field(t('Name this device'), device), err),
     h('div', { class: 'form-actions' }, h('button', { class: 'btn link', text: t('Back'), onclick: () => lockUI.firstRun(status) }), go),
     maintainerRow(status),

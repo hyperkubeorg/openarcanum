@@ -1072,7 +1072,7 @@ class DMManager:
                 {
                     "id": ident,
                     "name": self._contact_name(ident),
-                    "nickname": c.get("nickname", ""),
+                    "nickname": self._nickname(ident),
                     "card_name": self.d["peers"].get(ident, {}).get("name", ""),
                     "community": c.get("community", ""),
                     "member": c.get("member", ""),
@@ -1084,35 +1084,55 @@ class DMManager:
         out.sort(key=lambda c: c["name"].lower())
         return out
 
+    def _nicknames(self) -> dict[str, str]:
+        """My names for people, by identity: kept apart from contacts, so a
+        removed or blocked contact keeps theirs, and naming someone doesn't
+        add them."""
+        return self.d.setdefault("nicknames", {})
+
+    def _nickname(self, ident: str) -> str:
+        # Nicknames used to live in the contact entry.
+        return self._nicknames().get(ident) or self.d["contacts"].get(ident, {}).get("nickname", "")
+
     def _contact_name(self, ident: str) -> str:
         """How a contact is shown: my nickname for them, else the name on
         their newest card, else the name they had when added."""
         c = self.d["contacts"].get(ident, {})
-        return c.get("nickname") or self.d["peers"].get(ident, {}).get("name") or c.get("name") or _("Contact")
+        return self._nickname(ident) or self.d["peers"].get(ident, {}).get("name") or c.get("name") or _("Contact")
 
     async def rename_contact(self, ident: str, nickname: str) -> dict:
-        """A name of my own for a contact (empty: their own name again). It
-        stays on my devices: nobody else sees it."""
+        """A name of my own for someone (empty: their own name again), a
+        contact or anyone in my conversations. It stays on my devices:
+        nobody else sees it, and it doesn't make them a contact."""
         self.core.require_unlocked()
-        c = self.d["contacts"].get(ident)
-        if c is None:
-            # Someone I talk with but haven't added: renaming adds them.
-            c = self._contact_from_groups(ident)
-            if c is None:
-                raise UserError(_("That person isn't in your contacts."))
-            self.d["contacts"][ident] = c
+        if (
+            ident not in self.d["contacts"]
+            and ident not in self.d["peers"]
+            and self._contact_from_groups(ident) is None
+        ):
+            raise UserError(_("You don't talk with that person."))
         nickname = " ".join((nickname or "").split())
         if len(nickname) > 64:
             raise UserError(_("Names can be at most {max} characters.").format(max=64))
+        names = self._nicknames()
         if nickname:
-            c["nickname"] = nickname
+            names[ident] = nickname
         else:
-            c.pop("nickname", None)
+            names.pop(ident, None)
+        c = self.d["contacts"].get(ident)
+        if c is not None and c.pop("nickname", None) is not None:
+            await self.core.devices.broadcast("contact_added", {"id": ident, "contact": c})
         self.core.save_vault()
-        await self.core.devices.broadcast("contact_added", {"id": ident, "contact": c})
+        await self.core.devices.broadcast("dm_nicknames", {"nicknames": dict(names)})
         self.core.emit("dm_contacts", {})
         self.core.emit("dm", {})
         return {"ok": True}
+
+    def apply_nicknames_sync(self, names: dict) -> None:
+        self.d["nicknames"] = {k: str(v)[:64] for k, v in list(names.items())[:10000] if isinstance(k, str) and v}
+        self.core.save_vault()
+        self.core.emit("dm_contacts", {})
+        self.core.emit("dm", {})
 
     def _contact_from_groups(self, ident: str) -> dict | None:
         """A contact entry for someone in one of my conversations (their card
@@ -1353,7 +1373,11 @@ class DMManager:
         return None
 
     async def remove_contact(self, ident: str) -> dict:
-        self.d["contacts"].pop(ident, None)
+        """Their conversations, my nickname for them and any block stay."""
+        c = self.d["contacts"].pop(ident, None)
+        if c and c.get("nickname"):
+            self._nicknames().setdefault(ident, c["nickname"])
+            await self.core.devices.broadcast("dm_nicknames", {"nicknames": dict(self._nicknames())})
         self.core.save_vault()
         await self.core.devices.broadcast("contact_removed", {"id": ident})
         self.core.emit("dm_contacts", {})
@@ -1537,6 +1561,7 @@ class DMManager:
                 "me": ident == me,
                 "owner": m.identity == st.owner,
                 "contact": ident in self.d["contacts"],
+                "nickname": "" if ident == me else self._nickname(ident),
                 "verified": ident in self._verified(),
                 "key_changed": bool(self._key_changed(ident)),
                 "blocked": ident in self.d["blocked"],
@@ -3028,6 +3053,8 @@ class DMManager:
             if m.identity == ident:
                 if b64(ident) in self.d["contacts"]:
                     return self._contact_name(b64(ident))
+                if nick := self._nickname(b64(ident)):
+                    return nick
                 return m.name or self.d["peers"].get(b64(ident), {}).get("name") or _("Someone")
         return "Someone"
 
@@ -3306,6 +3333,7 @@ class DMManager:
             "contacts": self.d["contacts"],
             "peers": self.d["peers"],
             "pins": self.d["pins"],
+            "nicknames": self._nicknames(),
             "blocked": self.d["blocked"],
             "sync": self.d.get("sync", {}),
         }
@@ -3342,6 +3370,7 @@ class DMManager:
             "contacts": dict(data.get("contacts", {})),
             "peers": dict(data.get("peers", {})),
             "pins": dict(data.get("pins", {})),
+            "nicknames": dict(data.get("nicknames", {})),
             "blocked": list(data.get("blocked", [])),
             "sync": dict(data.get("sync", {})),
         }

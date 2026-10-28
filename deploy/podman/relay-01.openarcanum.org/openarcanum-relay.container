@@ -11,7 +11,7 @@ Description=OpenArcanum relay (relay-01.openarcanum.org)
 # first release is published, pin its digest here too
 # (the tag followed by @sha256:... on the Image line) so a moved tag can't
 # change what runs.
-Image=ghcr.io/hyperkubeorg/openarcanum-relay:2026.10.0
+Image=ghcr.io/hyperkubeorg/openarcanum-relay:2026.10.8
 ContainerName=openarcanum-relay
 # podman auto-update pulls this tag again and restarts when its digest changed.
 AutoUpdate=registry

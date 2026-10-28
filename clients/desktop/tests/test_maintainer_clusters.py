@@ -209,9 +209,10 @@ def test_directory_switched_off_on_every_node_hides_it(tmp_path):
             with pytest.raises(MetaError) as e:
                 await core.meta.search("anything")
             assert e.value.status == 501
-            # A node that hasn't said yet counts as listing until it does.
+            # A node that hasn't said yet doesn't count as listing: nothing
+            # offers a directory nobody has confirmed.
             fresh = MetaClient([off1, off2])
-            assert fresh.directory_available()
+            assert not fresh.directory_available()
             with pytest.raises(MetaError):
                 await fresh.search("x")
             assert not fresh.directory_available() and fresh.health.status(off1)["state"] == "ok"

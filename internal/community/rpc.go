@@ -667,7 +667,7 @@ func bodyOf(m *wire.Message) *wire.Message {
 	b := &wire.Message{
 		ChannelId: m.ChannelId, CreatedAt: m.CreatedAt, Author: m.Author, Text: m.Text, ReplyTo: m.ReplyTo, EditedAt: m.EditedAt,
 		Mentions: m.Mentions, MentionRoles: m.MentionRoles, MentionEveryone: m.MentionEveryone, MentionHere: m.MentionHere,
-		Reactions: m.Reactions, System: m.System,
+		MentionChannel: m.MentionChannel, Reactions: m.Reactions, System: m.System,
 	}
 	for _, f := range m.Files {
 		b.Files = append(b.Files, &wire.FileRef{FileId: f.FileId})
@@ -746,6 +746,7 @@ func (s *Server) messageView(ctx context.Context, r storedMessage, body *wire.Me
 	}
 	m.Text, m.ReplyTo, m.System = body.Text, body.ReplyTo, body.System
 	m.Mentions, m.MentionRoles, m.MentionEveryone, m.MentionHere = body.Mentions, body.MentionRoles, body.MentionEveryone, body.MentionHere
+	m.MentionChannel = body.MentionChannel
 	m.Reactions = body.Reactions
 	m.Pinned = s.pinned[r.id]
 	for _, f := range body.Files {
@@ -1099,6 +1100,7 @@ func (s *Server) edit(ctx context.Context, ss *sess, e *wire.Edit) (*wire.Server
 	body := proto.Clone(old).(*wire.Message)
 	body.Text, body.EditedAt = text, s.now().UnixMilli()
 	body.Mentions, body.MentionRoles, body.MentionEveryone, body.MentionHere = nil, nil, false, false
+	body.MentionChannel = false
 	author := s.members[string(ss.member)]
 	s.parseMentions(author, c, text).apply(body)
 	// A preview follows the link: drop it when the first link changed.

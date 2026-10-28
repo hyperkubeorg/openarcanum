@@ -545,6 +545,11 @@
     "permissions.py"
    ]
   },
+  "Add to folder": {
+   "used_in": [
+    "ui/js/app.js"
+   ]
+  },
   "Added :{name}:.": {
    "vars": [
     "name"
@@ -1411,6 +1416,11 @@
     "core.py"
    ]
   },
+  "Choose a passphrase for the recovery backup (Generate makes one).": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
   "Choose a stronger passphrase.": {
    "used_in": [
     "settings.py"
@@ -1531,6 +1541,11 @@
    "used_in": [
     "ui/js/chat.js",
     "ui/js/voicechat.js"
+   ]
+  },
+  "Close folder": {
+   "used_in": [
+    "ui/js/app.js"
    ]
   },
   "Closing the window leaves OpenArcanum running in the system tray, so messages and calls still reach you. Quit from the tray icon's menu or with {keys}.": {
@@ -1755,6 +1770,11 @@
     "ui/js/dom.js"
    ]
   },
+  "Copy a recovery backup first: it holds every key you have, owner keys included, encrypted with the passphrase below. To recover, choose Restore from a backup when starting OpenArcanum and paste it in.": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
   "Copy community ID": {
    "used_in": [
     "ui/js/chat.js"
@@ -1791,6 +1811,11 @@
     "ui/js/dom.js"
    ]
   },
+  "Copy recovery backup": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
   "Copy text": {
    "used_in": [
     "ui/js/chat.js",
@@ -1811,6 +1836,11 @@
    "vars": [
     "name"
    ],
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
+  "Copy the recovery backup and tick the box first: your owner keys would be lost.": {
    "used_in": [
     "ui/js/settings.js"
    ]
@@ -2191,7 +2221,8 @@
   },
   "Delete conversation": {
    "used_in": [
-    "ui/js/dm.js"
+    "ui/js/dm.js",
+    "ui/js/people.js"
    ]
   },
   "Delete local data": {
@@ -2375,6 +2406,16 @@
    ],
    "used_in": [
     "core.py"
+   ]
+  },
+  "Discard": {
+   "used_in": [
+    "ui/js/dom.js"
+   ]
+  },
+  "Discard what you entered?": {
+   "used_in": [
+    "ui/js/dom.js"
    ]
   },
   "Disconnect": {
@@ -2641,7 +2682,8 @@
    "used_in": [
     "core.py",
     "ui/js/devices.js",
-    "ui/js/join.js"
+    "ui/js/join.js",
+    "ui/js/settings.js"
    ]
   },
   "Enter your passphrase to confirm. The key is kept in this computer's keychain.": {
@@ -2687,6 +2729,11 @@
   "Everyone else": {
    "used_in": [
     "ui/js/voice.js"
+   ]
+  },
+  "Everything OpenArcanum keeps in this browser is deleted: your profile, keys, settings and messages. This can't be undone.": {
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "Exempt channels": {
@@ -2776,6 +2823,14 @@
    ],
    "used_in": [
     "ui/js/voice.js"
+   ]
+  },
+  "Folder {name}": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/app.js"
    ]
   },
   "For a community that should always be up, host it on your own server instead.": {
@@ -2950,6 +3005,11 @@
   "How others will see you here": {
    "used_in": [
     "ui/js/join.js"
+   ]
+  },
+  "I saved the recovery backup and its passphrase somewhere safe.": {
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "INVALID": {
@@ -3522,6 +3582,11 @@
   "Leave group": {
    "used_in": [
     "ui/js/dm.js"
+   ]
+  },
+  "Leave it empty to show the names of its communities.": {
+   "used_in": [
+    "ui/js/app.js"
    ]
   },
   "Leave this group? You will stop receiving its messages, and its history is deleted from your devices.": {
@@ -4218,7 +4283,8 @@
   },
   "Move down": {
    "used_in": [
-    "ui/js/admin.js"
+    "ui/js/admin.js",
+    "ui/js/app.js"
    ]
   },
   "Move members": {
@@ -4238,7 +4304,8 @@
   },
   "Move up": {
    "used_in": [
-    "ui/js/admin.js"
+    "ui/js/admin.js",
+    "ui/js/app.js"
    ]
   },
   "Move {name}": {
@@ -4335,6 +4402,7 @@
   "Name": {
    "used_in": [
     "ui/js/admin.js",
+    "ui/js/app.js",
     "ui/js/devices.js",
     "ui/js/dm.js",
     "ui/js/join.js",
@@ -4461,6 +4529,11 @@
    ],
    "used_in": [
     "ui/js/devices.js"
+   ]
+  },
+  "New folder": {
+   "used_in": [
+    "ui/js/app.js"
    ]
   },
   "New group DM": {
@@ -5055,6 +5128,7 @@
   },
   "Open": {
    "used_in": [
+    "ui/js/dm.js",
     "ui/js/join.js"
    ]
   },
@@ -5080,6 +5154,7 @@
   },
   "Open folder": {
    "used_in": [
+    "ui/js/app.js",
     "ui/js/settings.js"
    ]
   },
@@ -5193,6 +5268,11 @@
    "used_in": [
     "ui/js/dm.js",
     "ui/js/voice.js"
+   ]
+  },
+  "Or paste a recovery backup (openarcanum-backup:…) copied from Settings → Data & storage → Reset all data.": {
+   "used_in": [
+    "ui/js/lock.js"
    ]
   },
   "Or type a path": {
@@ -5739,6 +5819,16 @@
     "ui/js/voice.js"
    ]
   },
+  "Recovery backup copied. Paste it into your password manager with its passphrase.": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
+  "Recovery backup passphrase": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
   "Refresh copy": {
    "used_in": [
     "ui/js/join.js"
@@ -5767,6 +5857,11 @@
   "Remove avatar": {
    "used_in": [
     "ui/js/chat.js"
+   ]
+  },
+  "Remove from folder": {
+   "used_in": [
+    "ui/js/app.js"
    ]
   },
   "Remove from group": {
@@ -5920,6 +6015,16 @@
     "ui/js/devices.js"
    ]
   },
+  "Rename folder": {
+   "used_in": [
+    "ui/js/app.js"
+   ]
+  },
+  "Rename folder…": {
+   "used_in": [
+    "ui/js/app.js"
+   ]
+  },
   "Rename group": {
    "used_in": [
     "ui/js/dm.js"
@@ -6041,6 +6146,16 @@
   "Requests and invitations": {
    "used_in": [
     "ui/js/dm.js"
+   ]
+  },
+  "Reset all data": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
+  "Reset all data…": {
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "Resolve": {
@@ -6305,6 +6420,11 @@
   "Save this passphrase in your password manager now. There is no reset: without it, nobody can open this profile.": {
    "used_in": [
     "ui/js/dom.js"
+   ]
+  },
+  "Save this passphrase in your password manager, next to the recovery backup. Without it, nobody can open the backup.": {
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "Save to": {
@@ -6938,6 +7058,16 @@
     "ui/js/lock.js"
    ]
   },
+  "Start over in this browser: your profile, keys, settings and every message stored here are deleted. Your other devices are not affected.": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
+  "Start over on this device: your profile is set aside (not deleted) and this device starts fresh. Your other devices are not affected.": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
   "Start over?": {
    "used_in": [
     "ui/js/lock.js"
@@ -7076,6 +7206,16 @@
     "ui/js/voice.js"
    ]
   },
+  "Suppress @everyone, @here and @channel": {
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
+  "Suppress role mentions": {
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
   "Sync permissions with the category": {
    "used_in": [
     "ui/js/admin.js"
@@ -7125,6 +7265,11 @@
   "Text size": {
    "used_in": [
     "ui/js/settings.js"
+   ]
+  },
+  "That backup text is damaged; copy all of it.": {
+   "used_in": [
+    "core.py"
    ]
   },
   "That call is over.": {
@@ -7673,7 +7818,8 @@
   "The passphrase of your profile, to confirm it is you.": {
    "used_in": [
     "ui/js/devices.js",
-    "ui/js/join.js"
+    "ui/js/join.js",
+    "ui/js/settings.js"
    ]
   },
   "The passphrases don't match.": {
@@ -8472,6 +8618,11 @@
     "ui/js/voice.js"
    ]
   },
+  "Ungroup": {
+   "used_in": [
+    "ui/js/app.js"
+   ]
+  },
   "Unknown": {
    "used_in": [
     "ui/js/admin.js",
@@ -8511,6 +8662,11 @@
    ]
   },
   "Unknown identity.": {
+   "used_in": [
+    "core.py"
+   ]
+  },
+  "Unknown kind of mention.": {
    "used_in": [
     "core.py"
    ]
@@ -9033,6 +9189,11 @@
     "ui/js/admin.js"
    ]
   },
+  "What you typed in this dialog will be lost.": {
+   "used_in": [
+    "ui/js/dom.js"
+   ]
+  },
   "What your camera sends in calls. Higher needs a faster connection.": {
    "used_in": [
     "ui/js/voice.js"
@@ -9328,6 +9489,11 @@
     "ui/js/admin.js"
    ]
   },
+  "You don't talk with that person.": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "You hold the community's owner key. Export a backup now, and add a second owner in Community settings → Ownership: if the only owner key is lost, nobody can change the server key or move the community.": {
    "used_in": [
     "ui/js/join.js"
@@ -9351,6 +9517,15 @@
   "You own this group. Make someone else the owner before leaving.": {
    "used_in": [
     "dm.py"
+   ]
+  },
+  "You own {n} community:": {
+   "plural": "You own {n} communities:",
+   "vars": [
+    "n"
+   ],
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "You see the invites you created. Revoking stops one working immediately.": {
@@ -9588,10 +9763,16 @@
     "ui/js/admin.js"
    ]
   },
+  "Your owner keys are in this profile. Without them nobody can manage these communities, move them to new hardware or recover their ownership.": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
   "Your passphrase": {
    "used_in": [
     "ui/js/devices.js",
-    "ui/js/join.js"
+    "ui/js/join.js",
+    "ui/js/settings.js"
    ]
   },
   "Your profile here": {
@@ -9605,6 +9786,11 @@
    ],
    "used_in": [
     "ui/js/chat.js"
+   ]
+  },
+  "Your profile is set aside and this device starts over, as on first launch.": {
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "Your request to join is waiting for an admin.": {
@@ -10148,6 +10334,11 @@
    ]
   },
   "must be a map of communities to off, state or full": {
+   "used_in": [
+    "settings.py"
+   ]
+  },
+  "must be a map of communities to suppressed mentions": {
    "used_in": [
     "settings.py"
    ]

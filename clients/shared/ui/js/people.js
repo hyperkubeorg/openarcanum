@@ -157,7 +157,7 @@ async function dmPersonMenuItems(who, opts) {
     inGroup && open && !me ? { label: t('Mention'), run: () => insertMention(() => $('#dm-input'), name) } : null,
     !me && !p.contact && !who.contact && community && member
       ? { label: t('Add as contact'), run: () => api('dm_add_contact', community, member).then(() => { toast(t('Added to contacts.')); after(); }, toastError) } : null,
-    !me && ident ? { label: t('Rename…'), run: () => renameContactDialog({ id: ident, name, nickname: c.nickname || '', card_name: c.card_name || p.name || name }) } : null,
+    !me && ident ? { label: t('Rename…'), run: () => renameContactDialog({ id: ident, name, nickname: c.nickname || p.nickname || '', card_name: c.card_name || p.name || name }) } : null,
     !me ? { label: t('Safety number'), run: () => safetyDialog(ident, name, info ? info.id : '') } : null,
     { label: t('Copy user ID'), run: () => copyUserId(ident) },
     !me ? blockEntry(ident, blocked, after) : null,
@@ -168,6 +168,8 @@ async function dmPersonMenuItems(who, opts) {
     owner ? { label: opts.invited ? t('Cancel invitation') : t('Remove from group'), danger: true, run: async () => {
       if (await confirmModal(t('Remove'), t("Remove {name} from this group? They won't receive anything new.", { name }), t('Remove'))) dmCall('dm_remove_member', info.id, ident);
     } } : null,
+    // On the conversation's row (or its header): the whole conversation.
+    info && info.direct && (opts.row || open) ? { label: t('Delete conversation'), danger: true, run: () => leaveConversation(info) } : null,
   ]);
 }
 

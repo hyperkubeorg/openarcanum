@@ -334,6 +334,63 @@ async function renderData(sec) {
   sec.appendChild(formSection(t('Where OpenArcanum keeps things'), [
     h('p', { class: 'small muted', text: t('Every folder and file this app writes on this device, with its full path. To back up everything, copy the settings and data folders while OpenArcanum is closed (the profile in them stays locked with your passphrase). An exported backup (Settings → Security) is what moves your keys to a new device; community messages download again from their servers.') }),
     list]));
+  sec.appendChild(formSection(t('Reset all data'), [
+    h('p', { class: 'small muted', text: window.openarcanumWeb
+      ? t('Start over in this browser: your profile, keys, settings and every message stored here are deleted. Your other devices are not affected.')
+      : t('Start over on this device: your profile is set aside (not deleted) and this device starts fresh. Your other devices are not affected.') })],
+  formFoot(h('button', { class: 'btn danger', text: t('Reset all data…'), onclick: resetAllDialog }))));
+}
+
+// Settings → Reset all data. Owners are warned first: their owner keys are
+// in this profile, so the dialog offers a recovery backup to copy (every
+// key, encrypted with a passphrase of its own; Restore from a backup takes
+// it pasted in), and resetting waits until they say it's kept.
+function resetAllDialog() {
+  const owned = st.communities.filter((c) => c.is_owner && (c.status === 'active' || c.status === 'pending'));
+  const current = h('input', { type: 'password', autocomplete: 'current-password' });
+  const err = h('div', { class: 'error', role: 'alert' });
+  const body = h('div', { class: 'stack' },
+    h('p', { text: window.openarcanumWeb
+      ? t('Everything OpenArcanum keeps in this browser is deleted: your profile, keys, settings and messages. This can\'t be undone.')
+      : t('Your profile is set aside and this device starts over, as on first launch.') }));
+  let kept = null;
+  if (owned.length) {
+    const pass = passphraseField(t('Recovery backup passphrase'), { generate: true,
+      saveNote: t('Save this passphrase in your password manager, next to the recovery backup. Without it, nobody can open the backup.') });
+    kept = h('input', { type: 'checkbox' });
+    const copy = h('button', { class: 'btn primary', text: t('Copy recovery backup'), onclick: async () => {
+      err.textContent = '';
+      if (!pass.input.value) { err.textContent = t('Choose a passphrase for the recovery backup (Generate makes one).'); return; }
+      if (!current.value) { err.textContent = t('Enter your passphrase to confirm.'); return; }
+      copy.disabled = true;
+      try {
+        const r = await api('export_backup_text', pass.input.value, current.value);
+        await api('copy_text', r.text);
+        toast(t('Recovery backup copied. Paste it into your password manager with its passphrase.'));
+      } catch (e) { err.textContent = e.message; } finally { copy.disabled = false; }
+    } });
+    body.append(
+      h('div', { class: 'notice' },
+        h('b', { text: tn('You own {n} community:', 'You own {n} communities:', owned.length, { n: owned.length }) }), ' ',
+        owned.map((c) => c.name).join(', '), '. ',
+        t('Your owner keys are in this profile. Without them nobody can manage these communities, move them to new hardware or recover their ownership.')),
+      h('p', { class: 'small', text: t('Copy a recovery backup first: it holds every key you have, owner keys included, encrypted with the passphrase below. To recover, choose Restore from a backup when starting OpenArcanum and paste it in.') }),
+      pass, copy,
+      h('label', { class: 'check' }, kept, h('span', { text: t('I saved the recovery backup and its passphrase somewhere safe.') })));
+  }
+  body.append(field(t('Your passphrase'), current, t('The passphrase of your profile, to confirm it is you.')), err);
+  modal({ title: t('Reset all data'), body, actions: [{ label: t('Cancel') }, { label: t('Reset all data'), kind: 'danger', run: async () => {
+    err.textContent = '';
+    if (kept && !kept.checked) { err.textContent = t('Copy the recovery backup and tick the box first: your owner keys would be lost.'); return false; }
+    if (!current.value) { err.textContent = t('Enter your passphrase to confirm.'); return false; }
+    try {
+      const status = await api('reset_all', current.value);
+      if (window.openarcanumWebReset) { await window.openarcanumWebReset(); return true; }
+      closeDialogs();
+      showLock(status);
+    } catch (e) { err.textContent = e.message; return false; }
+    return true;
+  } }] });
 }
 
 // One place the app keeps something: what it is, its full path (Copy), and

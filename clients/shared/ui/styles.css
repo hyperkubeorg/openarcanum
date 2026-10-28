@@ -376,6 +376,16 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .rail-item .dot.offline { background: var(--muted); } .rail-item .dot.pending { background: var(--warn); } .rail-item .dot.bad { background: var(--danger); }
 .rail-item .badge { position: absolute; right: -4px; bottom: -4px; box-shadow: 0 0 0 3px var(--rail); }
 .rail-item .badge.mod-badge { left: -4px; right: auto; top: -4px; bottom: auto; }
+/* Folders on the rail (app.js railFolder): closed, a grid of up to four
+   icons; open, a tinted column holding its communities. */
+.rail-folder-box { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 0 0 auto; border-radius: 24px; }
+.rail-folder-box.open { background: color-mix(in srgb, var(--accent) 18%, transparent); padding-bottom: 8px; }
+.rail-folder .folder-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; width: 34px; height: 34px; }
+.rail-folder .folder-grid > * { width: 16px; height: 16px; border-radius: 6px; background: var(--bg3, var(--bg)); font-size: 9px; display: grid; place-items: center; overflow: hidden; }
+.rail-folder .folder-grid img { object-fit: cover; }
+.rail-item.drop-before { box-shadow: 0 -4px 0 -1px var(--accent); }
+.rail-item.drop-after { box-shadow: 0 4px 0 -1px var(--accent); }
+.rail-item.drop-into { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rail-sep { width: 32px; height: 2px; background: var(--line); border-radius: 1px; flex: 0 0 auto; }
 .rail-add { color: var(--ok-text); }
 .rail-add:hover { background: var(--ok); color: #fff; }

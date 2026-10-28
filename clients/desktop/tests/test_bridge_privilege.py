@@ -154,6 +154,19 @@ def test_backup_export_takes_the_passphrase(bridge):
     assert out.exists()
 
 
+def test_reset_all_takes_the_passphrase(bridge):
+    """Settings → Reset all data: refused without the passphrase; with it,
+    the profile is set aside and the app is back at first run."""
+    api, core, _gui, _tmp = bridge
+    assert refused(api.reset_all(""), "Enter your passphrase")
+    assert refused(api.reset_all("not the passphrase"), "wrong")
+    assert core.unlocked
+    time.sleep(1.1)
+    st = api.reset_all(PASS)
+    assert st["ok"] and st["value"]["state"] == "no_profile", st
+    assert not core.unlocked
+
+
 def test_saved_ui_state_is_bounded(bridge):
     """state.bin keeps drafts and the like: the page can't grow it without
     bound, in the number of keys or the size of one value."""

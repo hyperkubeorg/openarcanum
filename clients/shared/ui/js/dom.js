@@ -14,7 +14,8 @@ function h(tag, attrs, ...children) {
       else if (k === 'text') el.textContent = v;
       else if (k === 'icon') el.appendChild(icon(v));
       else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
-      else if (k === 'value') el.value = v;
+      // The value it opens with is its default too (entered() compares them).
+      else if (k === 'value') { if (tag === 'input' || tag === 'textarea') el.defaultValue = v; el.value = v; }
       else if (k === 'checked') el.checked = !!v;
       else if (k === 'style') setStyle(el, v);
       else el.setAttribute(k, v === true ? '' : v);
@@ -171,7 +172,7 @@ document.addEventListener('keydown', (e) => {
   if (!top || $('#ctx-menu')) return;
   if (e.key === 'Escape') {
     e.preventDefault(); e.stopImmediatePropagation();
-    if (top.dismissable) top.close();
+    if (top.dismissable) (top.dismiss || top.close)();
   } else if (e.key === 'Tab') {
     const els = focusables(top.el);
     if (!els.length) { e.preventDefault(); return; }
@@ -185,8 +186,8 @@ document.addEventListener('keydown', (e) => {
 
 // Register an open dialog; returns the function that unregisters it (and
 // gives focus back). `el` is the dialog box.
-function pushLayer(el, close, dismissable = true) {
-  const layer = { el, close, dismissable, opener: document.activeElement };
+function pushLayer(el, close, dismissable = true, dismiss = null) {
+  const layer = { el, close, dismissable, dismiss, opener: document.activeElement };
   LAYERS.push(layer);
   return () => {
     const i = LAYERS.indexOf(layer);
@@ -212,6 +213,19 @@ function focusFirst(box, body) {
   if (target) target.focus();
 }
 
+// Whether a dialog holds something typed or generated: a text field whose
+// value isn't the one it opened with.
+function entered(box) {
+  return $$('input:not([type]), input[type="text"], input[type="password"], textarea', box)
+    .some((el) => !el.readOnly && el.value !== el.defaultValue);
+}
+
+// Leaving the page (the web client: a reload, closing the tab) with such a
+// dialog open asks first.
+if (typeof window !== 'undefined') window.addEventListener('beforeunload', (e) => {
+  if (window.openarcanumWeb && LAYERS.some((l) => l.el.isConnected && entered(l.el))) e.preventDefault();
+});
+
 let modalSeq = 0;
 function modal({ title, body, actions = [], onclose, dismissable = true }) {
   const backdrop = h('div', { class: 'backdrop' });
@@ -225,11 +239,19 @@ function modal({ title, body, actions = [], onclose, dismissable = true }) {
     if (pop) pop();
     if (onclose) onclose();
   };
+  // Escape, Close and a click beside the dialog don't throw away what was
+  // typed or generated in it (a new passphrase, say) without asking; a click
+  // beside it does nothing then, since it's easily made coming back to the
+  // window.
+  const dismiss = async () => {
+    if (closed) return;
+    if (!entered(box) || await confirmModal(t('Discard what you entered?'), t('What you typed in this dialog will be lost.'), t('Discard'))) close();
+  };
   if (title) {
     const id = `modal-title-${++modalSeq}`;
     box.setAttribute('aria-labelledby', id);
     box.appendChild(h('div', { class: 'modal-head' }, h('h2', { id, text: title }),
-      dismissable ? h('button', { class: 'icon-btn', title: t('Close'), onclick: close, icon: 'x' }) : null));
+      dismissable ? h('button', { class: 'icon-btn', title: t('Close'), onclick: dismiss, icon: 'x' }) : null));
   }
   const bodyEl = h('div', { class: 'modal-body' });
   append(bodyEl, [body]);
@@ -251,8 +273,8 @@ function modal({ title, body, actions = [], onclose, dismissable = true }) {
     box.appendChild(foot);
   }
   backdrop.appendChild(box);
-  backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop && dismissable) close(); });
-  pop = pushLayer(box, close, dismissable);
+  backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop && dismissable && !entered(box)) close(); });
+  pop = pushLayer(box, close, dismissable, dismiss);
   $('#modal-root').appendChild(backdrop);
   setTimeout(() => { if (!closed && !box.contains(document.activeElement)) focusFirst(box, bodyEl); }, 30);
   return { close, box, body: bodyEl };

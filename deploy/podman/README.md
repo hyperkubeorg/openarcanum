@@ -32,8 +32,10 @@ On every server:
   Quadlet file as well (`Image=...:<version>@sha256:...`). `podman
   auto-update` is possible (label `io.containers.autoupdate=registry`) but
   pulls without that check; its timer is off.
-- Backups (maintainer node, website) stay on the machine until the backup
-  copy unit is set up (each README, "Copying backups to another machine").
+- Scheduled backups (maintainer node, website) are off until turned on with
+  `BACKUPS=on bash setup.sh` (each README, "Backups and restore"); once on,
+  they stay on the machine until the backup copy unit is set up ("Copying
+  backups to another machine").
 
 Layout:
 
@@ -54,7 +56,7 @@ Each server's README.md is its operations manual. setup.sh copies it to
   pointing at the right servers. Let's Encrypt checks them.
 - Root SSH access to each server.
 - The release images on ghcr.io (see "GHCR" below). The Quadlet files pin
-  `2026.10.4` (maintainer), `2026.10.7` (site) and `2026.10.0` (relay); change the `Image=` lines if you deploy another release.
+  `2026.10.8` (maintainer, site and relay); change the `Image=` lines if you deploy another release.
   Only a release tag works: setup.sh checks the image's signature.
 
 ## Order of setup

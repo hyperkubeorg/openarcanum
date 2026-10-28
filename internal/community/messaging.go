@@ -51,27 +51,28 @@ func (s *Server) profileRateError(member []byte) error {
 // ---------------------------------------------------------------- mentions
 
 // Mention tokens in message text: <@member> (base64url member key),
-// <@&role> (role id), @everyone and @here. Tokens inside code spans and
+// <@&role> (role id), @everyone, @here and @channel. Tokens inside code spans and
 // code blocks don't count.
 var (
-	mentionRE   = regexp.MustCompile(`<@(&?)([A-Za-z0-9_-]{1,64})>|@(everyone|here)\b`)
+	mentionRE   = regexp.MustCompile(`<@(&?)([A-Za-z0-9_-]{1,64})>|@(everyone|here|channel)\b`)
 	codeBlockRE = regexp.MustCompile("(?s)```.*?```|`[^`\n]*`")
 )
 
 type mentionSet struct {
-	members        [][]byte
-	roles          []int64
-	everyone, here bool
+	members                 [][]byte
+	roles                   []int64
+	everyone, here, channel bool
 }
 
 func (ms mentionSet) apply(m *wire.Message) {
 	m.Mentions, m.MentionRoles, m.MentionEveryone, m.MentionHere = ms.members, ms.roles, ms.everyone, ms.here
+	m.MentionChannel = ms.channel
 }
 
 // parseMentions finds the mentions in text that the author may make in c.
 // Mentions the author isn't allowed are left in the text but not marked, so
 // they notify nobody (the message itself is still sent, as Discord does).
-// @everyone, @here and roles that aren't mentionable need Mention
+// @everyone, @here, @channel and roles that aren't mentionable need Mention
 // @everyone/@here and All Roles; a member mention counts only if that member
 // can read the channel. Callers hold s.mu.
 func (s *Server) parseMentions(author *memberRec, c *channelRec, text string) mentionSet {
@@ -88,6 +89,8 @@ func (s *Server) parseMentions(author *memberRec, c *channelRec, text string) me
 			out.everyone = out.everyone || canAll
 		case m[3] == "here":
 			out.here = out.here || canAll
+		case m[3] == "channel":
+			out.channel = out.channel || canAll
 		case m[1] == "&":
 			id, err := strconv.ParseInt(m[2], 10, 64)
 			r := s.roles[id]

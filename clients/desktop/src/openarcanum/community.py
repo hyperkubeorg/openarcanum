@@ -152,6 +152,7 @@ def message_dict(m: cp.Message) -> dict:
         "mention_roles": list(m.mention_roles),
         "mention_everyone": m.mention_everyone,
         "mention_here": m.mention_here,
+        "mention_channel": m.mention_channel,
         "reactions": reactions_list(m.reactions),
         "pinned": m.pinned,
         "preview": preview_dict(m.preview) if m.HasField("preview") else None,

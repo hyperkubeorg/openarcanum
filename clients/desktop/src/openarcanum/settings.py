@@ -253,6 +253,21 @@ def _community_notify(x: Any) -> dict[str, str]:
     return out
 
 
+def _suppress_mentions(x: Any) -> dict[str, list[str]]:
+    """Per-community suppressed mentions: community id -> any of everyone
+    (@everyone, @here, @channel) and roles."""
+    kinds = ("everyone", "roles")
+    if not isinstance(x, dict) or len(x) > 500:
+        raise SettingError(_("must be a map of communities to suppressed mentions"))
+    out = {}
+    for k, v in x.items():
+        if not isinstance(k, str) or not 0 < len(k) <= 200 or not isinstance(v, list) or any(i not in kinds for i in v):
+            raise SettingError(_("must be a map of communities to suppressed mentions"))
+        if v:
+            out[k] = sorted(set(v))
+    return out
+
+
 STATUS_LEVELS = ("off", "state", "full")
 
 
@@ -350,6 +365,8 @@ SETTINGS: tuple[Setting, ...] = (
     # right-click menu; Settings → Notifications). Changed through
     # Core.set_community_notify.
     Setting("community_notify", {}, _community_notify, "vault"),
+    # Mentions a member doesn't want from one community (Core.set_community_suppress).
+    Setting("suppress_mentions", {}, _suppress_mentions, "vault"),
     # Sounds (ui/js/sounds.js; Settings → Notifications → Sounds): on or off,
     # their volume in percent, and the ones turned off one by one. Per
     # device, like the speaker they play through.

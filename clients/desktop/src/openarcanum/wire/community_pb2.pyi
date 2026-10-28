@@ -618,7 +618,7 @@ class FileRef(_message.Message):
     def __init__(self, file_id: _Optional[int] = ..., name: _Optional[str] = ..., size: _Optional[int] = ..., mime: _Optional[str] = ..., key: _Optional[bytes] = ..., chunk_size: _Optional[int] = ...) -> None: ...
 
 class Message(_message.Message):
-    __slots__ = ("id", "channel_id", "author", "author_name", "text", "created_at", "edited_at", "deleted", "reply_to", "mentions", "files", "mention_roles", "mention_everyone", "mention_here", "reactions", "pinned", "preview", "system")
+    __slots__ = ("id", "channel_id", "author", "author_name", "text", "created_at", "edited_at", "deleted", "reply_to", "mentions", "files", "mention_roles", "mention_everyone", "mention_here", "mention_channel", "reactions", "pinned", "preview", "system")
     ID_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_ID_FIELD_NUMBER: _ClassVar[int]
     AUTHOR_FIELD_NUMBER: _ClassVar[int]
@@ -633,6 +633,7 @@ class Message(_message.Message):
     MENTION_ROLES_FIELD_NUMBER: _ClassVar[int]
     MENTION_EVERYONE_FIELD_NUMBER: _ClassVar[int]
     MENTION_HERE_FIELD_NUMBER: _ClassVar[int]
+    MENTION_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     REACTIONS_FIELD_NUMBER: _ClassVar[int]
     PINNED_FIELD_NUMBER: _ClassVar[int]
     PREVIEW_FIELD_NUMBER: _ClassVar[int]
@@ -651,11 +652,12 @@ class Message(_message.Message):
     mention_roles: _containers.RepeatedScalarFieldContainer[int]
     mention_everyone: bool
     mention_here: bool
+    mention_channel: bool
     reactions: _containers.RepeatedCompositeFieldContainer[Reaction]
     pinned: bool
     preview: LinkPreview
     system: SystemEvent
-    def __init__(self, id: _Optional[int] = ..., channel_id: _Optional[int] = ..., author: _Optional[bytes] = ..., author_name: _Optional[str] = ..., text: _Optional[str] = ..., created_at: _Optional[int] = ..., edited_at: _Optional[int] = ..., deleted: _Optional[bool] = ..., reply_to: _Optional[int] = ..., mentions: _Optional[_Iterable[bytes]] = ..., files: _Optional[_Iterable[_Union[FileRef, _Mapping]]] = ..., mention_roles: _Optional[_Iterable[int]] = ..., mention_everyone: _Optional[bool] = ..., mention_here: _Optional[bool] = ..., reactions: _Optional[_Iterable[_Union[Reaction, _Mapping]]] = ..., pinned: _Optional[bool] = ..., preview: _Optional[_Union[LinkPreview, _Mapping]] = ..., system: _Optional[_Union[SystemEvent, _Mapping]] = ...) -> None: ...
+    def __init__(self, id: _Optional[int] = ..., channel_id: _Optional[int] = ..., author: _Optional[bytes] = ..., author_name: _Optional[str] = ..., text: _Optional[str] = ..., created_at: _Optional[int] = ..., edited_at: _Optional[int] = ..., deleted: _Optional[bool] = ..., reply_to: _Optional[int] = ..., mentions: _Optional[_Iterable[bytes]] = ..., files: _Optional[_Iterable[_Union[FileRef, _Mapping]]] = ..., mention_roles: _Optional[_Iterable[int]] = ..., mention_everyone: _Optional[bool] = ..., mention_here: _Optional[bool] = ..., mention_channel: _Optional[bool] = ..., reactions: _Optional[_Iterable[_Union[Reaction, _Mapping]]] = ..., pinned: _Optional[bool] = ..., preview: _Optional[_Union[LinkPreview, _Mapping]] = ..., system: _Optional[_Union[SystemEvent, _Mapping]] = ...) -> None: ...
 
 class Reaction(_message.Message):
     __slots__ = ("emoji", "members")

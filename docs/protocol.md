@@ -479,18 +479,23 @@ and mention tokens. Links are shown as text and URL; clients never fetch or
 open them (link previews come from the server, below).
 
 **Mentions.** Mention tokens in the text: `<@MEMBER>` (the member's identity
-key, unpadded base64url), `<@&ROLE>` (a role id), `@everyone` and `@here`;
+key, unpadded base64url), `<@&ROLE>` (a role id), `@everyone`, `@here` and
+`@channel`;
 tokens inside code spans and code blocks don't count. Clients turn a typed
 `@Name` (nickname or display name, or a role name) into a token before
 posting. The server parses the tokens and stores, sealed with the message,
 the mentions the author may make: `mentions` (members who can read the
 channel; at most 100), `mention_roles` (a role that is *mentionable*, or any
 role with Mention @everyone/@here and All Roles; at most 20),
-`mention_everyone` and `mention_here` (Mention @everyone/@here and All
-Roles). Mentions the author isn't allowed stay in the text but aren't
+`mention_everyone`, `mention_here` and `mention_channel` (Mention
+@everyone/@here and All Roles). Mentions the author isn't allowed stay in the text but aren't
 marked, so they notify nobody (the message is still sent, as in Discord).
-Clients count a message as mentioning them when their key, a role they hold
-or `@everyone` is marked, or `@here` is marked and the message arrived live.
+Clients count a message as mentioning them when their key, a role they hold,
+`@everyone` or `@channel` is marked, or `@here` is marked and the message
+arrived live; a member may suppress @everyone/@here/@channel or role
+mentions per community (settings.md `suppress_mentions`). Messages reach
+only members who can read the channel, so `@everyone` and `@channel` reach
+the same people: everyone who can read it.
 
 **Attachments.** Up to 10 files per message (`MaxAttachments`). A client
 uploads each file as a staged upload (`UploadBegin{…, staged: true}`, §6.3),
@@ -1205,8 +1210,9 @@ with "directory disabled"; it deletes the listings it held, serves none in
 `/v1/replicate` and stores none it pulls. Routes are unaffected, so
 invites and members keep working. `NodeInfo.directory` (and a maintainer
 set's `no_directory`) tell clients: they search and download snapshots only
-through nodes that list, and when no node they use has a directory they
-hide finding communities and the public listing options ("Public listing
+through nodes that list, and until a node they use says it has a
+directory (none does, or none has answered yet) they hide finding
+communities and the public listing options ("Public listing
 isn't available on your maintainer network; share invites to let people
 join"). A community server that gets 501 for its listing sends that node
 none for an hour, without counting it as a failure.
@@ -2040,7 +2046,7 @@ synced), `owner_key` (an owner key this member generated for a community,
 §4.5), `device_linked`, `device_info`, `device_keys`, `device_renamed`,
 `device_removed`, `dm_identity` (an identity's device list and every device's
 fallback key and inbox), `dm_group` (a group's chain and status), `dm_forget`,
-`dm_read`, `dm_blocked`, `dm_verified`, `contact_added`, `contact_removed`,
+`dm_read`, `dm_blocked`, `dm_verified`, `dm_nicknames`, `contact_added`, `contact_removed`,
 `history_request`, `history_chunk`, `status` (the user's status: state,
 text, emoji, expiry; newest wins), `status_idle` (a device went idle, §9.8).
 

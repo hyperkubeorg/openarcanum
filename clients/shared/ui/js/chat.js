@@ -270,13 +270,16 @@ const NOTIFY_LEVELS = [['all', N_('All messages')], ['mentions', N_('Mentions on
 
 // The community menu: from the name at the top of the channel list, and
 // (fromRail) the right-click menu or Menu key on the community's rail icon.
-function communityMenu(e, summary, fromRail = false) {
+function communityMenu(e, summary, fromRail = false, folder = null) {
   // The newest summary: permissions may have changed since the sidebar was drawn.
   summary = st.communities.find((c) => c.id === summary.id) || summary;
   let x = e.clientX;
   let y = e.clientY;
   if (!fromRail) { const r = e.currentTarget.getBoundingClientRect(); x = r.left + 8; y = r.bottom + 4; }
-  openMenu(x, y, communityMenuItems(summary));
+  // On the rail, also its place there (app.js): moving it, folders.
+  const items = communityMenuItems(summary);
+  if (fromRail) items.splice(items.length - 2, 0, ...railMenuItems(summary.id, folder));
+  openMenu(x, y, tidyMenu(items));
 }
 
 function communityMenuItems(summary) {
@@ -291,8 +294,13 @@ function communityMenuItems(summary) {
   const here = id === st.cid && st.view === 'community';
   const level = summary.notify_level || 'all';
   const setLevel = (v) => api('set_community_notify', id, v).then(refreshCommunities, toastError);
+  const suppress = summary.suppress || [];
+  const suppressItem = (kind, label) => ({ label, toggle: true, checked: suppress.includes(kind),
+    run: () => api('set_community_suppress', id, kind, !suppress.includes(kind)).then(refreshCommunities, toastError) });
   return [
     { group: t('Notifications'), items: NOTIFY_LEVELS.map(([v, label]) => ({ label: t(label), checked: level === v, run: () => setLevel(v) })) },
+    suppressItem('everyone', t('Suppress @everyone, @here and @channel')),
+    suppressItem('roles', t('Suppress role mentions')),
     { label: summary.muted ? t('Unmute community') : t('Mute community'), run: () => api('toggle_mute', id, null).then(refreshCommunities, toastError) },
     { label: t('Mark all as read'), run: () => api('mark_community_read', id).then(() => loadState(id).then(() => { if (st.cid === id) render(); }), toastError) },
     ...(summary.hosted ? [{ separator: true }, ...hostingMenuItems(summary)] : []),
@@ -935,7 +943,7 @@ function mentionPicker(input, cid) {
     for (const r of (s && s.roles) || []) {
       if (r.name && r.name !== '@everyone' && r.name.toLowerCase().startsWith(q)) found.push({ name: r.name, role: true, other: t('role') });
     }
-    for (const word of ['everyone', 'here']) if (word.startsWith(q)) found.push({ name: word, role: true });
+    for (const word of ['everyone', 'here', 'channel']) if (word.startsWith(q)) found.push({ name: word, role: true });
     items = found.slice(0, 8);
     sel = 0;
     if (!items.length) { close(); return; }

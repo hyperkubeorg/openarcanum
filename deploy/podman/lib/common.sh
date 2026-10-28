@@ -11,6 +11,8 @@
 #   TCP_PORTS    ports to open in firewalld, e.g. "443/tcp"
 #   EXTRA_UNITS  optional extra user units (backup .service/.timer) in HOST_DIR
 #   EXTRA_TIMERS optional timers to enable
+#   BACKUP_TIMERS optional backup timers: on only when backups are on
+#                (backup_choice below), stopped and disabled otherwise
 # and defines host_checks (run after the service is up), optionally
 # host_prechecks (before the image is pulled) and host_before_start (after
 # the image is pulled and verified, before the service starts).
@@ -21,6 +23,20 @@ QUADLET_DIR=$OA_HOME/.config/containers/systemd
 USER_UNIT_DIR=$OA_HOME/.config/systemd/user
 SYSCTL_FILE=/etc/sysctl.d/90-openarcanum.conf
 MIN_PODMAN=4.9
+
+# Scheduled backups are off unless chosen: they need room, and a copy
+# somewhere other than this disk, to be worth keeping. `BACKUPS=on bash
+# setup.sh` (or off) chooses, and the choice is kept in
+# APP_DIR/config/backups for later runs. Prints on or off.
+backup_choice() {
+    local f="$OA_HOME/$APP_DIR/config/backups"
+    if [ -n "${BACKUPS:-}" ]; then
+        case "$BACKUPS" in on|off) ;; *) die "BACKUPS must be on or off" ;; esac
+        printf '%s\n' "$BACKUPS" > "$f"
+        chown "$OA_USER:$OA_USER" "$f"
+    fi
+    if [ "$(cat "$f" 2>/dev/null)" = on ]; then echo on; else echo off; fi
+}
 
 # The images are signed by the Containers workflow (keyless cosign, from
 # the workflow's GitHub identity: .github/workflows/containers.yml,
@@ -415,6 +431,17 @@ start_service() {
     for t in ${EXTRA_TIMERS:-}; do
         oa_systemctl enable --now "$t" >/dev/null 2>&1 || oa_systemctl start "$t"
         info "timer $t on"
+    done
+    local backups
+    backups=$(backup_choice)
+    for t in ${BACKUP_TIMERS:-}; do
+        if [ "$backups" = on ]; then
+            oa_systemctl enable --now "$t" >/dev/null 2>&1 || oa_systemctl start "$t"
+            info "timer $t on (backups on)"
+        else
+            oa_systemctl disable --now "$t" >/dev/null 2>&1 || true
+            info "timer $t off (backups off; BACKUPS=on bash setup.sh turns them on)"
+        fi
     done
     # Generated units can't be "enabled"; [Install] WantedBy=default.target
     # in the Quadlet file starts them at boot.

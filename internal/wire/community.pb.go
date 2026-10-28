@@ -3598,11 +3598,14 @@ type Message struct {
 	// Roles mentioned (`<@&role>`) that the author was allowed to mention.
 	MentionRoles []int64 `protobuf:"varint,21,rep,packed,name=mention_roles,json=mentionRoles,proto3" json:"mention_roles,omitempty"`
 	// @everyone / @here, only when the author was allowed to mention them.
-	MentionEveryone bool         `protobuf:"varint,22,opt,name=mention_everyone,json=mentionEveryone,proto3" json:"mention_everyone,omitempty"`
-	MentionHere     bool         `protobuf:"varint,23,opt,name=mention_here,json=mentionHere,proto3" json:"mention_here,omitempty"`
-	Reactions       []*Reaction  `protobuf:"bytes,24,rep,name=reactions,proto3" json:"reactions,omitempty"`
-	Pinned          bool         `protobuf:"varint,25,opt,name=pinned,proto3" json:"pinned,omitempty"`
-	Preview         *LinkPreview `protobuf:"bytes,26,opt,name=preview,proto3" json:"preview,omitempty"`
+	MentionEveryone bool `protobuf:"varint,22,opt,name=mention_everyone,json=mentionEveryone,proto3" json:"mention_everyone,omitempty"`
+	MentionHere     bool `protobuf:"varint,23,opt,name=mention_here,json=mentionHere,proto3" json:"mention_here,omitempty"`
+	// @channel: everyone who can read the channel, as @everyone (and needs
+	// the same permission).
+	MentionChannel bool         `protobuf:"varint,31,opt,name=mention_channel,json=mentionChannel,proto3" json:"mention_channel,omitempty"`
+	Reactions      []*Reaction  `protobuf:"bytes,24,rep,name=reactions,proto3" json:"reactions,omitempty"`
+	Pinned         bool         `protobuf:"varint,25,opt,name=pinned,proto3" json:"pinned,omitempty"`
+	Preview        *LinkPreview `protobuf:"bytes,26,opt,name=preview,proto3" json:"preview,omitempty"`
 	// Set on join/leave system messages (text is empty).
 	System        *SystemEvent `protobuf:"bytes,27,opt,name=system,proto3" json:"system,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3733,6 +3736,13 @@ func (x *Message) GetMentionEveryone() bool {
 func (x *Message) GetMentionHere() bool {
 	if x != nil {
 		return x.MentionHere
+	}
+	return false
+}
+
+func (x *Message) GetMentionChannel() bool {
+	if x != nil {
+		return x.MentionChannel
 	}
 	return false
 }
@@ -14001,7 +14011,7 @@ const file_openarcanum_v1_community_proto_rawDesc = "" +
 	"\x04mime\x18\x04 \x01(\tR\x04mime\x12\x10\n" +
 	"\x03key\x18\x05 \x01(\fR\x03key\x12\x1d\n" +
 	"\n" +
-	"chunk_size\x18\x06 \x01(\rR\tchunkSize\"\xfc\x04\n" +
+	"chunk_size\x18\x06 \x01(\rR\tchunkSize\"\xa5\x05\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1d\n" +
 	"\n" +
@@ -14020,7 +14030,8 @@ const file_openarcanum_v1_community_proto_rawDesc = "" +
 	"\x05files\x18\x14 \x03(\v2\x17.openarcanum.v1.FileRefR\x05files\x12#\n" +
 	"\rmention_roles\x18\x15 \x03(\x03R\fmentionRoles\x12)\n" +
 	"\x10mention_everyone\x18\x16 \x01(\bR\x0fmentionEveryone\x12!\n" +
-	"\fmention_here\x18\x17 \x01(\bR\vmentionHere\x126\n" +
+	"\fmention_here\x18\x17 \x01(\bR\vmentionHere\x12'\n" +
+	"\x0fmention_channel\x18\x1f \x01(\bR\x0ementionChannel\x126\n" +
 	"\treactions\x18\x18 \x03(\v2\x18.openarcanum.v1.ReactionR\treactions\x12\x16\n" +
 	"\x06pinned\x18\x19 \x01(\bR\x06pinned\x125\n" +
 	"\apreview\x18\x1a \x01(\v2\x1b.openarcanum.v1.LinkPreviewR\apreview\x123\n" +
