@@ -195,7 +195,8 @@ def test_maintainer_and_relay_settings():
 def test_backup_units(host):
     v = setup_vars(host)
     units = v["EXTRA_UNITS"].split()
-    assert v["EXTRA_TIMERS"] in units
+    # The backup timer is enabled only when backups are on (backup_choice).
+    assert "EXTRA_TIMERS" not in v and v["BACKUP_TIMERS"] in units
     stem = HOSTS[host][0]
     for name in units:
         unit = parse_unit(KIT / host / name)
