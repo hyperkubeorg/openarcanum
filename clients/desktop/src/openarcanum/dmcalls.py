@@ -158,6 +158,32 @@ class DmCalls:
         self._changed(gid)
         return self.session(gid)
 
+    async def rejoin(self, gid: str) -> cp.VoiceSession:
+        """Reconnecting to the relay (it dropped, or the network did) is a
+        join of its own: a new participant id, so a new epoch and key. The
+        page never sends twice under one key (its frame counter starts
+        again), so reconnecting under the old one would leave this device
+        heard by nobody, while it still hears everyone, until left and
+        joined by hand. Everyone gets the old one's LEAVE and the new JOIN."""
+        if self.mine is None or self.mine[0] != gid or gid not in self.calls:
+            raise UserError(_("That call is over."))
+        c = self.calls[gid]
+        _gid, old, slot = self.mine
+        was = c.parts.pop(old, None)
+        pid = os.urandom(16)
+        self.mine = (gid, pid, slot)
+        c.parts[pid] = Part(self._me(gid), slot, time.time())
+        if was is not None:
+            p = c.parts[pid]
+            p.self_mute, p.self_deaf, p.camera, p.screen = was.self_mute, was.self_deaf, was.camera, was.screen
+        with contextlib.suppress(UserError):
+            await self.dms.send_event(
+                gid, dm.DmEvent(call=dm.DmCall(kind=K.DM_CALL_KIND_LEAVE, call_id=c.call_id, participant=old))
+            )
+            await self.dms.send_event(gid, dm.DmEvent(call=self._event(K.DM_CALL_KIND_JOIN, c)))
+        self._changed(gid)
+        return self.session(gid)
+
     async def leave(self) -> None:
         mine, self.mine = self.mine, None
         if self._beat is not None:

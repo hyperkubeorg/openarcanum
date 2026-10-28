@@ -344,3 +344,38 @@ def test_olm_batch_saves_once_at_the_end(tmp_path):
         assert (tmp_path / "o.bin").read_bytes() == before
     after = OlmStore(tmp_path / "o.bin", store.seal_key, store.pickle_key)
     assert len(after.outbound["status:c"]) == 2
+
+
+def test_a_contact_added_after_the_status_gets_it_on_the_next_tick(tmp_path):
+    with network(tmp_path) as (meta, _relay, community):
+        node = community()
+
+        async def main():
+            owner, _ = await new_core(tmp_path / "owner", "owner-desktop", maintainers=[meta])
+            cid = (await owner.claim(node.claim_code, WIZARD, "Olive"))["community"]
+            await general(owner, cid)
+            alice, _ = await joined(tmp_path, meta, owner, cid, "Alice")
+            for c in (owner, alice):
+                await c.set_status_community(cid, "off")
+                await c.dms.set_contact_card(cid, True)
+            # Alice's status is posted (to nobody yet: no contacts).
+            await alice.statuses.set_status("dnd", CONTACT_TEXT, "", "4h")
+            a, o = await member_key(alice, cid), await member_key(owner, cid)
+            alice_ident = (await owner.dms.add_contact(cid, a))["id"]
+            await alice.dms.add_contact(cid, o)
+            # Not the 30-minute refresh: the new contact's device is noticed.
+            assert time.time() - alice.statuses._last_refresh < statuses.REFRESH_SECONDS
+            await alice.statuses.tick()
+
+            async def seen():
+                await owner.dms.poll_once()
+                r = owner.statuses.d.get("recv", {}).get(alice_ident)
+                return r is not None and r["state"] == "dnd" and r["text"] == CONTACT_TEXT
+
+            await wait_until(seen, 30, 0.25)
+            # Once given the key, later ticks don't post again.
+            assert not alice.statuses._contacts_grew()
+            for c in (owner, alice):
+                await c.shutdown()
+
+        run(main(), 180)

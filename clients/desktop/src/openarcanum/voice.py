@@ -342,7 +342,7 @@ class VoiceManager:
         try:
             try:
                 if call.gid:
-                    vs = self.core.dmcalls.session(call.gid)
+                    vs = await self.core.dmcalls.rejoin(call.gid)
                 else:
                     vs = (await self.core.conn(call.cid).call(voice_join=req)).voice_session
             except (RpcError, Offline, UserError) as e:

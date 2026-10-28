@@ -212,6 +212,9 @@ class Statuses:
         self._asked: dict[tuple[str, str], tuple[str, float]] = {}
         # Idle: no input on this device for status_idle_minutes.
         self._idle = False
+        # Contact devices a contacts post tried to give my status key
+        # (_contacts_grew).
+        self._offered: set[str] = set()
         self._loop_task: asyncio.Task | None = None
         self._last_refresh = 0.0
         self._publishing: dict[str, asyncio.Lock] = {}
@@ -405,7 +408,7 @@ class Statuses:
                     await self.core.devices.broadcast("status_idle", {})
             await self.publish()
             return
-        if now - self._last_refresh >= REFRESH_SECONDS or self._contacts_shrank():
+        if now - self._last_refresh >= REFRESH_SECONDS or self._contacts_shrank() or self._contacts_grew():
             await self._publish_contacts()
 
     def activity(self) -> None:
@@ -976,6 +979,24 @@ class Statuses:
                 return True
         return False
 
+    def _contacts_grew(self) -> bool:
+        """A contact device that doesn't have my status key, and that no post
+        has tried yet: a contact just added (by code, from a community, by
+        accepting a DM, on another of my devices) or a contact's new device.
+        Without this they'd see me offline until the next refresh. Tried
+        once per post: a device that can't take a key yet waits for the
+        refresh, rather than every tick posting again."""
+        if self.core.vault is None or self.core.dms.olm is None:
+            return False
+        for pub, recipients in self._contact_targets().items():
+            a = self.d.get("aud", {}).get(f"k:{pub}")
+            shared = set(self.olm.shared_with(f"dm:{pub}", unb64(a["id"]))) if a else set()
+            for _ident, dev in recipients:
+                curve = b64(dev.curve25519)
+                if curve not in shared and curve not in self._offered:
+                    return True
+        return False
+
     async def _publish_contacts(self, force_state: str = "") -> None:
         if self.core.vault is None or self.core.dms.olm is None:
             return
@@ -1008,6 +1029,7 @@ class Statuses:
                 for ident, dev in recipients:
                     if b64(dev.curve25519) in shared:
                         continue
+                    self._offered.add(b64(dev.curve25519))
                     payload = dm.OlmPayload(status_key=dm.StatusKey(audience=gid, session_id=sid, session_key=key))
                     if await dms._send_olm(pub, ident, dev, payload):
                         done.append(dev.curve25519)
