@@ -114,7 +114,9 @@ def test_status_picker_audiences_and_do_not_disturb(tmp_path):
                 assert not await alice.js(f"{row}.querySelector('.status-text')")
                 # The dot has words: the row's description.
                 desc = await alice.js(f"document.getElementById({row}.getAttribute('aria-describedby')).textContent")
-                assert desc == "Do not disturb", desc
+                # She's active, so it says so ("Last active … ago" once idle).
+                assert desc == "Do not disturb - Active now", desc
+                assert await alice.js(f"{row}.title") == desc
                 await shot(alice, tmp_path, "member-list-status")
                 # Her menu says it too.
                 await community_member_menu(alice, "Olive")

@@ -1887,7 +1887,8 @@ is never taken as more than 5 minutes in the future.
 
 ### 9.8 Statuses
 
-A status is a `DmStatus{state, text, emoji, expires_at, fresh_until}`
+A status is a `DmStatus{state, text, emoji, expires_at, fresh_until,
+idle_since}`
 (state: online, idle, do not disturb, offline; text ≤ 128 characters on one
 line, no control or bidirectional formatting characters; emoji ≤ 32
 characters; `expires_at` Unix ms or 0) sent as the body of a `DmEvent`
@@ -1917,7 +1918,15 @@ per audience, keyed by a random 16-byte audience id (`DmEvent.group_id`,
   each recipient device's first-contact inbox. Contacts have no presence:
   `fresh_until` (75 minutes) says when the status goes stale, and it is
   posted again every 30 minutes while the app runs; quitting posts
-  `offline`, and so does Invisible (indistinguishable).
+  `offline`, and so does Invisible (indistinguishable). A client that also
+  shares a connected community with the contact shows them offline once
+  that community does, fresh or not.
+- `idle_since`: while the sender's device counts them idle (no input for
+  their **Idle after**), their last input, rounded down to the minute; 0
+  while active, and never set for Invisible or a cleared status. A status is
+  posted on every change between active and idle, so it is current;
+  recipients show "Last active … ago" from it, and drop a time later than
+  the event itself.
 
 **Keys.** `StatusKey{audience, session_id, session_key}` goes over Olm
 (`OlmPayload.status_key`, field 16) to each recipient device, with the usual

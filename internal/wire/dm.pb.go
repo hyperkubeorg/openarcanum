@@ -2415,7 +2415,12 @@ type DmStatus struct {
 	ExpiresAt int64 `protobuf:"varint,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	// Unix ms after which a recipient that has no other sign of the sender
 	// being online shows them offline (contacts; refreshed while online).
-	FreshUntil    int64 `protobuf:"varint,5,opt,name=fresh_until,json=freshUntil,proto3" json:"fresh_until,omitempty"`
+	FreshUntil int64 `protobuf:"varint,5,opt,name=fresh_until,json=freshUntil,proto3" json:"fresh_until,omitempty"`
+	// Unix ms, rounded down to the minute, of the sender's last input while
+	// their device counts them idle (no input for their idle time); 0 while
+	// they're active. Never set when the sender is invisible or the audience
+	// gets no status (cleared). Recipients show "Last active … ago".
+	IdleSince     int64 `protobuf:"varint,6,opt,name=idle_since,json=idleSince,proto3" json:"idle_since,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2481,6 +2486,13 @@ func (x *DmStatus) GetExpiresAt() int64 {
 func (x *DmStatus) GetFreshUntil() int64 {
 	if x != nil {
 		return x.FreshUntil
+	}
+	return 0
+}
+
+func (x *DmStatus) GetIdleSince() int64 {
+	if x != nil {
+		return x.IdleSince
 	}
 	return 0
 }
@@ -3262,7 +3274,7 @@ const file_openarcanum_v1_dm_proto_rawDesc = "" +
 	"sessionKey\"~\n" +
 	"\vGroupInvite\x126\n" +
 	"\x05chain\x18\x01 \x03(\v2 .openarcanum.v1.SignedGroupStateR\x05chain\x127\n" +
-	"\x05cards\x18\x02 \x03(\v2!.openarcanum.v1.SignedContactCardR\x05cards\"\xa7\x01\n" +
+	"\x05cards\x18\x02 \x03(\v2!.openarcanum.v1.SignedContactCardR\x05cards\"\xc6\x01\n" +
 	"\bDmStatus\x121\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x1b.openarcanum.v1.StatusStateR\x05state\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x14\n" +
@@ -3270,7 +3282,9 @@ const file_openarcanum_v1_dm_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x04 \x01(\x03R\texpiresAt\x12\x1f\n" +
 	"\vfresh_until\x18\x05 \x01(\x03R\n" +
-	"freshUntil\"g\n" +
+	"freshUntil\x12\x1d\n" +
+	"\n" +
+	"idle_since\x18\x06 \x01(\x03R\tidleSince\"g\n" +
 	"\tStatusKey\x12\x1a\n" +
 	"\baudience\x18\x01 \x01(\fR\baudience\x12\x1d\n" +
 	"\n" +

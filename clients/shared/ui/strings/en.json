@@ -12059,6 +12059,23 @@
     "ui/js/devices.js"
    ]
   },
+  "{status} - Active now": {
+   "vars": [
+    "status"
+   ],
+   "used_in": [
+    "ui/js/status.js"
+   ]
+  },
+  "{status} - Last active {ago}": {
+   "vars": [
+    "ago",
+    "status"
+   ],
+   "used_in": [
+    "ui/js/status.js"
+   ]
+  },
   "{status} by {name}": {
    "vars": [
     "name",

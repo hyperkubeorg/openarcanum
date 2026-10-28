@@ -778,6 +778,12 @@ Click your avatar and name at the bottom left (**Set your status**):
 - **Online**, **Idle**, **Do not disturb** or **Invisible**. Idle is also
   set by itself after a while without input on that device (**Idle after**,
   10 minutes by default) and goes away when you use it again.
+- Pointing at someone's status dot says their status and when they were
+  last active: "Online - Active now", "Idle - Last active 12 minutes ago".
+  That's only shown to the people you share your status with, and never
+  while you're offline or invisible.
+- Someone you also share a community with shows **Offline** as soon as
+  that community sees them leave.
 - **Do not disturb**: no desktop notifications. Unread marks, mention counts
   and the moderators' badges still count, so nothing is lost.
 - **Invisible**: you appear offline to everyone, and you can still read and

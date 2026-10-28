@@ -160,6 +160,12 @@ def received_view(st: dm.DmStatus, at: int) -> dict:
         "emoji": st.emoji,
         "expires_at": st.expires_at,
         "fresh_until": st.fresh_until,
+        # When they were last active, if they're idle (0: active now). A
+        # time ahead of the status itself is nonsense and dropped.
+        "idle_since": st.idle_since if 0 < st.idle_since <= at + 60_000 else 0,
+        # Whether a state was shared at all (a cleared status says nothing
+        # about activity).
+        "shared": st.state != dm.STATUS_STATE_CLEARED,
         "at": at,
     }
 
@@ -489,6 +495,9 @@ class Statuses:
         elif level == "full" and state != "invisible":
             st.text, st.emoji = m["text"], m["emoji"]
         st.fresh_until = int((time.time() + FRESH_SECONDS) * 1000)
+        if level != "off" and state != "invisible" and self._idle:
+            last = time.time() - (time.monotonic() - self.core.last_activity)
+            st.idle_since = int(last // 60 * 60 * 1000)
         ev = dm.DmEvent(
             id=os.urandom(16),
             at=int(time.time() * 1000),

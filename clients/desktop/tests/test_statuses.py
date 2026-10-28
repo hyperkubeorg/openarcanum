@@ -252,6 +252,28 @@ def test_status_expiry_idle_and_validation(tmp_path):
         assert s.effective() == "idle"
         core.activity()
         assert s.effective() == "online"
+        # Idle: the status says since when (the last input, to the minute),
+        # and never when invisible or for an audience that gets nothing.
+        core.last_activity = time.monotonic() - 120
+        await s.tick()
+        assert s.effective() == "idle"
+
+        def sent(level: str, state: str = "") -> dict:
+            ev = dm.DmEvent.FromString(s._plaintext(b"s" * 32, b"d" * 32, b"a" * 16, level, state))
+            return statuses.received_view(ev.status, ev.at)
+
+        seen = sent("state")
+        expect = (time.time() - 120) // 60 * 60 * 1000
+        assert seen["shared"] and abs(seen["idle_since"] - expect) <= 60_000
+        assert seen["idle_since"] % 60_000 == 0
+        assert sent("full", "invisible")["idle_since"] == 0
+        off = sent("off")
+        assert off["idle_since"] == 0 and not off["shared"]
+        # A time ahead of the status itself is dropped.
+        ahead = dm.DmStatus(state=dm.STATUS_STATE_ONLINE, idle_since=int(time.time() * 1000) + 3_600_000)
+        assert statuses.received_view(ahead, int(time.time() * 1000))["idle_since"] == 0
+        core.activity()
+        assert sent("state")["idle_since"] == 0
         # 0 = never idle.
         await core.set_setting("status_idle_minutes", 0)
         core.last_activity = time.monotonic() - 10_000

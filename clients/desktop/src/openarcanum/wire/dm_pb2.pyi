@@ -396,18 +396,20 @@ class GroupInvite(_message.Message):
     def __init__(self, chain: _Optional[_Iterable[_Union[SignedGroupState, _Mapping]]] = ..., cards: _Optional[_Iterable[_Union[SignedContactCard, _Mapping]]] = ...) -> None: ...
 
 class DmStatus(_message.Message):
-    __slots__ = ("state", "text", "emoji", "expires_at", "fresh_until")
+    __slots__ = ("state", "text", "emoji", "expires_at", "fresh_until", "idle_since")
     STATE_FIELD_NUMBER: _ClassVar[int]
     TEXT_FIELD_NUMBER: _ClassVar[int]
     EMOJI_FIELD_NUMBER: _ClassVar[int]
     EXPIRES_AT_FIELD_NUMBER: _ClassVar[int]
     FRESH_UNTIL_FIELD_NUMBER: _ClassVar[int]
+    IDLE_SINCE_FIELD_NUMBER: _ClassVar[int]
     state: StatusState
     text: str
     emoji: str
     expires_at: int
     fresh_until: int
-    def __init__(self, state: _Optional[_Union[StatusState, str]] = ..., text: _Optional[str] = ..., emoji: _Optional[str] = ..., expires_at: _Optional[int] = ..., fresh_until: _Optional[int] = ...) -> None: ...
+    idle_since: int
+    def __init__(self, state: _Optional[_Union[StatusState, str]] = ..., text: _Optional[str] = ..., emoji: _Optional[str] = ..., expires_at: _Optional[int] = ..., fresh_until: _Optional[int] = ..., idle_since: _Optional[int] = ...) -> None: ...
 
 class StatusKey(_message.Message):
     __slots__ = ("audience", "session_id", "session_key")

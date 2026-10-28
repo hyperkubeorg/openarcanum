@@ -26,8 +26,11 @@ function liveStatus(r, online = true) {
   const now = Date.now();
   if (r.source === 'contacts' && r.fresh_until && now > r.fresh_until) return plain('offline');
   if (r.state === 'offline') return plain('offline');
-  if (r.expires_at && now > r.expires_at) return plain('online');
-  return { state: r.state || 'online', text: r.text || '', emoji: r.emoji || '' };
+  // When they were last active: only from a status they shared (not from
+  // just being connected), and never for offline or invisible.
+  const activity = r.shared && r.at ? { idleSince: r.idle_since || 0 } : null;
+  if (r.expires_at && now > r.expires_at) return { ...plain('online'), activity };
+  return { state: r.state || 'online', text: r.text || '', emoji: r.emoji || '', activity };
 }
 
 function myStatus() {
@@ -55,9 +58,21 @@ function personStatus(ident, me = false) {
 function statusLine(s) { return [s.emoji, s.text].filter(Boolean).join(' '); }
 
 // The text alternative of a dot: "Do not disturb: In a meeting".
+// "Idle - Last active 12 minutes ago", "Online - Active now"; just the state
+// for offline, and when the person shared no activity.
+function statusActivity(s) {
+  const label = statusLabel(s.state);
+  const a = s.activity;
+  if (!a || s.state === 'offline' || s.state === 'invisible') return label;
+  if (a.idleSince) return t('{status} - Last active {ago}', { status: label, ago: agoText(a.idleSince) });
+  if (s.state === 'idle') return label; // set by hand, not from inactivity
+  return t('{status} - Active now', { status: label });
+}
+
 function statusSentence(s) {
   const line = statusLine(s);
-  return line ? t('{status}: {text}', { status: statusLabel(s.state), text: line }) : statusLabel(s.state);
+  const status = statusActivity(s);
+  return line ? t('{status}: {text}', { status, text: line }) : status;
 }
 
 // The dot on an avatar (colour and shape only; the row it's in carries the

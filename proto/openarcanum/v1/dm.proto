@@ -352,6 +352,11 @@ message DmStatus {
   // Unix ms after which a recipient that has no other sign of the sender
   // being online shows them offline (contacts; refreshed while online).
   int64 fresh_until = 5;
+  // Unix ms, rounded down to the minute, of the sender's last input while
+  // their device counts them idle (no input for their idle time); 0 while
+  // they're active. Never set when the sender is invisible or the audience
+  // gets no status (cleared). Recipients show "Last active … ago".
+  int64 idle_since = 6;
 }
 
 // A status audience's Megolm session key, sent over Olm to each recipient
