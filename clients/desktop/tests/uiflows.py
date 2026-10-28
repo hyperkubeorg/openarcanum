@@ -67,6 +67,9 @@ async def claim(app: App, claim_code: str, community: str, display_name: str) ->
     """Claim a server and create a community. Returns the first invite."""
     await app.click(".rail-add")
     await app.click('.add-way[data-tab="server"]')
+    # Already an owner: the page asks where; a claim code is a new server.
+    if await app.js("!!document.querySelector('.add-page input[name=host-where]')"):
+        await app.click('.add-page input[name=host-where][value="new"]')
     await app.fill(".add-page textarea", claim_code)
     await app.button("Next")
     await app.fill('.add-page input[placeholder="Community name"]', community)

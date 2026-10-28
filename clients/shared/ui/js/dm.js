@@ -575,17 +575,19 @@ function memberOptions(e, p, invited) {
 // community needed: contact codes), or from a community's members.
 async function pickMembers(title, max, okLabel, withName) {
   const comms = st.communities.filter((c) => c.status === 'active');
+  // Start where there's someone to pick: my contacts, or with none yet,
+  // my first community.
+  let contacts = [];
+  try { contacts = (await api('dm_contacts')).filter((x) => !x.blocked); } catch (e) { toastError(e); }
   return new Promise((resolve) => {
     let done = false;
-    const sel = selectEl([['', t('My contacts')], ...comms.map((c) => [c.id, c.name])], '');
+    const sel = selectEl([['', t('My contacts')], ...comms.map((c) => [c.id, c.name])], contacts.length || !comms.length ? '' : comms[0].id);
     const name = h('input', { type: 'text', placeholder: t('Optional') });
     const list = h('div', { class: 'pick-list', role: 'group', 'aria-label': t('People') });
     const load = async () => {
       clear(list);
       if (!sel.value) {
-        let contacts = [];
-        try { contacts = await api('dm_contacts'); } catch (e) { toastError(e); }
-        for (const c of contacts.filter((x) => !x.blocked)) {
+        for (const c of contacts) {
           const cb = checkbox(c.name, false);
           cb.input.value = c.id;
           list.appendChild(cb);

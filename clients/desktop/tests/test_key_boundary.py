@@ -306,7 +306,15 @@ def test_only_the_call_key_reaches_the_real_page(tmp_path, tone):
                         "localMutes",
                         "outputVolume",
                         "screenAudio",
+                        # Video quality choices: preferences.
+                        "cameraQuality",
+                        "screenQuality",
+                        # A DM call's per-join media keys (call keys, as
+                        # "key"); none in a community call such as this.
+                        "joinKeys",
                     }, sorted(s)
+                    assert s["joinKeys"] is None
+                    assert isinstance(s["cameraQuality"], str) and isinstance(s["screenQuality"], str)
                     assert isinstance(s["outputVolume"], float | int) and isinstance(s["screenAudio"], bool)
                     assert all(isinstance(m, str) for m in s["localMutes"])
             assert len(keys_given) >= 2, "the call key never rotated"

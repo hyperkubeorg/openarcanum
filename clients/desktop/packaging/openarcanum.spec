@@ -162,6 +162,15 @@ if sys.platform != "darwin":
     # Top-level symbolic links to Qt libraries are in datas (typecode SYMLINK).
     a.datas = [d for d in a.datas if d[2] != "SYMLINK" or kept(d)]
 
+# Linux: the C++ runtime comes from the system, never the build machine.
+# A newer system's graphics driver (Mesa) loaded next to the build machine's
+# older libstdc++ fails, and the engine aborts at start ("Could not
+# initialize GLX"). Every system the bundle runs on (glibc 2.35+) has a
+# libstdc++ at least as new as the build machine's (tests/test_bundle.py).
+HOST_RUNTIME = ("libstdc++.so.6", "libgcc_s.so.1")
+if sys.platform.startswith("linux"):
+    a.binaries = [b for b in a.binaries if Path(b[0]).name not in HOST_RUNTIME]
+
 pyz = PYZ(a.pure)  # noqa: F821
 
 icon = None

@@ -131,9 +131,18 @@ def test_user_menu_everywhere(tmp_path):
                 await alice.type("hello olive, privately")
                 await alice.key("Enter")
                 await alice.wait_text("#dm-messages .mtext", "hello olive, privately")
-                # The open conversation's row: Olive, without Message (it's open).
+                # The open conversation's row: Olive, without Message (it's
+                # open), and the whole conversation's Delete.
                 got = await menu_of(alice, "button.chan[data-dm]")
-                assert got == ["View profile", "Add as contact", "Safety number", "Copy user ID", "Block"], got
+                assert got == [
+                    "View profile",
+                    "Add as contact",
+                    "Rename…",
+                    "Safety number",
+                    "Copy user ID",
+                    "Block",
+                    "Delete conversation",
+                ], got
                 await close_menu(alice)
 
                 # Olive's DM list: the request's row is Alice, with Message.
@@ -145,16 +154,25 @@ def test_user_menu_everywhere(tmp_path):
                     await asyncio.sleep(0.4)
                 got = await menu_of(olive, "button.chan[data-dm]")
                 await shot(olive, tmp_path, "dm-row")
-                assert got == ["View profile", "Message", "Add as contact", "Safety number", "Copy user ID", "Block"], (
-                    got
-                )
+                assert got == [
+                    "View profile",
+                    "Message",
+                    "Add as contact",
+                    "Rename…",
+                    "Safety number",
+                    "Copy user ID",
+                    "Block",
+                    "Delete conversation",
+                ], got
                 await olive.click("#ctx-menu .mi", "Message")
                 await olive.wait_text("#dm-messages .mtext", "hello olive, privately")
                 await olive.wait_text(".banner", "wants to message you")
                 # A DM's author has the same menu (the conversation is open:
                 # no Message).
                 got = await menu_of(olive, "#dm-messages .msg .author", "Alice")
-                assert got == ["View profile", "Add as contact", "Safety number", "Copy user ID", "Block"], got
+                assert got == ["View profile", "Add as contact", "Rename…", "Safety number", "Copy user ID", "Block"], (
+                    got
+                )
                 await close_menu(olive)
                 assert not olive.errors and not alice.errors, (olive.errors, alice.errors)
             finally:

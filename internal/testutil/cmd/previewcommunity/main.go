@@ -58,10 +58,12 @@ func run() error {
 	defer func() { _ = closeLog() }()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	srv, err := community.Open(ctx, cfg, log)
+	// A data directory `community init` made: every community in it, as
+	// `community run` runs them.
+	host, err := community.OpenHost(ctx, cfg, log)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = srv.Close() }()
-	return srv.Run(ctx)
+	defer func() { _ = host.Close() }()
+	return host.Run(ctx)
 }

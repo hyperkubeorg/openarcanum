@@ -259,7 +259,12 @@ def test_voice_call_click_through(tmp_path, tone):
                 # Push to talk: Alice only sends while she holds the key.
                 await open_settings(alice)
                 await alice.click(".settings nav .item", "Voice & video")
-                await alice.select(".settings section select", "Push to talk", nth=3)
+                # The Input mode select (the one offering Push to talk).
+                nth = await alice.js(
+                    "[...document.querySelectorAll('.settings section select')]"
+                    ".findIndex((s) => [...s.options].some((o) => o.text === 'Push to talk'))"
+                )
+                await alice.select(".settings section select", "Push to talk", nth=nth)
                 await alice.wait_text(".settings section .saved", "Saved")
                 await alice.click(".settings .close")
                 await alice.wait_js("voiceUI.call.s.mode === 'ptt'", "ptt mode")
@@ -334,10 +339,12 @@ def test_voice_bar_menus_streams_and_mute_for_me(tmp_path, tone):
                     )
                 alice_key = await alice.js("st.states[st.cid].self.key")
 
-                # Nothing under the stage: every control is in the voice bar,
-                # whose top has no line.
-                assert not await olive.exists(".stage-controls")
-                assert await olive.js("[...document.querySelector('#main').children].pop().classList.contains('stage')")
+                # The call's controls sit right under the stage (its own row),
+                # and the voice bar has them too; the bar's top has no line.
+                assert await olive.exists('.stage-controls-host .stage-controls[aria-label="Call controls"]')
+                assert await olive.js(
+                    "document.querySelector('.stage').nextElementSibling.classList.contains('stage-controls-host')"
+                )
                 assert await olive.js("getComputedStyle(document.querySelector('.voice-bar')).borderTopWidth") == "0px"
                 for label in (
                     "Mute",

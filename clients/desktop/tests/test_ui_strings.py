@@ -108,6 +108,8 @@ def test_a_translation_table_changes_the_whole_ui(tmp_path):
                 await app.click(".rail-add")
                 await app.click('.add-way[data-tab="server"]')
                 problems += await unwrapped(app, "add community page")
+                if await app.js("!!document.querySelector('.add-page input[name=host-where]')"):
+                    await app.click('.add-page input[name=host-where][value="new"]')
                 await app.fill(".add-page textarea", node.claim_code)
                 await app.button(P("Next"))
                 await app.fill(f'.add-page input[placeholder="{P("Community name")}"]', "Ωμέγα")

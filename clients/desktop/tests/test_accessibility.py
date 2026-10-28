@@ -85,6 +85,7 @@ def test_views_pass_axe_and_work_from_the_keyboard(tmp_path):
                 for attempt in range(3):
                     await app.click(".user-panel .me-btn")
                     try:
+                        await app.click("#ctx-menu .mi", "Set status…", timeout=5)
                         await app.wait_js("document.querySelector('.status-picker')", "the status picker", 5)
                         break
                     except UIError:
@@ -141,7 +142,11 @@ def test_views_pass_axe_and_work_from_the_keyboard(tmp_path):
                 await app.click(".rail-add")
                 on_join = "document.activeElement.matches('.add-way.sel[data-tab=join]')"
                 await app.wait_js(on_join, "focus on the first way")
-                for way in ("join", "find", "host", "server"):
+                # Find a community is there only when a maintainer node says it
+                # has a directory.
+                ways = await app.js("[...document.querySelectorAll('.add-way')].map((w) => w.dataset.tab)")
+                assert {"join", "host", "server"} <= set(ways), ways
+                for way in ways:
                     sel = f".add-way.sel[data-tab={way}][aria-selected=true]"
                     await app.wait_js(f"document.querySelector('{sel}')", way)
                     panel = f"#add-panel[aria-labelledby=add-way-{way}] .form-section"

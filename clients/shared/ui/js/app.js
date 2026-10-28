@@ -373,6 +373,9 @@ async function selectCommunity(cid, channel) {
   if (st.cid !== cid) st.voiceChat = null;
   st.cid = cid;
   st.replyTo = null;
+  // Saved now too: a community whose channels haven't arrived yet (just
+  // claimed) has no channel to select below, and is still where you are.
+  saveLast();
   await loadState(cid);
   if (st.cid !== cid) return; // another community was chosen meanwhile
   const s = st.states[cid];
@@ -548,7 +551,12 @@ function setSidebarWidth(w) {
   sidebarWidth = Number.isFinite(n) && n > 0 ? Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, n))) : SIDEBAR_DEFAULT;
   document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
   const handle = $('.sidebar-resizer');
-  if (handle) handle.setAttribute('aria-valuenow', String(sidebarWidth));
+  if (handle) {
+    handle.setAttribute('aria-valuenow', String(sidebarWidth));
+    // Again here: the handle is made when the script loads, before the
+    // language's strings are in.
+    handle.setAttribute('aria-label', t('Width of the list'));
+  }
 }
 
 function saveSidebarWidth() {

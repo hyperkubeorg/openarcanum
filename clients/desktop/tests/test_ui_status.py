@@ -89,6 +89,7 @@ def test_status_picker_audiences_and_do_not_disturb(tmp_path):
 
                 # Olive sets her status from the user panel.
                 await olive.click(".user-panel .me-btn")
+                await olive.click("#ctx-menu .mi", "Set status…")
                 await olive.wait_js("document.querySelector('.status-picker')", "the status picker")
                 await olive.click('.status-choice[data-state="dnd"]')
                 await olive.fill(".status-picker input[type=text]", TEXT)
@@ -158,6 +159,7 @@ def test_status_picker_audiences_and_do_not_disturb(tmp_path):
 
                 # Back to online: notifications come back.
                 await olive.click(".user-panel .me-btn")
+                await olive.click("#ctx-menu .mi", "Set status…")
                 await olive.click('.status-choice[data-state="online"]')
                 await olive.button("Save")
                 await olive.wait_gone(".status-picker")

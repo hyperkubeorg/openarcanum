@@ -134,7 +134,9 @@ def test_theme_passphrases_toasts_fields_and_storage(tmp_path):
                 await app.js(SPY_COPY)
                 await app.click('.rail-item[title="Direct messages"]')
                 await app.click('button[aria-label="New group DM"]')
-                joined = "Join a community first: people are found through communities."
+                await app.wait_text(".modal h2", "New group DM")
+                await app.click(".modal-foot button", "Create")  # nobody picked
+                joined = "Pick at least one person."
                 await app.wait_text("#toasts .toast.error", joined)
                 # That toast (other errors may stack with it): its text, then
                 # its own buttons, by its position among the error toasts.
@@ -147,9 +149,11 @@ def test_theme_passphrases_toasts_fields_and_storage(tmp_path):
                 assert await app.js(f"getComputedStyle({that}.querySelector('.toast-text')).userSelect") != "none"
                 assert await app.js(f"{that}.getAttribute('role')") == "alert"
                 await app.click("#toasts .toast.error button", "Copy the error", nth=nth)
-                assert "Join a community first" in (await app.js("window.__copied"))[-1]
+                assert joined in (await app.js("window.__copied"))[-1]
                 await app.click("#toasts .toast.error button", "Dismiss", nth=nth)
                 await app.wait_gone("#toasts .toast.error .toast-text", joined)
+                await app.button("Cancel")
+                await app.wait_gone(".modal")
 
                 # Settings → Data & storage: every path, full and copyable.
                 await open_settings(app)
@@ -251,6 +255,8 @@ def test_theme_passphrases_toasts_fields_and_storage(tmp_path):
                 # invite in a code block.
                 await app.click(".rail-add")
                 await app.click('.add-way[data-tab="server"]')
+                if await app.js("!!document.querySelector('.add-page input[name=host-where]')"):
+                    await app.click('.add-page input[name=host-where][value="new"]')
                 await app.fill(".add-page textarea", node.claim_code)
                 await app.button("Next")
                 await app.wait_text(".add-page .form-section h3", "Set up your community")

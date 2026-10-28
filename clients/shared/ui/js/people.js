@@ -168,8 +168,8 @@ async function dmPersonMenuItems(who, opts) {
     owner ? { label: opts.invited ? t('Cancel invitation') : t('Remove from group'), danger: true, run: async () => {
       if (await confirmModal(t('Remove'), t("Remove {name} from this group? They won't receive anything new.", { name }), t('Remove'))) dmCall('dm_remove_member', info.id, ident);
     } } : null,
-    // On the conversation's row (or its header): the whole conversation.
-    info && info.direct && (opts.row || open) ? { label: t('Delete conversation'), danger: true, run: () => leaveConversation(info) } : null,
+    // On the conversation's row: the whole conversation.
+    info && info.direct && opts.row ? { label: t('Delete conversation'), danger: true, run: () => leaveConversation(info) } : null,
   ]);
 }
 

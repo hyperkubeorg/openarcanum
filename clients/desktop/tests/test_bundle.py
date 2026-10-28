@@ -115,6 +115,22 @@ def test_bundle_carries_the_licences():
         assert f"  {name}  " in index, name
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the system C++ runtime is a Linux matter")
+def test_bundle_uses_the_systems_cpp_runtime():
+    """No libstdc++ or libgcc_s in the Linux bundle (packaging/openarcanum.spec,
+    HOST_RUNTIME): a system with a newer graphics driver than the build
+    machine's can't load it next to an older libstdc++, and the app aborts
+    at start ("Could not initialize GLX"). The CI runner is the build
+    machine, so its smoke run can't show this; this check does."""
+    exe = bundled_executable()
+    if not exe.exists():
+        if os.environ.get("OPENARCANUM_BUNDLE_EXE"):
+            pytest.fail(f"OPENARCANUM_BUNDLE_EXE={exe} does not exist")
+        pytest.skip(f"{exe} not built (run `make bundle`)")
+    bundled = sorted(p.name for p in exe.parent.rglob("*") if p.name.startswith(("libstdc++.so", "libgcc_s.so")))
+    assert not bundled, bundled
+
+
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="AppImages are Linux only")
 @pytest.mark.gui
 def test_appimage_smoke(tmp_path):
