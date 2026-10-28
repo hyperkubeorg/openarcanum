@@ -39,7 +39,7 @@ def test_insights_show_the_days_activity(tmp_path):
                 assert await olive.exists(".insight-channels td", "#general")
                 # 30 days by default; 7 on request.
                 assert await olive.js("document.querySelectorAll('.insight-chart')[0].children.length") == 30
-                await olive.select('.settings section select', "Last 7 days")
+                await olive.select(".settings section select", "Last 7 days")
                 await olive.wait_js("document.querySelectorAll('.insight-chart')[0].children.length === 7", "7 days")
 
                 # Alice (no Manage community, no View audit log) has no

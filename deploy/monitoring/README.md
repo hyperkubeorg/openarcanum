@@ -15,7 +15,7 @@ server already handles as ciphertext.
 | Question | Metric (source) |
 |---|---|
 | Communities in use | `openarcanum_meta_communities_active_{1h,24h,7d}` (community servers' heartbeats, maintainer) |
-| People online for direct messages | `openarcanum_meta_mailbox_watches` (one per conversation a client listens on, up to 24 per client: a rough count) |
+| People online for direct messages | the rate of `openarcanum_meta_http_requests_total{route="POST /v1/mailbox/fetch"}` (open clients read each of their inboxes every 5 seconds: a rough measure); `openarcanum_meta_mailbox_watches` once clients use mailbox watches |
 | Direct messages sent | `openarcanum_meta_http_requests_total{route="POST /v1/mailbox/drop"}` |
 | Relay load, network-wide | `openarcanum_meta_relay_connections` and `openarcanum_meta_relay_capacity` (the relays' heartbeats, summed) |
 | Each relay | `openarcanum_relay_connections`, `_calls`, `_call_participants`, `_delivered_bytes_total`, `_media_sent_bytes_total` |

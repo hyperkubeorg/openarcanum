@@ -278,6 +278,7 @@ def test_removed_device_cannot_connect(tmp_path):
             # Boot the laptop without letting it read its mailbox first.
             stale = Core(Paths.under(tmp_path / "laptop"), emit=Events())
             stale.dms.poll_once = lambda: asyncio.sleep(0)  # type: ignore[method-assign]
+            stale.dms._sync_watches = lambda: None  # type: ignore[method-assign]  # no mailbox watches either
             await stale.unlock(PASS)
             await wait_until(lambda: stale.vault.data["communities"][cid]["status"] == "device_revoked", 20)
             await stale.shutdown()
@@ -314,6 +315,7 @@ def test_revocation_reaches_a_community_that_was_down(tmp_path):
             await wait_until(lambda: owner2.vault.data.get("pending_revocations") == [], 30, 0.2)
             stale = Core(Paths.under(tmp_path / "laptop"), emit=Events())
             stale.dms.poll_once = lambda: asyncio.sleep(0)  # type: ignore[method-assign]
+            stale.dms._sync_watches = lambda: None  # type: ignore[method-assign]  # no mailbox watches either
             await stale.unlock(PASS)
             await wait_until(lambda: stale.vault.data["communities"][cid]["status"] == "device_revoked", 20)
             await stale.shutdown()

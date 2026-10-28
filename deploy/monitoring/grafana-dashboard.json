@@ -78,9 +78,9 @@
     },
     {
       "type": "stat",
-      "title": "People connected for DMs",
+      "title": "DM inbox reads / s",
       "id": 3,
-      "description": "Mailbox watches open: roughly clients online for direct messages (one per active conversation, up to 24 each).",
+      "description": "Clients read their inboxes every few seconds while open: a rough measure of how many are online (each reads one inbox per conversation). Mailbox watches, when clients use them, show in openarcanum_meta_mailbox_watches.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -93,7 +93,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -111,7 +111,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "openarcanum_meta_mailbox_watches",
+          "expr": "sum(rate(openarcanum_meta_http_requests_total{route=\"POST /v1/mailbox/fetch\"}[5m]))",
           "legendFormat": ""
         }
       ]
@@ -236,8 +236,8 @@
         },
         {
           "refId": "B",
-          "expr": "openarcanum_meta_mailbox_watches",
-          "legendFormat": "DM watches"
+          "expr": "sum(rate(openarcanum_meta_http_requests_total{route=\"POST /v1/mailbox/fetch\"}[5m]))",
+          "legendFormat": "DM inbox reads / s"
         },
         {
           "refId": "C",

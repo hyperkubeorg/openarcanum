@@ -2704,9 +2704,21 @@ class Core:
             res = await conn.admin("prepare_key_rotation", cp.PrepareKeyRotation())
             seq = self._next_cert_seq(conn, rec)
             cert = issue_cert(owner, res.new_server_key, seq, owner_set, chain)
-            await conn.admin("commit_key_rotation", cp.CommitKeyRotation(cert=cert))
-        except (RpcError, Offline) as e:
-            raise UserError(str(e)) from None
+            try:
+                await conn.admin("commit_key_rotation", cp.CommitKeyRotation(cert=cert))
+            except Offline:
+                # The connection dropped between the two steps: the server
+                # keeps the prepared key, so commit again once reconnected,
+                # unless the first commit did land (the server now presents
+                # the new key, and has nothing left to commit).
+                await asyncio.wait_for(conn.connected.wait(), 30)
+                try:
+                    await conn.admin("commit_key_rotation", cp.CommitKeyRotation(cert=cert))
+                except RpcError:
+                    if res.new_server_key not in conn.server_keys:
+                        raise
+        except (RpcError, Offline, TimeoutError) as e:
+            raise UserError(str(e) or _("The community server didn't come back in time; try again.")) from None
         rec["server_key"] = keys.encode(res.new_server_key)
         rec["cert_seq"] = seq
         conn.server_keys.append(res.new_server_key)

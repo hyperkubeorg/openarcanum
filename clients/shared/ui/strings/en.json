@@ -7728,6 +7728,11 @@
     "hosting.py"
    ]
   },
+  "The community server didn't come back in time; try again.": {
+   "used_in": [
+    "core.py"
+   ]
+  },
   "The community server fetches a preview of the first link in a message, so linked sites see the server's address, never a member's. Senders need Embed Links. Off by default.": {
    "used_in": [
     "ui/js/admin.js"

@@ -16,6 +16,7 @@ def test_a_direct_message_arrives_without_waiting_for_a_poll(tmp_path, monkeypat
     # No scheduled poll in this test: what arrives came through the watch.
     monkeypatch.setattr(dm, "POLL_SECONDS", 3600)
     monkeypatch.setattr(dm, "FULL_POLL_SECONDS", 3600)
+    monkeypatch.setattr(dm, "WATCH_MAX", 24)  # off by default for now (dm.py)
     with network(tmp_path) as (meta, _relay, community):
         node = community()
 

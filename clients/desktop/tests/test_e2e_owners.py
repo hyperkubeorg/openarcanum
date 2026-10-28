@@ -308,6 +308,9 @@ def test_owner_key_reaches_linked_device(tmp_path):
             laptop.conns[cid].reconnect_now()
             await wait_until(lambda: laptop.community_summary(cid)["is_owner"], 30)
             assert laptop.vault.data["communities"][cid]["owner_identity"] == iid
+            # The key may have arrived (mailbox watch) while the connection
+            # was reconnecting: rotate once it's back.
+            await wait_until(lambda: laptop.conns[cid].status == "online", 30, 0.1)
             await laptop.rotate_server_key(cid)
             for c in (founder, alice, laptop):
                 await c.shutdown()

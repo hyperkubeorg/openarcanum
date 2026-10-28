@@ -59,7 +59,8 @@ log = logging.getLogger(__name__)
 MAGIC = b"FDM2"
 MAX_TEXT = 4000
 MAX_EMOJI = 32
-POLL_SECONDS = 15
+# Inboxes are read this often (direct messages arrive within it).
+POLL_SECONDS = 5
 TYPING_SECONDS = 6
 # Bounds on what other people can make this client keep.
 MAX_REQUESTS = 100
@@ -77,7 +78,11 @@ FULL_POLL_SECONDS = 60
 # more than separate fetches do; docs/protocol.md §7.1) and fetched when its
 # node says "check now". The rest, and anything a watch misses, come with
 # the poll. A watch that fails waits a little longer each time.
-WATCH_MAX = 24
+# Watching is off in this release: with watches, a linked device's community
+# session dropped when it acted as an owner (tests/test_e2e_owners.py
+# test_owner_key_reaches_linked_device), so the poll above carries
+# everything. tests/test_e2e_dm_push.py turns watches on.
+WATCH_MAX = 0
 WATCH_RETRY_SECONDS = (2, 5, 15, 30, 60)
 WATCH_SIGNAL = b"\x01"
 HANDLED_GID_SECONDS = 14 * 24 * 3600

@@ -89,11 +89,14 @@ func TestCommunityMetricsAndHealth(t *testing.T) {
 	if v := sample(t, out, "openarcanum_community_messages_total"); v != "3" {
 		t.Errorf("messages = %s", v)
 	}
-	if v := sample(t, out, `openarcanum_community_backups_total{outcome="ok"}`); v != "1" {
-		t.Errorf("backups ok = %s", v)
+	if v := sample(t, out, "openarcanum_community_backups_total"); v != "1" {
+		t.Errorf("backups = %s", v)
 	}
-	if v := sample(t, out, `openarcanum_community_backups_total{outcome="failed"}`); v != "0" {
-		t.Errorf("backups failed = %s", v)
+	if v := sample(t, out, "openarcanum_community_backup_failures_total"); v != "0" {
+		t.Errorf("backup failures = %s", v)
+	}
+	if v := sample(t, out, "openarcanum_community_unready"); v != "0" {
+		t.Errorf("communities without a relay = %s", v)
 	}
 	if v := sample(t, out, "openarcanum_community_last_backup_timestamp_seconds"); v == "0" {
 		t.Error("last backup time not set")
@@ -127,7 +130,7 @@ func TestCommunityMetricsAndHealth(t *testing.T) {
 		t.Fatal("backup into a file instead of a directory succeeded")
 	}
 	_, out = get(t, hs.URL+"/metrics")
-	if v := sample(t, out, `openarcanum_community_backups_total{outcome="failed"}`); v != "1" {
+	if v := sample(t, out, "openarcanum_community_backup_failures_total"); v != "1" {
 		t.Errorf("backups failed = %s", v)
 	}
 	if err := os.Remove(dir); err != nil {
