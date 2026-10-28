@@ -279,3 +279,39 @@ def test_readmes():
             assert heading in text, f"{h}/README.md lacks {heading!r}"
         # No metric name in the docs keeps the fragment_ prefix.
         assert not re.search(r"\bfragment_", text)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the deployment scripts run on Linux")
+@pytest.mark.parametrize(
+    "rules", ["", 'rule family="ipv4" source address="203.0.113.7" port port="7100" protocol="tcp" accept']
+)
+def test_monitoring_step_runs_under_the_scripts_error_handling(tmp_path, rules):
+    """ensure_monitoring (lib/common.sh) under set -Eeuo pipefail, as setup.sh
+    runs it, against a stand-in firewall-cmd: with monitoring off and no rule
+    for the port (grep finding nothing must not stop setup), and with an old
+    rule to take away. It ends, and removes what it finds."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls"
+    fw = bin_dir / "firewall-cmd"
+    fw.write_text(
+        f'#!/bin/sh\necho "$*" >> {calls}\ncase "$*" in *--list-rich-rules*) printf %s {json.dumps(rules)} ;; esac\n'
+    )
+    fw.chmod(0o755)
+    script = f"""
+set -Eeuo pipefail
+say() {{ :; }}; info() {{ :; }}; die() {{ echo "$*"; exit 1; }}
+source <(sed -n '/^ensure_monitoring() {{/,/^}}/p' {KIT / "lib" / "common.sh"})
+OA_HOME={tmp_path} APP_DIR=maintainer METRICS_PORT=7100
+ensure_monitoring ""
+echo finished
+"""
+    r = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+    )
+    assert r.returncode == 0 and "finished" in r.stdout, (r.returncode, r.stdout, r.stderr)
+    log = calls.read_text()
+    assert ("--remove-rich-rule" in log) == bool(rules), log

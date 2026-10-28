@@ -1,6 +1,6 @@
 [project]
 name = "openarcanum"
-version = "2026.10.10"
+version = "2026.10.11"
 description = "OpenArcanum desktop client: private community chat (pywebview)"
 license = "AGPL-3.0-only"
 readme = "README.md"

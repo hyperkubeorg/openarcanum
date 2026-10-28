@@ -80,7 +80,8 @@ ensure_monitoring() {
     [ -n "${METRICS_PORT:-}" ] || return 0
     local from="$1" rule token="$OA_HOME/$APP_DIR/${METRICS_TOKEN_DIR:-config}/metrics.token"
     say "Monitoring"
-    firewall-cmd --permanent --list-rich-rules | grep "port=\"$METRICS_PORT\"" | while IFS= read -r rule; do
+    # No rule for the port is the usual case (grep then finds nothing).
+    { firewall-cmd --permanent --list-rich-rules | grep "port=\"$METRICS_PORT\"" || true; } | while IFS= read -r rule; do
         firewall-cmd -q --permanent --remove-rich-rule="$rule"
     done
     if [ -z "$from" ]; then

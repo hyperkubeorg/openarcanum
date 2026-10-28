@@ -56,7 +56,7 @@ Each server's README.md is its operations manual. setup.sh copies it to
   pointing at the right servers. Let's Encrypt checks them.
 - Root SSH access to each server.
 - The release images on ghcr.io (see "GHCR" below). The Quadlet files pin
-  `2026.10.10` (maintainer, site and relay); change the `Image=` lines if you deploy another release.
+  `2026.10.11` (maintainer, site and relay); change the `Image=` lines if you deploy another release.
   Only a release tag works: setup.sh checks the image's signature.
 
 ## Order of setup
