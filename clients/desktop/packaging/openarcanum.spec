@@ -162,12 +162,29 @@ if sys.platform != "darwin":
     # Top-level symbolic links to Qt libraries are in datas (typecode SYMLINK).
     a.datas = [d for d in a.datas if d[2] != "SYMLINK" or kept(d)]
 
-# Linux: the C++ runtime comes from the system, never the build machine.
-# A newer system's graphics driver (Mesa) loaded next to the build machine's
-# older libstdc++ fails, and the engine aborts at start ("Could not
-# initialize GLX"). Every system the bundle runs on (glibc 2.35+) has a
-# libstdc++ at least as new as the build machine's (tests/test_bundle.py).
-HOST_RUNTIME = ("libstdc++.so.6", "libgcc_s.so.1")
+# Linux: libraries that must match the system they run on come from it,
+# never from the build machine (the AppImage project's excludelist does the
+# same). Every system the bundle runs on (glibc 2.35+) has them, at least as
+# new as the build machine's (tests/test_bundle.py):
+# - the C++ runtime: a newer graphics driver (Mesa) loaded next to an older
+#   libstdc++ fails, and the engine aborts at start ("Could not initialize
+#   GLX");
+# - GBM: tied to the system's Mesa; the build machine's makes GPU
+#   rendering fail ("did not find extension DRI_Mesa", "Failed to
+#   initialize GBM device") and the window falls back to slow software;
+# - fontconfig and the libraries it brings (FreeType, HarfBuzz, Expat): the
+#   build machine's can't read a newer system's font configuration
+#   ("Fontconfig error: ... invalid attribute 'xsi:nil'"), and fonts and
+#   emoji fall back.
+HOST_RUNTIME = (
+    "libstdc++.so.6",
+    "libgcc_s.so.1",
+    "libgbm.so.1",
+    "libfontconfig.so.1",
+    "libfreetype.so.6",
+    "libharfbuzz.so.0",
+    "libexpat.so.1",
+)
 if sys.platform.startswith("linux"):
     a.binaries = [b for b in a.binaries if Path(b[0]).name not in HOST_RUNTIME]
 

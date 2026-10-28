@@ -169,9 +169,16 @@ lockUI.forgot = function (status) {
     h('div', { class: 'form-actions' },
       h('button', { class: 'btn link', text: t('Back'), onclick: () => lockUI.unlock(status) }),
       h('button', { class: 'btn danger', text: t('Set this profile aside and start over…'), onclick: async () => {
-        const ok = await confirmModal(t('Start over?'), t('This profile is moved aside (not deleted) and this device starts fresh. You can then link it to another device, restore a backup, or create a new profile.'), t('Start over'));
+        const ok = await confirmModal(t('Start over?'), window.openarcanumWeb
+          ? t('Everything OpenArcanum keeps in this browser is deleted, and it starts fresh. You can then link it to another device, restore a backup, or create a new profile.')
+          : t('This profile is moved aside (not deleted) and this device starts fresh. You can then link it to another device, restore a backup, or create a new profile.'), t('Start over'));
         if (!ok) return;
-        try { const st = await api('reset_profile'); showLock(st); } catch (e) { toastError(e); }
+        try {
+          const st = await api('reset_profile');
+          // The web app keeps nothing set aside: start over in this browser.
+          if (window.openarcanumWebReset) { await window.openarcanumWebReset(); return; }
+          showLock(st);
+        } catch (e) { toastError(e); }
       } })),
   );
 };

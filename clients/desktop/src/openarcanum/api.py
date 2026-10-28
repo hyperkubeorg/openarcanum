@@ -459,18 +459,24 @@ class JsApi:
 
         return self._a(run)
 
-    def export_backup_text(self, passphrase: str, current: str = "") -> dict:
-        """The backup as text to copy, once the profile's passphrase is confirmed."""
+    def copy_recovery_backup(self, passphrase: str) -> dict:
+        """Settings → Reset all data → Copy recovery backup: the backup as
+        text (export_backup_text), encrypted with `passphrase`, straight to
+        the clipboard. The page never gets the text, so a compromised page
+        can't take every key with a passphrase of its choosing."""
 
         async def run():
-            await self._core.confirm_passphrase(str(current or ""))
-            return await self._core.export_backup_text(passphrase)
+            text = (await self._core.export_backup_text(str(passphrase)))["text"]
+            if self._gui.copy_text(text) is False:
+                raise UserError(_("Couldn't reach the clipboard."))
+            return {"ok": True}
 
         return self._a(run)
 
-    def reset_all(self, current: str) -> dict:
-        """Settings → Reset all data (the passphrase confirms it)."""
-        return self._a(lambda: self._core.reset_all(str(current or "")))
+    def reset_all(self) -> dict:
+        """Settings → Reset all data: start over, no passphrase asked (the
+        profile is set aside on the desktop, not deleted)."""
+        return self._a(self._core.reset_all)
 
     # ---------------------------------------------------------------- communities
 

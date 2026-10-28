@@ -43,6 +43,10 @@ async def settle(pred, *cores, timeout=20):
     await wait_until(check, timeout, 0.2)
 
 
+def seen(core, cid, channel, text):
+    return any(m.get("text") == text for m in core.cache(cid).channel(channel))
+
+
 def texts(core, gid):
     return [m["text"] for m in core.dms.history(gid) if not m.get("system")]
 
@@ -172,6 +176,13 @@ def test_link_second_device(tmp_path):
             await alice.dms.poll_once()
             await alice.dms.send(conv, "history before linking")
             await settle(lambda: "history before linking" in texts(owner, conv), owner, alice)
+            # Read on the owner before linking: the new device shows it read too.
+            await owner.dms.mark_read(conv)
+            ogen = await general(owner, cid)
+            await alice.send(cid, await general(alice, cid), "read before linking")
+            await wait_until(lambda: seen(owner, cid, ogen, "read before linking"), 15, 0.1)
+            owner.mark_read(cid, ogen)
+            assert owner._counts(cid, ogen)[0] == 0
 
             laptop, _lev = await link(owner, tmp_path / "laptop", "laptop")
             # A linked device stays signed in, like a new profile.
@@ -183,9 +194,17 @@ def test_link_second_device(tmp_path):
             await laptop.send(cid, gen, "hello from the laptop")
             devs = await laptop.conns[cid].call(list_devices=cp.ListDevices())
             assert len(devs.devices.devices) == 2
-            # DM history is copied in the background and is readable there.
+            # DM history is copied in the background and is readable there,
+            # already read, like the channel read on the owner.
             await settle(lambda: laptop.devices.copy_status()["done"], laptop, owner)
             assert texts(laptop, conv) == ["history before linking"]
+            assert next(c for c in laptop.dms.list() if c["id"] == conv)["unread"] == 0
+            assert laptop._last_read(cid, gen) == owner._last_read(cid, ogen) > 0
+            # Reading later on one device reads it on the other.
+            await alice.send(cid, await general(alice, cid), "read on the owner")
+            await wait_until(lambda: seen(owner, cid, ogen, "read on the owner"), 15, 0.1)
+            owner.mark_read(cid, ogen)
+            await settle(lambda: laptop._last_read(cid, gen) == owner._last_read(cid, ogen), laptop, owner)
             # New DMs reach the laptop too: Alice learns its keys from the
             # owner's updated device list and rotates.
             await settle(lambda: True, alice, owner, laptop)

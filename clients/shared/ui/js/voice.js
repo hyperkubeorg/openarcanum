@@ -963,7 +963,7 @@ async function renderVoiceSettings(sec) {
       selectEl(screenQualities(), v.screen_quality))]));
   const input = [];
   input.push(vaultSetting('voice_mode', t('Input mode'),
-    t('Voice activity sends when you speak. Studio always sends while you are unmuted, with none of the processing below: for microphones that clean up the sound themselves. Push to talk sends while you hold the key.'),
+    t('Voice activity sends when you speak louder than the sensitivity below. Studio sends any sound at all, with no threshold and none of the processing below: for microphones and interfaces with their own gate and processing (silence, or a muted microphone, sends nothing). Push to talk sends while you hold the key.'),
     selectEl([['vad', t('Voice activity')], ['studio', t('Studio')], ['ptt', t('Push to talk')]], v.voice_mode)));
   const keyBox = h('input', { type: 'text', class: 'key-box', value: v.ptt_key, readOnly: true, 'aria-label': t('Push-to-talk key'),
     onkeydown: (e) => { e.preventDefault(); keyBox.value = keyName(e); keyBox.dispatchEvent(new Event('change')); } });

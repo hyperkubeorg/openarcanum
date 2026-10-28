@@ -402,12 +402,19 @@ test('closing stops listening for devices', async () => {
 
 // ---------------------------------------------------------------- talking modes
 
-test('studio mode: the microphone has no processing and no gate', async () => {
+test('studio mode: the microphone has no processing and no threshold, but silence is silence', async () => {
   const { call, devices } = await started({ audio: true }, { mode: 'studio' });
   const c = devices.asked.find((a) => a.kind === 'audio').constraints;
   assert.deepEqual([c.echoCancellation, c.noiseSuppression, c.autoGainControl], [false, false, false]);
   assert.equal(call.debug().processing, false);
-  // Silence on the microphone (the fake analyser reads zeros): still open.
+  // Silence on the microphone (the fake analyser reads zeros, as a muted
+  // interface gives): not talking, and not shown as talking.
+  call.tick();
+  assert.equal(call.transmitting(), false);
+  assert.equal(call.local.audio.enabled, false);
+  assert.equal(call.speaking(call.s.participant), false);
+  // A quiet signal, under the voice activity threshold: open, untouched.
+  call.micAnalyser.getFloatTimeDomainData = (buf) => buf.fill(0.001); // -60 dBFS
   call.tick();
   assert.equal(call.vadOpen, false);
   assert.equal(call.transmitting(), true);

@@ -48,6 +48,11 @@ class Gui:
         self.bus = bus
         self.answer: list[str] = []
         self.opened: list[tuple] = []
+        self.copied: list[str] = []
+
+    def copy_text(self, text: str) -> bool:
+        self.copied.append(text)
+        return True
 
     def open_file_dialog(self, request_id, kind, save, default_name="", start="", grant=None):
         self.opened.append((kind, save, default_name, start))
@@ -154,15 +159,16 @@ def test_backup_export_takes_the_passphrase(bridge):
     assert out.exists()
 
 
-def test_reset_all_takes_the_passphrase(bridge):
-    """Settings → Reset all data: refused without the passphrase; with it,
-    the profile is set aside and the app is back at first run."""
-    api, core, _gui, _tmp = bridge
-    assert refused(api.reset_all(""), "Enter your passphrase")
-    assert refused(api.reset_all("not the passphrase"), "wrong")
-    assert core.unlocked
-    time.sleep(1.1)
-    st = api.reset_all(PASS)
+def test_reset_all_and_the_recovery_backup(bridge):
+    """Settings → Reset all data: no passphrase asked; the profile is set
+    aside and the app is back at first run. The recovery backup goes to the
+    clipboard from Python: the page never gets the text."""
+    api, core, gui, _tmp = bridge
+    assert refused(api.copy_recovery_backup("short"), "")
+    r = api.copy_recovery_backup("a long recovery backup passphrase")
+    assert r == {"ok": True, "value": {"ok": True}}, r
+    assert gui.copied[-1].startswith("openarcanum-backup:")
+    st = api.reset_all()
     assert st["ok"] and st["value"]["state"] == "no_profile", st
     assert not core.unlocked
 

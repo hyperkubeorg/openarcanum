@@ -1296,10 +1296,12 @@ except in studio mode.
   you're quiet): sound louder than the mark counts as speaking. The default
   is −40 dB, which ignores the steady noise of a fan or computer near the
   microphone.
-- **Studio** always sends while you're unmuted, with no gate and none of
-  the processing above (no echo cancellation, noise suppression or
-  automatic gain): for a microphone, interface or software that has its own
-  noise gate and processing. Use headphones, or your speakers come back
+- **Studio** sends any sound your microphone gives while you're unmuted,
+  with no threshold and none of the processing above (no echo
+  cancellation, noise suppression or automatic gain): for a microphone,
+  interface or software that has its own noise gate and processing. When
+  it gives silence (your gate is closed, or the microphone is muted on the
+  hardware), nothing is sent and you aren't shown as talking. Use headphones, or your speakers come back
   through the microphone. Where a channel takes *Use voice activity* away,
   studio is push to talk too.
 - **Push to talk** sends only while you hold the **Push-to-talk key**
@@ -1669,16 +1671,16 @@ overrides can allow or deny add reactions, embed links and mention
 Settings → **Data & storage** → **Reset all data…** starts over: in the
 web app, everything OpenArcanum keeps in that browser is deleted; on the
 desktop, the profile is set aside (not deleted), as with "Forgot your
-passphrase?". Your passphrase confirms it. Your other devices aren't
+passphrase?". It doesn't ask for your passphrase. Your other devices aren't
 affected.
 
 If you own a community, the dialog says which and warns that your owner
-keys are in this profile. **Copy recovery backup** copies a backup of all
-your keys, owner keys included, as text, encrypted with the passphrase you
-choose above it (**Generate** makes one): paste both into your password
-manager. Reset waits until you tick **I saved the recovery backup and its
-passphrase somewhere safe.** To recover, choose **Restore from backup** on
-first run and paste the text in.
+keys are in this profile. It makes a passphrase for a recovery backup (copy
+it with **Copy passphrase**), and **Copy recovery backup** copies a backup
+of all your keys, owner keys included, encrypted with it, as text: paste
+both into your password manager. Reset waits until you tick **I saved the
+recovery backup and its passphrase somewhere safe.** To recover, choose
+**Restore from backup** on first run and paste both in.
 
 ## Where your data is
 

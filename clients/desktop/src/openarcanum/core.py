@@ -92,6 +92,10 @@ MAX_BACKUP_BYTES = 4 * 1024 * 1024  # a backup holds keys and a community list: 
 # state.bin (drafts, the last open channel and the like): at most this many
 # keys, each value at most this big as JSON.
 MAX_UI_STATE_KEYS = 256
+# Community read markers go to my other devices this long after the last
+# change, together (devices.py "read_markers"): reading through channels
+# sends one event, not one per message.
+READ_SYNC_DELAY = 3.0
 MAX_UI_STATE_BYTES = 64 * 1024
 # Time limit for each step of Core.shutdown (app.py allows 5 s for all of it).
 SHUTDOWN_STEP_SECONDS = 1.0
@@ -270,6 +274,9 @@ class Core:
         self.last_activity = time.monotonic()
         self._tasks: set[asyncio.Task] = set()
         self._profile_tasks: list[asyncio.Task] = []  # the open profile's own loops
+        # Read markers waiting to go to my other devices (_queue_read_sync).
+        self._read_sync: dict[str, dict[str, int]] = {}
+        self._read_sync_task: asyncio.Task | None = None
         # Communities where this client is signing another owner's removal.
         self._completing_leaves: set[str] = set()
         self._avatar_cache: dict[tuple[str, str, int], str] = {}
@@ -973,11 +980,11 @@ class Core:
         self.emit("profile", self.profile_status())
         return {"ok": True, "text": BACKUP_TEXT_PREFIX + base64.urlsafe_b64encode(blob).decode().rstrip("=")}
 
-    async def reset_all(self, current: str) -> dict:
-        """Settings → Reset all data: once the passphrase is confirmed, lock
-        and start over (reset_profile: the profile is set aside). The web
+    async def reset_all(self) -> dict:
+        """Settings → Reset all data: lock and start over (reset_profile: the
+        profile is set aside, so a remembered passphrase still opens it). No
+        passphrase is asked: starting over is for when it's no use. The web
         client then deletes everything the browser holds (web.js)."""
-        await self.confirm_passphrase(current)
         await self.lock()
         return await self.reset_profile()
 
@@ -1918,7 +1925,7 @@ class Core:
     def _last_read(self, cid: str, channel_id: int) -> int:
         return int(self._read_markers(cid).get(str(channel_id), 0))
 
-    def _set_read(self, cid: str, channel_id: int, message_id: int) -> None:
+    def _set_read(self, cid: str, channel_id: int, message_id: int, sync: bool = True) -> None:
         if self.state is None:
             return
         all_markers = dict(self.state.get("read_markers", {}))
@@ -1926,6 +1933,40 @@ class Core:
         mine[str(channel_id)] = int(message_id)
         all_markers[cid] = mine
         self.state.set("read_markers", all_markers)
+        if sync:
+            self._queue_read_sync(cid, channel_id, message_id)
+
+    def _queue_read_sync(self, cid: str, channel_id: int, message_id: int) -> None:
+        """What I read here, for my other devices: sent once reading pauses."""
+        mine = self._read_sync.setdefault(cid, {})
+        mine[str(channel_id)] = max(int(message_id), mine.get(str(channel_id), 0))
+        if self._read_sync_task is None or self._read_sync_task.done():
+            self._read_sync_task = self.spawn(self._flush_read_sync())
+
+    async def _flush_read_sync(self) -> None:
+        await asyncio.sleep(READ_SYNC_DELAY)
+        pending, self._read_sync = self._read_sync, {}
+        if pending and self.unlocked:
+            await self.devices.broadcast("read_markers", {"markers": pending})
+
+    def read_markers_export(self, cids: list[str]) -> dict[str, dict[str, int]]:
+        """The read markers of these communities (a new device's link)."""
+        return {cid: dict(self._read_markers(cid)) for cid in cids if self._read_markers(cid)}
+
+    def apply_read_markers(self, markers: dict) -> None:
+        """Read markers from another of my devices (or the device that linked
+        this one): a channel read further there is read as far here."""
+        if self.state is None or self.vault is None or not isinstance(markers, dict):
+            return
+        for cid, chans in list(markers.items())[:500]:
+            if cid not in self.vault.data["communities"] or not isinstance(chans, dict):
+                continue
+            for ch, upto in list(chans.items())[:5000]:
+                if not (isinstance(ch, str) and ch.isdigit() and isinstance(upto, int) and not isinstance(upto, bool)):
+                    continue
+                if upto > self._last_read(cid, int(ch)):
+                    self._set_read(cid, int(ch), upto, sync=False)
+                    self._emit_unread(cid, int(ch))
 
     def _counts(self, cid: str, channel_id: int) -> tuple[int, int]:
         return channel_counts(self.cache(cid).channel(channel_id), self._last_read(cid, channel_id), self._me(cid)[0])

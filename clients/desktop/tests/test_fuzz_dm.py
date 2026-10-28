@@ -462,6 +462,7 @@ KINDS = [
     "dm_group",
     "dm_forget",
     "dm_read",
+    "read_markers",
     "dm_blocked",
     "dm_verified",
     "dm_nicknames",

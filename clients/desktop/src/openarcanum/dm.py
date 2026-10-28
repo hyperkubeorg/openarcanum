@@ -3328,7 +3328,8 @@ class DMManager:
         return {
             "ids": ids,
             "groups": {
-                gid: self._group_sync(gid) | {"sync": bool(g.get("sync"))} for gid, g in self.d["groups"].items()
+                gid: self._group_sync(gid) | {"sync": bool(g.get("sync")), "read_at": g.get("read_at", 0)}
+                for gid, g in self.d["groups"].items()
             },
             "contacts": self.d["contacts"],
             "peers": self.d["peers"],
@@ -3360,6 +3361,8 @@ class DMManager:
                 "inbox_token": b64(os.urandom(32)),
                 "created": gs.get("created", int(time.time())),
                 "rekey": True,
+                # What was read on the linking device stays read here.
+                "read_at": gs["read_at"] if isinstance(gs.get("read_at"), int) else 0,
                 **({"sync": True} if gs.get("sync") else {}),
             }
             for gid, gs in data.get("groups", {}).items()

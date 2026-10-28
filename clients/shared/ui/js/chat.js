@@ -330,7 +330,29 @@ function channelMenu(e, c) {
     summary && summary.can.manage_channels ? { label: t('Edit channel'), run: () => openCommunitySettings(st.cid, 'channels', c.id) } : null,
     c.kind === 'text' && c.can.manage_messages ? { label: t('Select messages to delete'), run: () => { selectChannel(c.id).then(() => startSelecting(null)); } } : null,
     c.can.manage_messages ? { label: t('Delete recent messages…'), danger: true, run: () => deleteRecentDialog(c) } : null,
-  ]);
+    summary && summary.can.manage_channels ? { separator: true } : null,
+    summary && summary.can.manage_channels ? { label: c.kind === 'voice' ? t('Delete voice channel…') : t('Delete channel…'), danger: true, run: () => deleteChannelDialog(c) } : null,
+  ].filter(Boolean).filter((it, i, all) => !it.separator || (i > 0 && i < all.length - 1)));
+}
+
+// A channel, with its messages and files, gone from the server (Manage
+// channels): from its right-click menu, as in Community Admin → Channels.
+async function deleteChannelDialog(c) {
+  const cid = st.cid;
+  const voice = c.kind === 'voice';
+  if (!(await confirmModal(voice ? t('Delete voice channel?') : t('Delete channel?'),
+    voice ? t('{name}, its chat and its files are deleted from the server. Anyone in the call is disconnected.', { name: c.name })
+      : t('#{name} and all its messages and files are deleted from the server.', { name: c.name }), t('Delete')))) return;
+  try {
+    await api('admin', cid, 'delete_channel', { id: c.id });
+    await loadState(cid);
+    if (st.cid === cid && st.channel === c.id) {
+      const next = (st.states[cid] ? st.states[cid].channels : []).find((x) => x.kind === 'text');
+      if (next) await selectChannel(next.id);
+      else { st.channel = null; render(); }
+    }
+    toast(voice ? t('Voice channel deleted.') : t('Channel deleted.'));
+  } catch (e) { toastError(e); }
 }
 
 function createChannelDialog(kind, categoryId = 0) {

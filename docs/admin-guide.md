@@ -70,6 +70,11 @@ also gets an **Admin** role with Administrator.
   category**, **Rename…**, **Delete** (its channels stay, without a
   category) and **Move up** / **Move down** to order categories and the
   channels inside each.
+- **Delete a channel** (text or voice) from its right-click menu in the
+  channel list (**Delete channel…** / **Delete voice channel…**) or with
+  **Delete** in **Channels**: its messages and files are deleted from the
+  server, and a call in a voice channel ends. A community keeps at least
+  one text channel.
 - **Edit…** a channel to rename it, set its **topic** (shown in the channel
   header), **slowmode**, **category**, retention, and its channel-level
   feature settings. Editing, deleting or setting retention on a channel

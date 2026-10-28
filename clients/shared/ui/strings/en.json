@@ -22,7 +22,8 @@
     "name"
    ],
    "used_in": [
-    "ui/js/admin.js"
+    "ui/js/admin.js",
+    "ui/js/chat.js"
    ]
   },
   "(above you)": {
@@ -1345,6 +1346,11 @@
     "ui/js/moderation.js"
    ]
   },
+  "Channel deleted.": {
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
   "Channel edited": {
    "used_in": [
     "ui/js/moderation.js"
@@ -1414,11 +1420,6 @@
   "Choose a display name (1 to 64 characters).": {
    "used_in": [
     "core.py"
-   ]
-  },
-  "Choose a passphrase for the recovery backup (Generate makes one).": {
-   "used_in": [
-    "ui/js/settings.js"
    ]
   },
   "Choose a stronger passphrase.": {
@@ -1770,11 +1771,6 @@
     "ui/js/dom.js"
    ]
   },
-  "Copy a recovery backup first: it holds every key you have, owner keys included, encrypted with the passphrase below. To recover, choose Restore from a backup when starting OpenArcanum and paste it in.": {
-   "used_in": [
-    "ui/js/settings.js"
-   ]
-  },
   "Copy community ID": {
    "used_in": [
     "ui/js/chat.js"
@@ -1808,7 +1804,8 @@
   },
   "Copy passphrase": {
    "used_in": [
-    "ui/js/dom.js"
+    "ui/js/dom.js",
+    "ui/js/settings.js"
    ]
   },
   "Copy recovery backup": {
@@ -1836,6 +1833,11 @@
    "vars": [
     "name"
    ],
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
+  "Copy the recovery backup and its passphrase into your password manager first. The backup holds every key you have, owner keys included, encrypted with this passphrase. To recover, choose Restore from a backup when starting OpenArcanum and paste both in.": {
    "used_in": [
     "ui/js/settings.js"
    ]
@@ -2216,7 +2218,13 @@
   },
   "Delete channel?": {
    "used_in": [
-    "ui/js/admin.js"
+    "ui/js/admin.js",
+    "ui/js/chat.js"
+   ]
+  },
+  "Delete channel…": {
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "Delete conversation": {
@@ -2296,6 +2304,16 @@
   "Delete this message for everyone in the conversation?": {
    "used_in": [
     "ui/js/dm.js"
+   ]
+  },
+  "Delete voice channel?": {
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
+  "Delete voice channel…": {
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "Deleted {count} message(s).": {
@@ -2682,8 +2700,7 @@
    "used_in": [
     "core.py",
     "ui/js/devices.js",
-    "ui/js/join.js",
-    "ui/js/settings.js"
+    "ui/js/join.js"
    ]
   },
   "Enter your passphrase to confirm. The key is kept in this computer's keychain.": {
@@ -2729,6 +2746,11 @@
   "Everyone else": {
    "used_in": [
     "ui/js/voice.js"
+   ]
+  },
+  "Everything OpenArcanum keeps in this browser is deleted, and it starts fresh. You can then link it to another device, restore a backup, or create a new profile.": {
+   "used_in": [
+    "ui/js/lock.js"
    ]
   },
   "Everything OpenArcanum keeps in this browser is deleted: your profile, keys, settings and messages. This can't be undone.": {
@@ -6422,11 +6444,6 @@
     "ui/js/dom.js"
    ]
   },
-  "Save this passphrase in your password manager, next to the recovery backup. Without it, nobody can open the backup.": {
-   "used_in": [
-    "ui/js/settings.js"
-   ]
-  },
   "Save to": {
    "used_in": [
     "ui/js/dm.js",
@@ -7818,8 +7835,7 @@
   "The passphrase of your profile, to confirm it is you.": {
    "used_in": [
     "ui/js/devices.js",
-    "ui/js/join.js",
-    "ui/js/settings.js"
+    "ui/js/join.js"
    ]
   },
   "The passphrases don't match.": {
@@ -7827,6 +7843,11 @@
     "ui/js/devices.js",
     "ui/js/join.js",
     "ui/js/lock.js"
+   ]
+  },
+  "The recovery backup needs a passphrase.": {
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "The same program this app uses to host communities, for {platform}. For another system, use the server release for it (docs/admin-guide.md \"Installing the servers\").": {
@@ -9078,7 +9099,7 @@
     "ui/js/voice.js"
    ]
   },
-  "Voice activity sends when you speak. Studio always sends while you are unmuted, with none of the processing below: for microphones that clean up the sound themselves. Push to talk sends while you hold the key.": {
+  "Voice activity sends when you speak louder than the sensitivity below. Studio sends any sound at all, with no threshold and none of the processing below: for microphones and interfaces with their own gate and processing (silence, or a muted microphone, sends nothing). Push to talk sends while you hold the key.": {
    "used_in": [
     "ui/js/voice.js"
    ]
@@ -9102,6 +9123,11 @@
   "Voice channel": {
    "used_in": [
     "ui/js/voice.js"
+   ]
+  },
+  "Voice channel deleted.": {
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "Voice channels": {
@@ -9771,8 +9797,7 @@
   "Your passphrase": {
    "used_in": [
     "ui/js/devices.js",
-    "ui/js/join.js",
-    "ui/js/settings.js"
+    "ui/js/join.js"
    ]
   },
   "Your profile here": {
@@ -11423,6 +11448,14 @@
    ],
    "used_in": [
     "ui/js/moderation.js"
+   ]
+  },
+  "{name}, its chat and its files are deleted from the server. Anyone in the call is disconnected.": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "{name}, {n} unread": {

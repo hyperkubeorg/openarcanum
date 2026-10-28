@@ -483,6 +483,8 @@ class DeviceManager:
             self.core.dms.apply_group_sync(data)
         elif kind == "dm_forget":
             self.core.dms.apply_forget_sync(data["id"])
+        elif kind == "read_markers":
+            self.core.apply_read_markers(data.get("markers"))
         elif kind == "dm_read":
             self.core.dms.apply_read_sync(data["id"], int(data["at"]))
         elif kind == "dm_blocked":
@@ -756,6 +758,7 @@ class DeviceManager:
                 raise UserError(_("A profile is already open."))
             self.core.vault = await asyncio.to_thread(Vault.create, self.core.paths, passphrase, name, vd)
             await self.core._opened()
+            self.core.apply_read_markers(t.get("read_markers", {}))
             await self.core._new_profile_signed_in()
         self._ensure()
         entry = {"id": self.me, **self.group["devices"][self.me]}
@@ -870,6 +873,8 @@ class DeviceManager:
             "settings": dict(v.settings),
             "group": {"devices": self.group["devices"]},
             "dm": dm_state,
+            # What I've read, so the new device doesn't show it all as new.
+            "read_markers": self.core.read_markers_export(chosen),
             "copy": {"dms": copy_dms, "communities": chosen if copy_messages else []},
         }
         box = sess.seal(transfer)

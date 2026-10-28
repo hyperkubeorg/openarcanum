@@ -2046,7 +2046,7 @@ synced), `owner_key` (an owner key this member generated for a community,
 §4.5), `device_linked`, `device_info`, `device_keys`, `device_renamed`,
 `device_removed`, `dm_identity` (an identity's device list and every device's
 fallback key and inbox), `dm_group` (a group's chain and status), `dm_forget`,
-`dm_read`, `dm_blocked`, `dm_verified`, `dm_nicknames`, `contact_added`, `contact_removed`,
+`dm_read`, `read_markers`, `dm_blocked`, `dm_verified`, `dm_nicknames`, `contact_added`, `contact_removed`,
 `history_request`, `history_chunk`, `status` (the user's status: state,
 text, emoji, expiry; newest wins), `status_idle` (a device went idle, §9.8).
 

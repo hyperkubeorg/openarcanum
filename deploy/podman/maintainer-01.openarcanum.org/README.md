@@ -152,12 +152,12 @@ curl -s http://127.0.0.1:7100/metrics | grep '^openarcanum_meta_'
 
 ## Updating to a new release, and rolling back
 
-The image tag is pinned in the Quadlet file (`Image=...:2026.10.9`). Releases
+The image tag is pinned in the Quadlet file (`Image=...:2026.10.10`). Releases
 are tagged `<version>` (for example `2026.10.1`), `YYYY.MM` and `latest`.
 setup.sh takes a tag only with a valid cosign signature made by the
 repository's Containers workflow for a release tag, and pulls the digest that
 signature covers (it prints it). To pin that digest as well, append it to
-the tag: `Image=...:2026.10.9@sha256:<digest>`.
+the tag: `Image=...:2026.10.10@sha256:<digest>`.
 
 To upgrade:
 

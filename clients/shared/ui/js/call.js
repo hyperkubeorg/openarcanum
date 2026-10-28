@@ -58,6 +58,9 @@ const CALL = {
     { rid: 'h', scaleResolutionDownBy: 1, maxBitrate: 1_500_000 },
   ],
   VAD_HANGOVER_MS: 400,
+  // Studio mode opens on any real signal: above this, which a muted or
+  // silent microphone (digital silence, a muted interface) stays under.
+  STUDIO_FLOOR_DB: -70,
   // Voice (and a shared screen's sound) is Opus at a constant bitrate,
   // without DTX: every 20 ms packet the same size whatever is said, or
   // whether anything is (hardenSdp).
@@ -235,6 +238,8 @@ class Call {
     this.ptt = false; // push-to-talk key held
     this.vadOpen = false;
     this.vadUntil = 0;
+    this.studioOpen = false;
+    this.studioUntil = 0;
     this.myLevel = -120;
     this.volumes = Object.assign({}, session.volumes || {}); // member id -> 0..2
     // Members muted on this device only ("Mute for me"): never played, and
@@ -695,7 +700,8 @@ class Call {
 
   // How this device talks now: 'vad', 'ptt' or 'studio'. Without Use Voice
   // Activity in the channel it is push to talk, whatever the setting says
-  // (studio, always on, is voice activity with no gate).
+  // (studio is voice activity with no threshold: open on any signal at all,
+  // as an outboard gate or the microphone's own mute leaves it).
   mode() {
     if (!this.s.perms.vad) return 'ptt';
     return ['ptt', 'studio'].includes(this.s.mode) ? this.s.mode : 'vad';
@@ -1050,7 +1056,7 @@ class Call {
     if (this.selfMute || !this.mic || !this.s.perms.audio || this.s.serverMuted) return false;
     const mode = this.mode();
     if (mode === 'ptt') return this.ptt;
-    if (mode === 'studio') return true;
+    if (mode === 'studio') return this.studioOpen;
     return this.vadOpen;
   }
 
@@ -1072,6 +1078,7 @@ class Call {
       if (!(now < this.micPeakUntil)) { this.micPeak = -120; this.micPeakUntil = now + 3000; }
       if (this.myLevel > this.micPeak) this.micPeak = this.myLevel;
       if (this.myLevel > this.s.vadThreshold) { this.vadOpen = true; this.vadUntil = now + CALL.VAD_HANGOVER_MS; } else if (now > this.vadUntil) this.vadOpen = false;
+      if (this.myLevel > CALL.STUDIO_FLOOR_DB) { this.studioOpen = true; this.studioUntil = now + CALL.VAD_HANGOVER_MS; } else if (now > this.studioUntil) this.studioOpen = false;
     }
     const tx = this.transmitting();
     if (this.local.audio && this.local.audio.enabled !== tx) { this.local.audio.enabled = tx; this.onChange(); }
