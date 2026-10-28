@@ -617,6 +617,11 @@ class DMManager:
             await self.core.devices.broadcast("dm_identity", self._identity_sync(pub))
             await self._republish(pub)
 
+    def _first_device(self) -> bool:
+        """Whether this is the first of my devices (the lowest id)."""
+        others = self.core.vault.data.get("group", {}).get("devices", {})
+        return all(self._me_hex() <= d for d in others)
+
     def _me_hex(self) -> str:
         return self.core.vault.data["device_id"]
 
@@ -820,7 +825,7 @@ class DMManager:
         return [
             cid
             for cid, rec in self.core.vault.data["communities"].items()
-            if rec.get("dm_identity") == pub and rec.get("publish_card") and rec.get("status") == "active"
+            if rec.get("dm_identity") == pub and rec.get("publish_card", True) and rec.get("status") == "active"
         ]
 
     async def _republish(self, pub: str) -> None:
@@ -907,13 +912,13 @@ class DMManager:
         except Offline as e:
             raise UserError(str(e)) from None
         except RpcError as e:
-            return {"published": False, "wanted": bool(rec.get("publish_card")), "reason": str(e)}
+            return {"published": False, "wanted": bool(rec.get("publish_card", True)), "reason": str(e)}
         card = open_card(dm.SignedContactCard.FromString(res.card))
         pub = self._ident(cid, create=False)
         mine = self.olm.curve(self._label(pub)) if pub else b""
         return {
             "published": True,
-            "wanted": bool(rec.get("publish_card")),
+            "wanted": bool(rec.get("publish_card", True)),
             "mine": pub is not None and card.card.identity == unb64(pub),
             "devices": len(card.devices.devices),
             "keys_left": next((c.left for c in res.left if c.device == mine), 0),
@@ -921,7 +926,13 @@ class DMManager:
 
     async def community_online(self, cid: str) -> None:
         rec = self.core.vault.data["communities"].get(cid, {}) if self.core.vault else {}
-        if rec.get("publish_card") and self.core.unlocked:
+        if rec.get("publish_card", True) and self.core.unlocked:
+            if self._ident(cid, create=False) is None and not self._first_device():
+                # Cards are on by default, so every device of mine comes here
+                # at once: one makes the community's DM identity (devices
+                # making their own would each end up in a list of its own),
+                # the others get it by sync and publish with it.
+                return
             try:
                 await self._publish_card(cid)
             except UserError as e:
@@ -1051,7 +1062,11 @@ class DMManager:
         self.core.require_unlocked()
         c = self.d["contacts"].get(ident)
         if c is None:
-            raise UserError(_("That person isn't in your contacts."))
+            # Someone I talk with but haven't added: renaming adds them.
+            c = self._contact_from_groups(ident)
+            if c is None:
+                raise UserError(_("That person isn't in your contacts."))
+            self.d["contacts"][ident] = c
         nickname = " ".join((nickname or "").split())
         if len(nickname) > 64:
             raise UserError(_("Names can be at most {max} characters.").format(max=64))
@@ -1064,6 +1079,23 @@ class DMManager:
         self.core.emit("dm_contacts", {})
         self.core.emit("dm", {})
         return {"ok": True}
+
+    def _contact_from_groups(self, ident: str) -> dict | None:
+        """A contact entry for someone in one of my conversations (their card
+        came with it), or None."""
+        if ident in self.d["ids"]:
+            return None
+        for gid in self.d["groups"]:
+            st = self._group(gid).state
+            for m in [*st.members, *st.invited]:
+                if b64(m.identity) == ident:
+                    return {
+                        "name": m.name or self.d["peers"].get(ident, {}).get("name") or _("Contact"),
+                        "community": m.community,
+                        "member": b64(m.member) if m.member else "",
+                        "added_at": int(time.time()),
+                    }
+        return None
 
     async def add_contact(self, cid: str, member: str) -> dict:
         card, _member = await self._fetch_card(cid, unb64(member), claim=False)
@@ -1424,7 +1456,7 @@ class DMManager:
             hist = self.store.data.get(gid, []) if self.store else []
             visible = [m for m in hist if not m.get("deleted")]
             others = [m for m in [*st.members, *st.invited] if b64(m.identity) != me]
-            name = st.name or ", ".join(m.name or _("Someone") for m in others) or _("Just you")
+            name = st.name or ", ".join(self._name_of(gid, m.identity) for m in others) or _("Just you")
             out.append(
                 {
                     "id": gid,
@@ -1467,7 +1499,7 @@ class DMManager:
             ident = b64(m.identity)
             return {
                 "id": ident,
-                "name": m.name or "Someone",
+                "name": (m.name or _("You")) if ident == me else self._name_of(gid, m.identity),
                 "me": ident == me,
                 "owner": m.identity == st.owner,
                 "contact": ident in self.d["contacts"],
@@ -1863,10 +1895,10 @@ class DMManager:
         if other is None:
             return
         ident = b64(other.identity)
-        if ident in self.d["contacts"] or not self.d["peers"].get(ident, {}).get("card"):
+        if ident in self.d["contacts"] or ident in self.d["ids"]:
             return
         self.d["contacts"][ident] = {
-            "name": other.name or self.d["peers"][ident].get("name") or "Contact",
+            "name": other.name or self.d["peers"].get(ident, {}).get("name") or "Contact",
             "community": other.community,
             "member": b64(other.member) if other.member else "",
             "added_at": int(time.time()),

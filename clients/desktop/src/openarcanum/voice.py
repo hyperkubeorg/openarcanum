@@ -510,6 +510,14 @@ class VoiceManager:
             "localMutes": list(st.get("voice_local_mutes", [])),
             "outputVolume": st.get("voice_output_volume", 100) / 100,
             "screenAudio": bool(st.get("screen_share_audio", True)),
+            "cameraQuality": st.get("camera_quality", "720p"),
+            "screenQuality": st.get("screen_quality", "balanced"),
+            # A DM call: a key per join (dmcalls.join_key) instead of one per epoch.
+            "joinKeys": [
+                {**k, "key": base64.b64encode(k["key"]).decode()} for k in self.core.dmcalls.join_keys(call.gid)
+            ]
+            if call.gid
+            else None,
         }
 
     @staticmethod

@@ -137,6 +137,11 @@
     "ui/js/admin.js"
    ]
   },
+  "1080p (Full HD)": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "15 minutes": {
    "used_in": [
     "ui/js/admin.js",
@@ -188,6 +193,11 @@
     "ui/js/status.js"
    ]
   },
+  "480p": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "5 minutes": {
    "used_in": [
     "ui/js/admin.js",
@@ -216,6 +226,11 @@
    "used_in": [
     "ui/js/admin.js",
     "ui/js/moderation.js"
+   ]
+  },
+  "720p (HD)": {
+   "used_in": [
+    "ui/js/voice.js"
    ]
   },
   "A bulk delete removes at most 100 messages.": {
@@ -456,6 +471,11 @@
   "Add a community with the + button.": {
    "used_in": [
     "ui/js/chat.js"
+   ]
+  },
+  "Add a contact": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Add a contact code": {
@@ -948,6 +968,11 @@
     "ui/js/admin.js"
    ]
   },
+  "Balanced (15 frames a second)": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "Ban": {
    "used_in": [
     "ui/js/moderation.js"
@@ -1043,12 +1068,18 @@
   },
   "Call": {
    "used_in": [
+    "ui/js/dm.js",
     "ui/js/voice.js"
    ]
   },
   "Call connected and disconnected": {
    "used_in": [
     "ui/js/sounds.js"
+   ]
+  },
+  "Call controls": {
+   "used_in": [
+    "ui/js/voice.js"
    ]
   },
   "Call with {name}": {
@@ -1090,6 +1121,11 @@
    ]
   },
   "Camera preview": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Camera quality": {
    "used_in": [
     "ui/js/voice.js"
    ]
@@ -3263,6 +3299,11 @@
     "ui/js/voice.js"
    ]
   },
+  "Jump to latest": {
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
   "Jump to message": {
    "used_in": [
     "ui/js/moderation.js"
@@ -3454,7 +3495,8 @@
   "Leave": {
    "used_in": [
     "ui/js/chat.js",
-    "ui/js/dm.js"
+    "ui/js/dm.js",
+    "ui/js/voice.js"
    ]
   },
   "Leave call": {
@@ -3513,7 +3555,7 @@
     "ui/js/admin.js"
    ]
   },
-  "Lets members of this community start direct messages with you. Off by default.": {
+  "Lets members of this community send you a direct message, which arrives as a request. On unless you turn it off.": {
    "used_in": [
     "ui/js/chat.js"
    ]
@@ -5570,6 +5612,26 @@
     "ui/js/voice.js"
    ]
   },
+  "Quality: automatic": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Quality: high": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Quality: low": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Quality: medium": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "Quit OpenArcanum": {
    "used_in": [
     "tray.py"
@@ -5841,7 +5903,8 @@
   "Rename…": {
    "used_in": [
     "ui/js/admin.js",
-    "ui/js/moderation.js"
+    "ui/js/moderation.js",
+    "ui/js/people.js"
    ]
   },
   "Repeat backup passphrase": {
@@ -6297,6 +6360,11 @@
     "ui/js/voice.js"
    ]
   },
+  "Screen share quality": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "Screen sharing was cancelled.": {
    "used_in": [
     "ui/js/call.js"
@@ -6475,6 +6543,11 @@
     "ui/js/dm.js"
    ]
   },
+  "Set status…": {
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
   "Set this profile aside and start over…": {
    "used_in": [
     "ui/js/lock.js"
@@ -6487,7 +6560,6 @@
   },
   "Set your status": {
    "used_in": [
-    "ui/js/chat.js",
     "ui/js/status.js"
    ]
   },
@@ -6544,6 +6616,16 @@
     "ui/js/voice.js"
    ]
   },
+  "Sharp text (5 frames a second)": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Sharp text sends few frames a second; smooth motion is for video and games.": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "Short, quiet tones made by the app as it runs. They follow your mutes and notification levels above, also with desktop notifications off.": {
    "used_in": [
     "ui/js/sounds.js"
@@ -6553,11 +6635,6 @@
    "used_in": [
     "ui/js/chat.js",
     "ui/js/dom.js"
-   ]
-  },
-  "Show call": {
-   "used_in": [
-    "ui/js/dm.js"
    ]
   },
   "Show messages": {
@@ -6685,6 +6762,11 @@
   "Small": {
    "used_in": [
     "ui/js/settings.js"
+   ]
+  },
+  "Smooth motion (30 frames a second)": {
+   "used_in": [
+    "ui/js/voice.js"
    ]
   },
   "Some communities were unreachable: {failures}": {
@@ -8739,6 +8821,11 @@
     "ui/js/admin.js"
    ]
   },
+  "Video quality": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "View audit log": {
    "used_in": [
     "permissions.py"
@@ -8901,6 +8988,11 @@
     "ui/js/admin.js"
    ]
   },
+  "What your camera sends in calls. Higher needs a faster connection.": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "What's happening?": {
    "used_in": [
     "ui/js/status.js"
@@ -9059,6 +9151,7 @@
   },
   "You": {
    "used_in": [
+    "dm.py",
     "ui/js/chat.js",
     "ui/js/dm.js"
    ]
@@ -9324,6 +9417,11 @@
     "ui/js/admin.js"
    ]
   },
+  "You: status, contact code, name": {
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
   "Your backup is out of date.": {
    "used_in": [
     "ui/js/chat.js"
@@ -9358,6 +9456,11 @@
    "used_in": [
     "ui/js/chat.js",
     "ui/js/dm.js"
+   ]
+  },
+  "Your contact code…": {
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "Your contacts see": {
@@ -9408,6 +9511,11 @@
   "Your name and avatar in each community": {
    "used_in": [
     "ui/js/settings.js"
+   ]
+  },
+  "Your name…": {
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "Your old communities won't know the new keys; their admins would need to re-admit you.": {
@@ -9474,8 +9582,15 @@
     "status"
    ],
    "used_in": [
-    "ui/js/chat.js",
     "ui/js/status.js"
+   ]
+  },
+  "Your status: {status}. Your options": {
+   "vars": [
+    "status"
+   ],
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "Your status: {who}.": {

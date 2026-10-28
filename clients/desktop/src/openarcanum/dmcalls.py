@@ -27,6 +27,9 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
 from openarcanum import keys
 from openarcanum.errors import UserError
 from openarcanum.i18n import _
@@ -42,12 +45,25 @@ log = logging.getLogger(__name__)
 
 HEARTBEAT = 20
 GONE = 70
-# A START older than this (a mailbox delivers it late) doesn't ring.
-RING_SECONDS = 60
+# A START that says it was sent longer ago than this (a mailbox delivers it
+# late) doesn't ring. Generous: senders' clocks can be off by minutes.
+RING_SECONDS = 600
 # The relay accepts grants for at most 10 minutes (callauth.MaxGrantLifetime).
 GRANT_SECONDS = 9 * 60
 MAX_PARTICIPANTS = 25
 K = dm.DmCallKind
+
+
+def join_key(call_key: bytes, participant: bytes) -> tuple[int, bytes]:
+    """One join's SFrame epoch and key, which everyone in the call derives
+    from the call key: each join (a rejoin too) sends under a key of its own,
+    so a participant's frame counter starting again never reuses a key and
+    key id (its slot stays the same)."""
+    epoch = int.from_bytes(hashlib.sha256(b"openarcanum/dm-call-epoch/v1\x00" + participant).digest()[:4], "big") | 1
+    key = HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=None, info=b"openarcanum/dm-call-key/v1\x00" + participant
+    ).derive(call_key)
+    return epoch, key
 
 
 def call_id(signing_pub: bytes, nonce: bytes) -> bytes:
@@ -220,6 +236,17 @@ class DmCalls:
             ],
         )
 
+    def join_keys(self, gid: str) -> list[dict]:
+        """For the page: every participant's join key, epoch and slot."""
+        c = self.calls.get(gid)
+        if c is None:
+            return []
+        out = []
+        for pid, p in c.parts.items():
+            epoch, key = join_key(c.key, pid)
+            out.append({"participant": pid.hex(), "epoch": epoch, "key": key, "slot": p.slot})
+        return out
+
     # ---------------------------------------------------------------- events
 
     def on_event(self, gid: str, ev: dm.DmEvent, mine: bool) -> None:
@@ -238,12 +265,17 @@ class DmCalls:
             ):
                 return
             if c is None or c.call_id != e.call_id:
-                if c is not None and c.parts and c.started_at <= ev.at / 1000:
-                    # Two calls started at once: the earlier one stays.
+                if c is not None and c.parts and c.call_id < e.call_id:
+                    # Two calls started at once: everyone keeps the one with
+                    # the lower id (no clocks involved, so all sides agree).
                     return
-                c = DmCall(gid, e.call_id, e.call_nonce, e.signing_seed, e.call_key, e.relay, ev.at / 1000, e.video)
+                moving = c is not None and self.mine is not None and self.mine[0] == gid
+                c = DmCall(gid, e.call_id, e.call_nonce, e.signing_seed, e.call_key, e.relay, now, e.video)
                 self.calls[gid] = c
-                if not mine and now - ev.at / 1000 < RING_SECONDS and (self.mine is None or self.mine[0] != gid):
+                if moving:
+                    # I'm in the call that lost: move to this one.
+                    self.core.spawn(self.core.voice.join_dm(gid))
+                elif not mine and abs(now - ev.at / 1000) < RING_SECONDS and (self.mine is None or self.mine[0] != gid):
                     name = self.dms._name_of(gid, ev.sender)
                     self.core.emit("dm_call", {**(self.info(gid) or {}), "ringing": True, "from": name})
                     self.core.emit("notify", {"title": name, "body": _("is calling you")})
@@ -251,7 +283,9 @@ class DmCalls:
             return
         if e.kind == K.DM_CALL_KIND_LEAVE:
             c.parts.pop(e.participant, None)
-        elif e.participant and now - ev.at / 1000 < GONE:
+        elif e.participant:
+            # Liveness is when it arrives, never the sender's clock (which can
+            # be off): someone who stops sending STATE is gone after GONE.
             p = c.parts.get(e.participant)
             if p is None:
                 if len(c.parts) >= MAX_PARTICIPANTS or not 1 <= e.slot <= 255:

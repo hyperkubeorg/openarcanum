@@ -12,6 +12,7 @@ const sframe = new SFrame.Context();
 let consts = { kindTags: {}, clearKey: 10, clearDelta: 3, keyWait: 3000 };
 let epochs = []; // [{epoch: BigInt, slots: Map(participant -> slot)}]
 let firstEpoch = null;
+let joinMode = false; // a DM call: an epoch per join, in no order
 const keyMissing = new Set();
 let keyWaiters = [];
 const binds = new Map(); // receiver id -> {kind, participant}
@@ -78,7 +79,7 @@ function receiver(id) {
         const { kid } = SFrame.decodeHeader(data.subarray(n));
         const epoch = kid >> 8n;
         let ep = epochs.find((e) => e.epoch === epoch);
-        if (!ep && !keyMissing.has(epoch) && (!epochs.length || epoch > epochs[epochs.length - 1].epoch)) {
+        if (!ep && !keyMissing.has(epoch) && (joinMode || !epochs.length || epoch > epochs[epochs.length - 1].epoch)) {
           await keyArrival(epoch);
           ep = epochs.find((e) => e.epoch === epoch);
           if (!ep) keyMissing.add(epoch);
@@ -125,8 +126,9 @@ self.onmessage = async (e) => {
     case 'epochs':
       epochs = m.epochs.map((x) => ({ epoch: BigInt(x.epoch), slots: new Map(x.slots) }));
       firstEpoch = m.firstEpoch === null ? null : BigInt(m.firstEpoch);
+      joinMode = !!m.joinMode;
       keyWaiters = keyWaiters.filter((w) => {
-        if (epochs.length && w.epoch <= epochs[epochs.length - 1].epoch) { w.resolve(); return false; }
+        if (joinMode || (epochs.length && w.epoch <= epochs[epochs.length - 1].epoch)) { w.resolve(); return false; }
         return true;
       });
       break;

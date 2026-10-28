@@ -37,7 +37,7 @@ const voiceUI = {
 
   // Join or start the call in a conversation; any other call is left (one at a time).
   async joinDm(gid, video = false) {
-    if (this.inDmCall(gid)) { this.showStage(); return; }
+    if (this.inDmCall(gid)) { this.showDmOrStage(); return; }
     if (this.joining) return;
     this.failure = null;
     this.joining = { dm: gid };
@@ -46,7 +46,6 @@ const voiceUI = {
     try {
       this.state = await api('dm_call_join', gid, video);
       if (st.view !== 'dms' || dmUI.current !== gid) await dmUI.open(gid);
-      this.showStage();
       if (video) setTimeout(() => { if (this.call && !this.call.local.camera) this.call.setCamera(true).catch(toastError); }, 1500);
     } catch (e) {
       this.joining = null;
@@ -128,7 +127,7 @@ const voiceUI = {
 
   // From the voice bar: a DM call's stage is in its conversation.
   showDmOrStage() {
-    if (this.state.dm) { st.stage = true; dmUI.open(this.state.dm); return; }
+    if (this.state.dm) { dmUI.open(this.state.dm); return; }
     this.showStage();
   },
 
@@ -202,6 +201,8 @@ const voiceUI = {
     const camChanged = s.camera !== c.s.camera;
     const wasProcessing = c.processing();
     Object.assign(c.s, { mode: s.mode, vadThreshold: s.vadThreshold, pttKey: s.pttKey, screenAudio: s.screenAudio });
+    if (s.cameraQuality !== c.s.cameraQuality) await c.setCameraQuality(s.cameraQuality);
+    if (s.screenQuality !== c.s.screenQuality) await c.setScreenQuality(s.screenQuality);
     for (const [m, v] of Object.entries(s.volumes || {})) c.setVolume(m, v);
     for (const m of Object.keys(c.volumes)) if (!(m in (s.volumes || {}))) c.setVolume(m, 1);
     const mutes = new Set(s.localMutes || []);
@@ -228,14 +229,19 @@ const voiceUI = {
       }
       // The stage only changes when its tiles do (not on every speaking flip).
       const sig = this.stageSignature();
-      const here = this.state.dm ? st.view === 'dms' && dmUI.current === this.state.dm : st.cid === this.state.community;
-      if (st.stage && this.state.active && here && sig !== this.lastStage) this.renderStage();
+      // A DM call shows in its conversation whenever that's open; a voice
+      // channel's when its stage is asked for.
+      const here = this.state.dm ? st.view === 'dms' && dmUI.current === this.state.dm && !!document.getElementById('dm-call')
+        : st.stage && st.cid === this.state.community;
+      if (this.state.active && here && sig !== this.lastStage) this.renderStage();
       // The bar compares with what it shows: a bar drawn afresh (a rejoin
       // redraws the sidebar) records its own signature.
       if (this.barSignature() !== this.lastBar) {
         const bar = document.querySelector('.voice-bar');
         if (bar) keepingFocus(bar, () => bar.replaceWith(this.bar()));
         else this.lastBar = this.barSignature();
+        const ctl = document.querySelector('.stage-controls-host');
+        if (ctl && this.state.active) keepingFocus(ctl, () => ctl.replaceChildren(this.stageControls()));
         this.refreshStageHead();
       }
     }, 50);
@@ -274,38 +280,53 @@ const voiceUI = {
     const s = this.state;
     const c = this.call;
     const connected = c && c.phase === 'connected';
+    const mode = c ? c.mode() : 'vad';
+    const note = s.server_mute ? t('server muted') : s.listen_only ? t('listening only') : s.can_vad === false ? t('push to talk only')
+      : mode === 'studio' ? t('studio mode') : mode === 'ptt' ? t('push to talk') : '';
+    const mic = this.micProblem();
+    return h('div', { class: 'voice-bar', role: 'group', 'aria-label': t('Voice call') },
+      h('div', { class: 'row' },
+        h('span', { class: (connected ? 'ok-text' : 'muted') + ' small voice-status' + (connected ? ' live' : ''), role: 'status', text: this.statusText() }), h('div', { class: 'spacer' }),
+        h('button', { class: 'icon-btn', title: t('Voice & video settings'), 'aria-label': t('Voice & video settings'), icon: 'settings', onclick: () => openSettings('voice') }),
+        h('button', { class: 'icon-btn leave', title: t('Leave call'), 'aria-label': t('Leave call'), onclick: () => this.leave() }, icon('phone-off'))),
+      h('div', { class: 'small muted clickable', title: t('Show the call'), text: this.callName() + (note ? ' · ' + note : ''), onclick: () => this.showDmOrStage() }),
+      mic ? this.micNotice(mic) : null,
+      h('div', { class: 'row voice-controls' }, ...this.controls()));
+  },
+
+  // The call's controls (mute, deafen, camera, screen, priority speaker),
+  // each icon with a small arrow (or its right-click) for its options: in
+  // the voice bar and under the stage.
+  controls() {
+    const s = this.state;
+    const c = this.call;
     const btn = (title, ic, on, run, extra = {}) => h('button', { class: 'icon-btn' + (on ? ' on' : ''), title, 'aria-label': title, 'aria-pressed': String(!!on), onclick: run, ...extra }, ic);
-    // An icon and its options: the arrow beside it, or a right-click on it.
     const split = (cls, main, label, popup, menu) => {
       main.addEventListener('contextmenu', (e) => { e.preventDefault(); menu(e); });
       return h('div', { class: 'split ' + cls }, main,
         h('button', { class: 'icon-btn split-more', title: label, 'aria-label': label, 'aria-haspopup': popup, onclick: (e) => menu(e) }, icon('chevron-down')));
     };
-    const mic = this.micProblem();
-    const mode = c ? c.mode() : 'vad';
-    const note = s.server_mute ? t('server muted') : s.listen_only ? t('listening only') : s.can_vad === false ? t('push to talk only')
-      : mode === 'studio' ? t('studio mode') : mode === 'ptt' ? t('push to talk') : '';
-    return h('div', { class: 'voice-bar', role: 'group', 'aria-label': t('Voice call') },
-      h('div', { class: 'row' },
-        h('span', { class: (connected ? 'ok-text' : 'muted') + ' small voice-status' + (connected ? ' live' : ''), role: 'status', text: this.statusText() }), h('div', { class: 'spacer' }),
-        h('button', { class: 'icon-btn', title: t('Voice & video settings'), 'aria-label': t('Voice & video settings'), icon: 'settings', onclick: () => openSettings('voice') }),
-        btn(t('Leave call'), icon('phone-off'), false, () => this.leave(), { class: 'icon-btn leave' })),
-      h('div', { class: 'small muted clickable', title: t('Show the call'), text: this.callName() + (note ? ' · ' + note : ''), onclick: () => this.showDmOrStage() }),
-      mic ? this.micNotice(mic) : null,
-      h('div', { class: 'row voice-controls' },
-        s.listen_only ? null : split('mic',
-          btn(c && c.selfMute ? t('Unmute') : t('Mute'), c && c.selfMute ? icon('mic-off') : icon('mic'), c && c.selfMute, () => c && c.setSelfMute(!c.selfMute).catch(toastError)),
-          t('Microphone options'), 'dialog', (e) => this.micMenu(e)),
-        split('sound',
-          btn(c && c.selfDeaf ? t('Undeafen') : t('Deafen'), c && c.selfDeaf ? icon('headphone-off') : icon('headphones'), c && c.selfDeaf, () => c && c.setSelfDeaf(!c.selfDeaf).catch(toastError)),
-          t('Sound options'), 'dialog', (e) => this.soundMenu(e)),
-        s.can_video ? split('camera',
-          btn(c && c.local.camera ? t('Turn off camera') : t('Turn on camera'), icon('video'), c && c.local.camera, () => c && c.setCamera(!c.local.camera).catch(toastError)),
-          t('Camera options'), 'menu', (e) => this.cameraMenu(e)) : null,
-        s.can_screen ? split('screen',
-          btn(c && c.local.screen ? t('Stop sharing') : t('Share your screen'), icon('monitor-up'), c && c.local.screen, () => c && c.setScreen(!c.local.screen).catch(toastError)),
-          t('Screen share options'), 'menu', (e) => this.screenMenu(e)) : null,
-        s.can_priority ? btn(c && c.priorityOn ? t('Turn off priority speaker') : t('Turn on priority speaker'), icon('megaphone'), c && c.priorityOn, () => c && c.setPriority(!c.priorityOn).catch(toastError)) : null));
+    return [
+      s.listen_only ? null : split('mic',
+        btn(c && c.selfMute ? t('Unmute') : t('Mute'), c && c.selfMute ? icon('mic-off') : icon('mic'), c && c.selfMute, () => c && c.setSelfMute(!c.selfMute).catch(toastError)),
+        t('Microphone options'), 'dialog', (e) => this.micMenu(e)),
+      split('sound',
+        btn(c && c.selfDeaf ? t('Undeafen') : t('Deafen'), c && c.selfDeaf ? icon('headphone-off') : icon('headphones'), c && c.selfDeaf, () => c && c.setSelfDeaf(!c.selfDeaf).catch(toastError)),
+        t('Sound options'), 'dialog', (e) => this.soundMenu(e)),
+      s.can_video ? split('camera',
+        btn(c && c.local.camera ? t('Turn off camera') : t('Turn on camera'), icon('video'), c && c.local.camera, () => c && c.setCamera(!c.local.camera).catch(toastError)),
+        t('Camera options'), 'menu', (e) => this.cameraMenu(e)) : null,
+      s.can_screen ? split('screen',
+        btn(c && c.local.screen ? t('Stop sharing') : t('Share your screen'), icon('monitor-up'), c && c.local.screen, () => c && c.setScreen(!c.local.screen).catch(toastError)),
+        t('Screen share options'), 'menu', (e) => this.screenMenu(e)) : null,
+      s.can_priority ? btn(c && c.priorityOn ? t('Turn off priority speaker') : t('Turn on priority speaker'), icon('megaphone'), c && c.priorityOn, () => c && c.setPriority(!c.priorityOn).catch(toastError)) : null,
+    ];
+  },
+
+  // Under the stage: the same controls, and leaving, where the call is.
+  stageControls() {
+    return h('div', { class: 'stage-controls', role: 'group', 'aria-label': t('Call controls') }, ...this.controls(),
+      h('button', { class: 'btn danger stage-leave', onclick: () => this.leave() }, icon('phone-off'), h('span', { text: t('Leave') })));
   },
 
   // No microphone (or not allowed): you're in the call listening, with a
@@ -436,9 +457,12 @@ const voiceUI = {
         await api('set_setting', 'video_input', label);
       } catch (err) { toastError(err); }
     });
+    const q = c.s.cameraQuality || '720p';
     this.openAt(at, [
       { label: c.local.camera ? t('Turn off camera') : t('Turn on camera'), run: () => c.setCamera(!c.local.camera).catch(toastError) },
       cams,
+      { separator: true },
+      ...cameraQualities().map(([id, label]) => ({ label, toggle: true, checked: q === id, run: () => this.setQuality('camera_quality', id) })),
       { separator: true },
       { label: t('Voice & video settings…'), run: () => openSettings('voice') },
     ]);
@@ -451,6 +475,9 @@ const voiceUI = {
     const sound = c.s.screenAudio !== false;
     this.openAt(at, [
       { label: c.local.screen ? t('Stop sharing') : t('Share your screen'), run: () => c.setScreen(!c.local.screen).catch(toastError) },
+      { separator: true },
+      ...screenQualities().map(([id, label]) => ({ label, toggle: true, checked: (c.s.screenQuality || 'balanced') === id, run: () => this.setQuality('screen_quality', id) })),
+      { separator: true },
       { label: t('Share sound'), toggle: true, checked: sound, run: async () => {
         try {
           const has = await c.setScreenAudio(!sound);
@@ -459,6 +486,17 @@ const voiceUI = {
         } catch (err) { toastError(err); }
       } },
     ]);
+  },
+
+  // A quality chosen in the camera or screen menu: applied to the call at
+  // once and kept as the setting.
+  async setQuality(key, value) {
+    const c = this.call;
+    try {
+      if (c && key === 'camera_quality') await c.setCameraQuality(value);
+      if (c && key === 'screen_quality') await c.setScreenQuality(value);
+      await api('set_setting', key, value);
+    } catch (err) { toastError(err); }
   },
 
   // ---------------------------------------------------------------- the stage
@@ -475,16 +513,21 @@ const voiceUI = {
     }) : [], [...this.watching], this.focus]);
   },
 
+  // The stage: the whole main panel for a voice channel; for a DM call, a
+  // panel at the top of the conversation (dm.js), its messages below.
   renderStage() {
-    const main = $('#main');
-    let stage = main.querySelector('.stage');
+    const panel = this.state.dm ? document.getElementById('dm-call') : null;
+    const host = panel || $('#main');
+    let stage = host.querySelector('.stage');
     if (!stage) {
-      clear(main);
-      main.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'muted' }, icon('volume-2')), h('span', { class: 'title', text: this.callName() }),
-        h('span', { class: 'small muted stage-status', role: 'status' }),
-        h('div', { class: 'spacer' }), h('span', { class: 'stage-head-tools' })));
+      clear(host);
+      if (!panel) {
+        host.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'muted' }, icon('volume-2')), h('span', { class: 'title', text: this.callName() }),
+          h('span', { class: 'small muted stage-status', role: 'status' }),
+          h('div', { class: 'spacer' }), h('span', { class: 'stage-head-tools' })));
+      }
       stage = h('div', { class: 'stage', role: 'region', 'aria-label': t('Call') });
-      main.appendChild(stage);
+      host.append(stage, h('div', { class: 'stage-controls-host' }));
       if (!this.resize) {
         this.resize = new ResizeObserver(() => this.reportSizes());
       }
@@ -530,6 +573,8 @@ const voiceUI = {
       if (again) again.focus({ preventScroll: true });
     }
     stage.dataset.count = String(tiles.length);
+    const ctl = host.querySelector('.stage-controls-host');
+    if (ctl) keepingFocus(ctl, () => ctl.replaceChildren(this.stageControls()));
     this.reportSizes();
   },
 
@@ -598,13 +643,18 @@ const voiceUI = {
     const what = kind === 'screen' ? t("{name}'s screen", { name }) : t("{name}'s camera", { name });
     const label = !watched ? t('Watch {what}', { what }) : focused ? t('Show {what} with everyone', { what }) : t('Focus on {what}', { what });
     const tools = [];
+    if (!me && watched && kind === 'camera') {
+      tools.push(h('button', { class: 'icon-btn tile-btn', title: t('Video quality'), 'aria-label': t('Video quality'), 'aria-haspopup': 'menu',
+        onclick: (e) => this.openAt(this.anchor(e), this.receiveQualityEntries(p, kind)) }, icon('settings')));
+    }
     if (!me && watched) tools.push(h('button', { class: 'icon-btn tile-btn', title: t('Stop watching'), 'aria-label': t('Stop watching {what}', { what }), onclick: () => this.stopWatching(key) }, icon('eye-off')));
     if (!me && kind === 'screen' && watched) {
       const muted = !!(c && c.streamMuted.has(p.member));
       tools.push(h('button', { class: 'icon-btn tile-btn' + (muted ? ' on' : ''), title: muted ? t('Unmute stream') : t('Mute stream'), 'aria-label': muted ? t('Unmute stream') : t('Mute stream'),
         'aria-pressed': String(muted), onclick: () => c && c.setStreamMuted(p.member, !muted) }, muted ? icon('volume-x') : icon('volume-2')));
       tools.push(h('button', { class: 'icon-btn tile-btn', title: t('Stream volume'), 'aria-label': t('Stream volume'), 'aria-haspopup': 'dialog',
-        onclick: (e) => this.openAt(this.anchor(e), [this.streamVolumeEntry(p), { label: muted ? t('Unmute stream') : t('Mute stream'), toggle: true, checked: muted, run: () => c && c.setStreamMuted(p.member, !muted) }]) }, icon('chevron-down')));
+        onclick: (e) => this.openAt(this.anchor(e), [this.streamVolumeEntry(p), { label: muted ? t('Unmute stream') : t('Mute stream'), toggle: true, checked: muted, run: () => c && c.setStreamMuted(p.member, !muted) },
+          { separator: true }, ...this.receiveQualityEntries(p, kind)]) }, icon('chevron-down')));
     }
     return h('div', { class: 'tile video-tile' + (kind === 'screen' ? ' screen' : '') + (watched ? ' watched' : ' unwatched') + (focused ? ' focused' : '') + (kind === 'camera' && this.speaking(p.member) ? ' speaking' : ''),
       ...(kind === 'camera' ? { 'data-voice-member': p.member } : {}), 'data-participant': p.participant, 'data-kind': kind, 'data-me': String(me), 'data-key': key,
@@ -641,7 +691,15 @@ const voiceUI = {
   // A person in the call (right-click, or their ⋯): their volume and
   // stream's volume, Mute for me (this device only, not a server mute), and
   // what a moderator may do.
-  memberMenu(e, p) {
+  // A participant's menu: everything their menu has elsewhere (Message,
+  // profile, ...), then what's about the call.
+  async memberMenu(e, p) {
+    const x = e.clientX;
+    const y = e.clientY;
+    let person = [];
+    try {
+      person = this.state.dm ? await userMenuItems({ person: { id: p.member, name: p.name } }, { dm: dmUI.info }) : await userMenuItems({ cid: st.cid, key: p.member }, {});
+    } catch (err) { console.error('menu', err); }
     const summary = st.communities.find((x) => x.id === st.cid);
     const can = (summary && summary.can) || {};
     const inMyCall = this.state.active && this.state.participants.some((x) => x.member === p.member);
@@ -653,7 +711,9 @@ const voiceUI = {
     const mutedForMe = !!(local && c.localMutes.has(p.member));
     const streaming = local && this.state.participants.some((x) => x.member === p.member && x.screen);
     const streamMuted = !!(local && c.streamMuted.has(p.member));
-    openMenu(e.clientX, e.clientY, [
+    openMenu(x, y, [
+      ...person,
+      person.length ? { separator: true } : null,
       local ? this.volumeEntry(p) : null,
       streaming ? this.streamVolumeEntry(p) : null,
       local ? { label: t('Mute for me'), toggle: true, checked: mutedForMe, run: () => this.muteForMe(p, !mutedForMe) } : null,
@@ -701,6 +761,15 @@ const voiceUI = {
   },
 
   // Their screen share's sound, on this device, for this call.
+  // What's received of someone's video: automatic (the tile's size and the
+  // connection decide), or a quality chosen here.
+  receiveQualityEntries(p, kind) {
+    const c = this.call;
+    const now = c ? c.maxLayer.get(`${p.participant}/${kind}`) : undefined;
+    return [[null, t('Quality: automatic')], [2, t('Quality: high')], [1, t('Quality: medium')], [0, t('Quality: low')]]
+      .map(([level, label]) => ({ label, toggle: true, checked: (now === undefined ? null : now) === level, run: () => c && c.setReceiveQuality(p.participant, kind, level) }));
+  },
+
   streamVolumeEntry(p) {
     const cur = Math.round(100 * ((this.call && this.call.streamVolumes[p.member]) ?? 1));
     return { range: {
@@ -713,6 +782,12 @@ const voiceUI = {
 };
 
 // A participant's state as an icon, named for screen readers (and on hover).
+// The choices for what's sent (settings camera_quality and screen_quality).
+function cameraQualities() { return [['480p', t('480p')], ['720p', t('720p (HD)')], ['1080p', t('1080p (Full HD)')]]; }
+function screenQualities() {
+  return [['text', t('Sharp text (5 frames a second)')], ['balanced', t('Balanced (15 frames a second)')], ['motion', t('Smooth motion (30 frames a second)')]];
+}
+
 function flag(label, ic, cls = '') {
   return h('span', { class: 'flag' + cls, role: 'img', title: label, 'aria-label': label }, ic);
 }
@@ -881,7 +956,11 @@ async function renderVoiceSettings(sec) {
     vaultSetting('voice_output', t('Speaker'), null, options('audiooutput', v.voice_output)),
     vaultSetting('voice_output_volume', t('Output volume'), t('How loud calls play on this device.'),
       h('div', { class: 'row range-row', role: 'group' }, outVol, outVolText), () => Number(outVol.value)),
-    vaultSetting('video_input', t('Camera'), null, options('videoinput', v.video_input))]));
+    vaultSetting('video_input', t('Camera'), null, options('videoinput', v.video_input)),
+    vaultSetting('camera_quality', t('Camera quality'), t('What your camera sends in calls. Higher needs a faster connection.'),
+      selectEl(cameraQualities(), v.camera_quality)),
+    vaultSetting('screen_quality', t('Screen share quality'), t('Sharp text sends few frames a second; smooth motion is for video and games.'),
+      selectEl(screenQualities(), v.screen_quality))]));
   const input = [];
   input.push(vaultSetting('voice_mode', t('Input mode'),
     t('Voice activity sends when you speak. Studio always sends while you are unmuted, with none of the processing below: for microphones that clean up the sound themselves. Push to talk sends while you hold the key.'),

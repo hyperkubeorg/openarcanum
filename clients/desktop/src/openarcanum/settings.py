@@ -293,6 +293,8 @@ PER_DEVICE = (
     "voice_input",
     "voice_output",
     "voice_output_volume",
+    "camera_quality",
+    "screen_quality",
     "voice_local_mutes",
     "sounds",
     "sound_volume",
@@ -386,6 +388,10 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("voice_local_mutes", [], _str_list(5000), "vault"),
     # A screen share sends the shared screen's or window's sound too.
     Setting("screen_share_audio", True, _bool, "vault"),
+    # Video sent in calls: the camera's resolution, and a shared screen's
+    # trade-off (sharp text at a low frame rate, or smooth motion).
+    Setting("camera_quality", "720p", _choice("480p", "720p", "1080p"), "vault"),
+    Setting("screen_quality", "balanced", _choice("text", "balanced", "motion"), "vault"),
     # Privacy
     Setting("dm_policy", "contacts", _choice("contacts", "members"), "vault"),
     # Statuses (statuses.py; docs/user-guide.md "Your status"). Who sees it,

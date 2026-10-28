@@ -108,6 +108,7 @@ const voiceChat = {
       const list = h('div', { class: 'messages', id: PANES.side.list, role: 'log', 'aria-live': 'polite', 'aria-label': t('Messages in {channel}', { channel: c.name }) });
       list.addEventListener('scroll', () => { if (list.scrollTop < 60) loadOlder('side'); });
       panel.appendChild(list);
+      panel.appendChild(jumpToLatest(list));
       panel.appendChild(h('div', { class: 'typing small muted', id: PANES.side.typing, 'aria-live': 'polite' }));
       renderMessages(false, 'side');
       if (scroll !== null) list.scrollTop = scroll;

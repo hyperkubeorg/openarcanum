@@ -38,6 +38,19 @@ const CALL = {
   // Video loss is judged on samples of at least this many packets.
   LOSS_MIN_PACKETS: 20,
   CAMERA: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
+  // What's sent, chosen in the camera and screen menus (settings
+  // camera_quality and screen_quality): the capture, and the top
+  // simulcast layer's bitrate.
+  CAMERA_QUALITY: {
+    '480p': { width: 854, height: 480, fps: 30, bitrate: 800_000 },
+    '720p': { width: 1280, height: 720, fps: 30, bitrate: 1_500_000 },
+    '1080p': { width: 1920, height: 1080, fps: 30, bitrate: 3_000_000 },
+  },
+  SCREEN_QUALITY: {
+    text: { fps: 5, contentHint: 'detail', bitrate: 1_500_000 }, // sharp text, few frames
+    balanced: { fps: 15, contentHint: 'detail', bitrate: 2_000_000 },
+    motion: { fps: 30, contentHint: 'motion', bitrate: 3_000_000 }, // video and games
+  },
   // Simulcast layers, lowest first (rid, scale, max bitrate).
   LAYERS: [
     { rid: 'l', scaleResolutionDownBy: 4, maxBitrate: 150_000 },
@@ -232,6 +245,7 @@ class Call {
     this.streamMuted = new Set();
     this.outputVolume = session.outputVolume ?? 1; // this device's output, 0..2
     this.layers = new Map(); // `${participant}/${kind}` -> rid asked for
+    this.maxLayer = new Map(); // `${participant}/${kind}` -> 0..2: the quality chosen for that video (none: automatic)
     // What the relay says receives this device's media, per kind:
     // {receivers, layers}; null until it says (then everything is sent).
     this.watchers = null;
@@ -290,6 +304,52 @@ class Call {
     else setTimeout(() => { apply().catch((e) => console.error('call: send key', e)); }, CALL.SEND_KEY_DELAY_MS);
   }
 
+  // A DM call (dmcalls.py): a key per join, every participant's own epoch
+  // and slot, all derived from the call key in Python. This page sends under
+  // its join's key; anyone who joins again comes with a new one, so frame
+  // counters starting over never reuse a key.
+  async setJoinKeys(list) {
+    delete this.s.key;
+    this.joinMode = true;
+    this.firstEpoch = null;
+    const live = new Set();
+    for (const j of list) {
+      live.add(String(j.epoch));
+      let ep = this.epochs.find((e) => String(e.epoch) === String(j.epoch));
+      if (!ep) {
+        ep = { epoch: j.epoch, key: b64bytes(j.key), slots: new Map([[j.participant, j.slot]]) };
+        this.epochs.push(ep);
+        this.keyMissing.delete(BigInt(j.epoch));
+      }
+      const kid = kidFor(j.epoch, j.slot);
+      if (j.participant === this.s.participant) {
+        if (this.sendKid !== kid) {
+          const tag = await sendKeyTag(kid, ep.key);
+          if (usedSendKids.has(tag)) {
+            this.sframe.send = null;
+            if (this.worker) this.worker.postMessage({ type: 'sendOff' });
+            console.error('call: key id already used with this key; not sending until the key changes');
+          } else {
+            usedSendKids.add(tag);
+            await this.sframe.setSendKey(kid, ep.key);
+            this.sendKid = kid;
+          }
+        }
+      } else if (!this.sframe.recv.has(kid)) {
+        await this.sframe.setRecvKey(kid, ep.key);
+      }
+    }
+    this.epochs = this.epochs.filter((e) => {
+      if (live.has(String(e.epoch))) return true;
+      for (const [, slot] of e.slots) this.sframe.dropRecvKey(kidFor(e.epoch, slot));
+      e.key.fill(0);
+      return false;
+    });
+    for (const w of this.keyWaiters) w.resolve();
+    this.keyWaiters = [];
+    this.syncEpochs();
+  }
+
   // Resolves once the key for `epoch` (or a newer one) is installed, or
   // after CALL.KEY_WAIT_MS: a frame sent under a key that's still on its way
   // (the sender had it first) is held, not dropped; the frames behind it
@@ -341,7 +401,7 @@ class Call {
 
   syncEpochs() {
     if (!this.worker) return;
-    this.worker.postMessage({ type: 'epochs', firstEpoch: this.firstEpoch === null ? null : String(this.firstEpoch),
+    this.worker.postMessage({ type: 'epochs', joinMode: !!this.joinMode, firstEpoch: this.firstEpoch === null ? null : String(this.firstEpoch),
       epochs: this.epochs.map((e) => ({ epoch: String(e.epoch), slots: [...e.slots] })) });
   }
 
@@ -406,7 +466,7 @@ class Call {
           const { kid } = SFrame.decodeHeader(data.subarray(n));
           const epoch = kid >> 8n;
           let ep = this.epochs.find((e) => BigInt(e.epoch) === epoch);
-          if (!ep && !this.keyMissing.has(epoch) && (!this.epochs.length || epoch > BigInt(this.epochs[this.epochs.length - 1].epoch))) {
+          if (!ep && !this.keyMissing.has(epoch) && (this.joinMode || !this.epochs.length || epoch > BigInt(this.epochs[this.epochs.length - 1].epoch))) {
             await this.keyArrival(epoch);
             ep = this.epochs.find((e) => BigInt(e.epoch) === epoch);
             if (!ep) this.keyMissing.add(epoch);
@@ -458,7 +518,8 @@ class Call {
       document.addEventListener('keydown', again, { once: true, capture: true });
     }
     if (this.s.speaker && this.ctx.setSinkId) await this.ctx.setSinkId(this.s.speaker).catch(() => {});
-    await this.setKeys(this.s.epoch, this.s.key, this.s.slot);
+    if (this.s.joinKeys) await this.setJoinKeys(this.s.joinKeys);
+    else await this.setKeys(this.s.epoch, this.s.key, this.s.slot);
     this.pc = new RTCPeerConnection({ ...(this.worker ? {} : { encodedInsertableStreams: true }), bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
     // Every transceiver this device might use, up front, so only the relay
     // renegotiates afterwards.
@@ -728,7 +789,9 @@ class Call {
     if (on && !this.s.perms.video) throw new Error(t("You can't turn on video in this call."));
     if (this.local.camera) { this.local.camera.stop(); delete this.local.camera; }
     if (on) {
-      const ask = (id) => navigator.mediaDevices.getUserMedia({ video: { ...CALL.CAMERA, deviceId: id ? { exact: id } : undefined } });
+      const q = this.cameraQuality();
+      const ask = (id) => navigator.mediaDevices.getUserMedia({ video: { width: { ideal: q.width }, height: { ideal: q.height },
+        frameRate: { ideal: q.fps, max: q.fps }, deviceId: id ? { exact: id } : undefined } });
       let s;
       try {
         try {
@@ -759,6 +822,7 @@ class Call {
     }
     await this.tx.camera.sender.replaceTrack(this.local.camera || null);
     await this.applySending();
+    await this.applyBitrate('camera');
     await this.signal('state', this.mediaState());
     this.onChange();
   }
@@ -778,7 +842,7 @@ class Call {
       const audio = this.s.screenAudio !== false;
       try {
         s = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 15, max: 30 } },
+          video: { frameRate: { ideal: this.screenQuality().fps, max: 30 } },
           audio: audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
           systemAudio: audio ? 'include' : 'exclude',
         });
@@ -788,7 +852,7 @@ class Call {
             : t("The system couldn't capture that screen or window."));
       }
       this.local.screen = s.getVideoTracks()[0];
-      this.local.screen.contentHint = 'detail';
+      this.local.screen.contentHint = this.screenQuality().contentHint;
       this.local.screen.onended = () => this.setScreen(false).catch(() => {});
       const a = s.getAudioTracks()[0];
       if (a && audio) this.local['screen-audio'] = a;
@@ -797,6 +861,7 @@ class Call {
     await this.tx.screen.sender.replaceTrack(this.local.screen || null);
     await this.tx['screen-audio'].sender.replaceTrack(this.local['screen-audio'] || null);
     await this.applySending();
+    await this.applyBitrate('screen');
     await this.signal('state', this.mediaState());
     this.onChange();
   }
@@ -1031,6 +1096,58 @@ class Call {
     return !!(r && r.speaking);
   }
 
+  // ---------------------------------------------------------------- quality
+
+  cameraQuality() { return CALL.CAMERA_QUALITY[this.s.cameraQuality] || CALL.CAMERA_QUALITY['720p']; }
+
+  screenQuality() { return CALL.SCREEN_QUALITY[this.s.screenQuality] || CALL.SCREEN_QUALITY.balanced; }
+
+  // The top layer's bitrate for what's being sent now.
+  async applyBitrate(kind) {
+    const tr = this.tx[kind];
+    if (!tr || !tr.sender.getParameters) return;
+    const p = tr.sender.getParameters();
+    if (!p.encodings || !p.encodings.length) return;
+    const top = kind === 'camera' ? this.cameraQuality().bitrate : this.screenQuality().bitrate;
+    for (const e of p.encodings) {
+      const layer = CALL.LAYERS.find((l) => l.rid === e.rid);
+      if (layer) e.maxBitrate = e.rid === 'h' ? top : Math.min(layer.maxBitrate, top);
+    }
+    await tr.sender.setParameters(p).catch(() => {});
+  }
+
+  // Changed during the call (the camera and screen menus): the running
+  // capture follows at once.
+  async setCameraQuality(q) {
+    this.s.cameraQuality = q;
+    const cam = this.local.camera;
+    if (cam) {
+      const c = this.cameraQuality();
+      await cam.applyConstraints({ width: { ideal: c.width }, height: { ideal: c.height }, frameRate: { ideal: c.fps, max: c.fps } }).catch(() => {});
+      await this.applyBitrate('camera');
+    }
+  }
+
+  async setScreenQuality(q) {
+    this.s.screenQuality = q;
+    const scr = this.local.screen;
+    if (scr) {
+      const c = this.screenQuality();
+      scr.contentHint = c.contentHint;
+      await scr.applyConstraints({ frameRate: { ideal: c.fps, max: 30 } }).catch(() => {});
+      await this.applyBitrate('screen');
+    }
+  }
+
+  // What's received of one video: 0 low, 1 medium, 2 high, null automatic
+  // (the tile's size and the connection decide).
+  setReceiveQuality(participant, kind, level) {
+    const key = `${participant}/${kind}`;
+    if (level === null || level === undefined) this.maxLayer.delete(key);
+    else this.maxLayer.set(key, level);
+    this.chooseLayers().catch(() => {});
+  }
+
   // ---------------------------------------------------------------- layers
 
   // Each video is asked for at the layer its tile can show (tiles report
@@ -1094,7 +1211,10 @@ class Call {
       if (loss > 0.05 && this.cap > 0) { this.cap -= 1; this.capAt = now; } else if (loss < 0.01 && this.cap < 2 && now - this.capAt > 10000) { this.cap += 1; this.capAt = now; }
     }
     for (const [key, v] of this.layers) {
-      const want = v.width >= 640 ? 2 : v.width >= 280 ? 1 : 0;
+      const chosen = this.maxLayer.get(key);
+      // A chosen quality is asked for whatever the tile's size; the
+      // connection still lowers it when packets get lost.
+      const want = chosen !== undefined ? chosen : v.width >= 640 ? 2 : v.width >= 280 ? 1 : 0;
       const rid = order[Math.min(want, this.cap)];
       if (rid !== v.rid) {
         v.rid = rid;
@@ -1110,7 +1230,8 @@ class Call {
   async update(session) {
     const before = this.s;
     this.s = Object.assign({}, before, session);
-    if (session.epoch !== undefined) await this.setKeys(session.epoch, session.key, session.slot);
+    if (session.joinKeys) await this.setJoinKeys(session.joinKeys);
+    else if (session.epoch !== undefined) await this.setKeys(session.epoch, session.key, session.slot);
     else await this.installRecvKeys();
     if (!this.s.perms.video && this.local.camera) await this.setCamera(false);
     if (!this.s.perms.screen && this.local.screen) await this.setScreen(false);

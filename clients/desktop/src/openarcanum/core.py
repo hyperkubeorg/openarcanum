@@ -1139,7 +1139,7 @@ class Core:
             # What waits in the moderator queues this member may see
             # (docs/protocol.md §4.9): the badges that lead to it.
             "mod_queue": _mod_queue(st, perms),
-            "publish_card": bool(rec.get("publish_card")),
+            "publish_card": bool(rec.get("publish_card", True)),
             "identity": rec.get("identity", ""),
             "unread": unread,
             "mentions": mentions,
@@ -1777,7 +1777,8 @@ class Core:
         self.spawn(self.voice.reconnected(cid))
         self.spawn(self.devices.send_pending_revocations(cid))
         self.spawn(self.statuses.community_connected(cid))
-        await self.dms.community_online(cid)
+        # Publishing the contact card asks the server: never awaited here.
+        self.spawn(self.dms.community_online(cid))
 
     async def _refresh_members(self, cid: str) -> None:
         """The member list (mention tokens, presence); best effort."""
@@ -2964,6 +2965,8 @@ class Core:
             "voice_output_volume",
             "voice_local_mutes",
             "screen_share_audio",
+            "camera_quality",
+            "screen_quality",
         ):
             self.voice.settings_changed()
         if key in ("muted_communities", "muted_channels", "community_notify"):

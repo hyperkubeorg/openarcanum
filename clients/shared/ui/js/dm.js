@@ -91,7 +91,8 @@ function dmCall(...args) {
 
 function renderDmSidebar(side) {
   side.appendChild(h('div', { class: 'side-head' }, h('span', { class: 'name', text: t('Direct messages') }),
-    h('button', { class: 'icon-btn', title: t('New group DM'), 'aria-label': t('New group DM'), icon: 'plus', onclick: (e) => { e.stopPropagation(); newGroupDialog(); } }),
+    h('button', { class: 'icon-btn', title: t('New group DM'), 'aria-label': t('New group DM'), icon: 'message-square-plus', onclick: (e) => { e.stopPropagation(); newGroupDialog(); } }),
+    h('button', { class: 'icon-btn', title: t('Add a contact'), 'aria-label': t('Add a contact'), icon: 'user-plus', onclick: (e) => { e.stopPropagation(); addContactCodeDialog(); } }),
     h('button', { class: 'icon-btn', title: t('Check for new messages'), 'aria-label': t('Check for new messages'), icon: 'refresh-cw', onclick: (e) => { e.stopPropagation(); api('dm_poll').then(() => dmUI.refresh(), toastError); } })));
   const body = h('div', { class: 'side-body dm-list' });
   body.appendChild(h('button', { class: 'chan dm-home' + (dmUI.current ? '' : ' sel'), onclick: () => dmUI.home() },
@@ -164,22 +165,33 @@ function renderDmMain(main) {
     renderDmHome(main);
     return;
   }
-  if (st.stage && voiceUI.inDmCall(c.id)) { voiceUI.renderStage(); return; }
   const view = h('div', { id: 'dm-view', class: 'dm-view', 'data-gid': c.id, 'data-status': info.status },
-    h('div', { id: 'dm-head' }), h('div', { id: 'dm-banners' }),
+    h('div', { id: 'dm-head' }),
+    // The call, while you're in this conversation's call: on top, the
+    // messages below (voice.js renderStage).
+    voiceUI.inDmCall(c.id) ? h('div', { id: 'dm-call', class: 'dm-call', role: 'region', 'aria-label': t('Call') }) : null,
+    h('div', { id: 'dm-banners' }),
     h('div', { class: 'messages', id: 'dm-messages', role: 'log', 'aria-live': 'polite' }),
+    h('div', { id: 'dm-jump' }),
     h('div', { class: 'typing small muted', id: 'dm-typing', 'aria-live': 'polite' }));
   if (info.status === 'active') view.appendChild(dmComposer(c, info));
   main.appendChild(view);
+  $('#dm-jump').replaceWith(jumpToLatest($('#dm-messages')));
   fillDmView(true);
+  if (voiceUI.inDmCall(c.id)) voiceUI.renderStage();
 }
 
 function fillDmView(first = false) {
   const c = dmUI.list.find((x) => x.id === dmUI.current) || { id: dmUI.current, name: dmUI.info.name || t('Conversation') };
   const info = dmUI.info;
   const others = info.members.filter((m) => !m.me);
+  // In a 1:1, the name opens the person's menu (Rename, Safety number, ...).
+  const title = info.direct && others.length
+    ? h('button', { class: 'title title-btn', title: t('Options for {name}', { name: c.name }), text: c.name,
+      onclick: (e) => userMenu(e, { person: others[0] }, { dm: info }) })
+    : h('span', { class: 'title', text: c.name });
   clear($('#dm-head')).appendChild(h('div', { class: 'main-head' },
-    h('span', { class: 'title', text: c.name }),
+    title,
     info.direct ? null : h('span', { class: 'small muted', text: t('{n} members', { n: info.members.length }) }),
     h('div', { class: 'spacer' }),
     h('span', { class: 'small muted', text: t('End-to-end encrypted') }),
@@ -774,9 +786,7 @@ const dmCallUI = {
 // In a conversation's header: start a call (voice or video), join the one
 // going on, or show it when you're in it.
 function dmCallButtons(gid) {
-  if (voiceUI.inDmCall(gid)) {
-    return h('button', { class: 'btn small', text: t('Show call'), onclick: () => voiceUI.showStage() });
-  }
+  if (voiceUI.inDmCall(gid)) return null; // the call is on top of the conversation, with its controls
   const c = dmCallUI.calls[gid];
   if (c && c.participants.length) {
     return h('button', { class: 'btn small primary', text: t('Join call ({n})', { n: c.participants.length }), onclick: () => voiceUI.joinDm(gid) });

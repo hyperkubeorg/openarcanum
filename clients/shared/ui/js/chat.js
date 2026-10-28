@@ -204,14 +204,37 @@ function userPanel(summary) {
   const me = myStatus();
   const connection = summary ? connectionLabel(summary) : '';
   return h('div', { class: 'user-panel', 'data-connection': connection },
-    h('button', { class: 'me-btn', type: 'button', 'aria-haspopup': 'dialog', title: t('Set your status'),
-      'aria-label': t('Your status: {status}. Change it', { status: statusSentence(me) }), onclick: () => statusPicker() },
+    h('button', { class: 'me-btn', type: 'button', 'aria-haspopup': 'menu', title: t('You: status, contact code, name'),
+      'aria-label': t('Your status: {status}. Your options', { status: statusSentence(me) }), onclick: (e) => meMenu(e) },
     withStatus(avatarEl(shown || (st.status && st.status.display_name) || t('You'), summary ? summary.identity : 'me', 'sm'), me),
     h('div', { class: 'who' }, h('b', { text: summary ? shown || t('You') : (st.status && st.status.display_name) || t('You') }),
       h('span', { class: 'small muted me-status', text: statusLine(me) || connection || statusLabel(me.state) }))),
     h('button', { class: 'icon-btn', title: t('Your contact code'), 'aria-label': t('Your contact code'), icon: 'id-card', onclick: () => myContactCodeDialog() }),
     h('button', { class: 'icon-btn', title: t('Lock now'), icon: 'lock', onclick: lockNow }),
     h('button', { class: 'icon-btn', title: t('Settings'), icon: 'settings', onclick: () => openSettings() }));
+}
+
+// "Jump to latest" under a message list, shown once it's scrolled more than
+// about a screen up from the newest message.
+function jumpToLatest(list) {
+  const btn = h('button', { class: 'btn small jump-latest hidden', onclick: () => list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' }) },
+    icon('arrow-down'), h('span', { text: t('Jump to latest') }));
+  const check = () => btn.classList.toggle('hidden', list.scrollHeight - list.scrollTop - list.clientHeight < 200);
+  list.addEventListener('scroll', check, { passive: true });
+  new MutationObserver(check).observe(list, { childList: true });
+  return btn;
+}
+
+// Your own menu, from your name and avatar in the user panel.
+function meMenu(e) {
+  const r = e.currentTarget.getBoundingClientRect();
+  openMenu(r.left, r.top, [
+    { label: t('Set status…'), run: () => statusPicker() },
+    { label: t('Your contact code…'), run: () => myContactCodeDialog() },
+    { label: t('Your name…'), run: () => openSettings('identity') },
+    { separator: true },
+    { label: t('Settings'), run: () => openSettings() },
+  ], { label: t('You') });
 }
 
 function connectionLabel(s) {
@@ -332,7 +355,7 @@ function communityProfileDialog(summary) {
   const pronouns = h('input', { type: 'text', value: me.pronouns || '', maxlength: 40, 'aria-label': t('Pronouns') });
   const about = h('textarea', { rows: 3, value: me.about || '', maxlength: 190, 'aria-label': t('About me') });
   const cardsOn = featureOn(summary, 'contact_cards');
-  const card = checkbox(t('Publish a contact card here'), summary.publish_card, t('Lets members of this community start direct messages with you. Off by default.'));
+  const card = checkbox(t('Publish a contact card here'), summary.publish_card, t('Lets members of this community send you a direct message, which arrives as a request. On unless you turn it off.'));
   modal({ title: t('Your profile in {community}', { community: summary.name }), body: h('div', { class: 'stack' },
     field(t('Display name'), name, canRename ? t('Each community has its own.') : t("This community doesn't let you change your name.")),
     field(t('Nickname'), nick, canRename ? t('Shown instead of your display name here. Moderators can change it too. Leave empty for none.') : t('This community doesn\'t let you change your nickname.')),
@@ -418,6 +441,7 @@ function renderMainView() {
   const list = h('div', { class: 'messages', id: 'messages', role: 'log', 'aria-live': 'polite' });
   list.addEventListener('scroll', () => { if (list.scrollTop < 60) loadOlder('main'); });
   main.appendChild(list);
+  main.appendChild(jumpToLatest(list));
   main.appendChild(h('div', { class: 'typing small muted', id: 'typing', 'aria-live': 'polite' }));
   renderMessages();
   renderTyping();

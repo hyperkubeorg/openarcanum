@@ -764,7 +764,6 @@ img.emoji-big { width: 32px; height: 32px; object-fit: contain; }
 .stage[data-count="1"] { grid-template-columns: 1fr; }
 .tile { position: relative; display: grid; place-items: center; border-radius: var(--r-md); background: var(--bg3); overflow: hidden; }
 .tile video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-.tile.screen { grid-column: 1 / -1; }
 .tile-name { position: absolute; z-index: 2; left: var(--s2); bottom: var(--s2); display: flex; gap: 6px; align-items: center; padding: 2px var(--s2); border-radius: var(--r-xs); background: rgba(0, 0, 0, .6); color: #fff; font-size: var(--fs-sm); pointer-events: none; }
 .stage-status { margin-left: var(--s2); }
 /* A video tile: the whole tile is its button (watch, then focus); its name
@@ -880,4 +879,18 @@ img.emoji-big { width: 32px; height: 32px; object-fit: contain; }
 .mention-pop { position: absolute; left: var(--s4); right: var(--s4); bottom: 100%; z-index: 30; max-height: 280px; overflow: auto; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 6px 20px rgba(0,0,0,.25); padding: var(--s1); }
 .mention-opt { display: flex; align-items: center; gap: var(--s2); padding: var(--s1) var(--s2); border-radius: var(--r-sm, 4px); cursor: pointer; }
 .mention-opt.sel, .mention-opt:hover { background: var(--accent-soft); }
+
+/* A DM call: on top of the conversation (voice.js renderStage). */
+.dm-call { flex: 0 0 auto; display: flex; flex-direction: column; height: 42vh; min-height: 220px; border-bottom: 1px solid var(--line); background: var(--rail); resize: vertical; overflow: hidden; }
+.dm-call .stage { flex: 1; }
+/* Under every stage: the call's controls and Leave. */
+.stage-controls-host { flex: 0 0 auto; background: var(--rail); }
+.stage-controls { display: flex; justify-content: center; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3); flex-wrap: wrap; }
+.stage-controls .stage-leave { display: inline-flex; align-items: center; gap: var(--s1); margin-left: var(--s3); }
+.title-btn { border: 0; background: none; padding: 0; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.title-btn:hover, .title-btn:focus-visible { text-decoration: underline; }
+
+/* "Jump to latest" (chat.js jumpToLatest): just above the composer. */
+.jump-latest { align-self: center; display: inline-flex; align-items: center; gap: var(--s1); margin: calc(-1 * var(--s6)) auto var(--s2); position: relative; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+.jump-latest.hidden { display: none; }
 

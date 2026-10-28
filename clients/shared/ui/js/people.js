@@ -157,6 +157,7 @@ async function dmPersonMenuItems(who, opts) {
     inGroup && open && !me ? { label: t('Mention'), run: () => insertMention(() => $('#dm-input'), name) } : null,
     !me && !p.contact && !who.contact && community && member
       ? { label: t('Add as contact'), run: () => api('dm_add_contact', community, member).then(() => { toast(t('Added to contacts.')); after(); }, toastError) } : null,
+    !me && ident ? { label: t('Rename…'), run: () => renameContactDialog({ id: ident, name, nickname: c.nickname || '', card_name: c.card_name || p.name || name }) } : null,
     !me ? { label: t('Safety number'), run: () => safetyDialog(ident, name, info ? info.id : '') } : null,
     { label: t('Copy user ID'), run: () => copyUserId(ident) },
     !me ? blockEntry(ident, blocked, after) : null,

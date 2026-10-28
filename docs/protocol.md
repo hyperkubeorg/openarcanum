@@ -1631,7 +1631,7 @@ So:
 
 - A `ContactCard{identity, member, name, devices, fallback_keys, inboxes,
   issued_at}` is signed by the identity (`openarcanum/dm-card/v2`) and published
-  per community (off by default; the community can turn cards off for
+  per community (on unless the member turns it off; the community can turn cards off for
   everyone, enforced by the server). `member` binds the card to the
   publisher's membership, so it can't be replayed under someone else's.
 - `fallback_keys` holds one signed vodozemac fallback key per device, replaced

@@ -819,13 +819,14 @@ unread count.
 
 ### Before you start: contact cards
 
-People find each other for DMs through a community they share. To be
-reachable there, publish a **contact card**: community menu → **Your
-profile here** → tick **Publish a contact card here** → **Save** (or
-Settings → **Privacy & DMs** → **Contact cards**, one switch per
-community). It holds only a DM key and an inbox address, separate for each
-community, and it's off by default. A community's admins can turn contact
-cards off for the whole community; the option then disappears.
+People can message you through a community you share: your **contact card**
+there is published, so a member can start a direct message with you, which
+reaches you as a request. It holds only a DM key and an inbox address,
+separate for each community. To turn it off for a community: community
+menu → **Your profile here** → untick **Publish a contact card here** →
+**Save** (or Settings → **Privacy & DMs** → **Contact cards**, one switch
+per community). A community's admins can turn contact cards off for the
+whole community; the option then disappears.
 
 ### Contact codes: DMs without a shared community
 
@@ -1379,11 +1380,18 @@ ends with "You can no longer connect to this voice channel."
 In a conversation, **Start a voice call** (the phone) or **Start a video
 call** (the camera) at the top. Everyone in the conversation hears it ring
 ("… is calling", with **Join**); while a call is on, the header shows
-**Join call (n)**. The call works like a voice channel: the same controls
-in the voice bar, the same end-to-end encryption, and **Show messages** (at
-the top of the call) to go back to the conversation while it goes on. You're
+**Join call (n)**. While you're in it, the call shows at the top of the
+conversation (drag its bottom edge to resize) with its controls under it:
+mute, deafen, camera, screen share and **Leave**; the messages stay below.
+It works like a voice channel, with the same end-to-end encryption. You're
 in one call at a time: joining a conversation's call leaves a voice channel,
 and joining a voice channel leaves the call.
+
+The camera and screen buttons' menus (the small arrows) set the quality you
+send: the camera's resolution (480p, 720p, 1080p) and, for a screen, sharp
+text, balanced, or smooth motion. On someone's video, **Video quality** (or
+the arrow on a shared screen) picks what you receive: automatic (it follows
+the video's size on your screen and your connection), high, medium or low.
 
 ## Admins: voice moderation
 
