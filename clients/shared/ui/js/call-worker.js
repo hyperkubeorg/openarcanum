@@ -111,7 +111,9 @@ self.onrtctransform = (event) => {
   const tf = event.transformer;
   const o = tf.options || {};
   const stream = o.side === 'send' ? sender(o.kind) : receiver(o.id);
-  if (o.side !== 'send') binds.set(o.id, { kind: o.kind, participant: o.participant });
+  // A 'bind' (a receiver reused for someone else) can arrive before this
+  // event: it's the newer of the two.
+  if (o.side !== 'send' && !binds.has(o.id)) binds.set(o.id, { kind: o.kind, participant: o.participant });
   tf.readable.pipeThrough(stream).pipeTo(tf.writable).catch(() => {});
 };
 

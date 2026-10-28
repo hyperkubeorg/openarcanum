@@ -488,6 +488,8 @@ def test_blocking(tmp_path):
             await olive.dms.remove_contact(alice_id)
             await olive.dms.rename_contact(alice_id, "Ally")
             assert olive.dms.contacts() == [] and olive.dms.list()[0]["name"] == "Ally"
+            # Her messages from before the rename show it too.
+            assert {m["name"] for m in olive.dms.history(gid) if not m.get("mine") and not m.get("system")} == {"Ally"}
             await olive.dms.set_blocked(alice_id, True)
             assert olive.dms.list()[0]["blocked"] and olive.dms.list()[0]["name"] == "Ally"
             assert "before blocking" in await texts(olive, gid)

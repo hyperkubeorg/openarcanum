@@ -774,6 +774,10 @@ img.emoji-big { width: 32px; height: 32px; object-fit: contain; }
 .stage[data-count="1"] { grid-template-columns: 1fr; }
 .tile { position: relative; display: grid; place-items: center; border-radius: var(--r-md); background: var(--bg3); overflow: hidden; }
 .tile video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+/* A video keeps its shape where the stage is short (a DM call's panel): 16:9
+   tiles, the stage scrolling, rather than tiles squeezed flat. */
+.stage:not(.has-focus):not([data-count="1"]) > .tile { aspect-ratio: 16 / 9; min-height: 0; }
+.stage:not(.has-focus):not([data-count="1"]) { grid-auto-rows: auto; align-content: start; }
 .tile-name { position: absolute; z-index: 2; left: var(--s2); bottom: var(--s2); display: flex; gap: 6px; align-items: center; padding: 2px var(--s2); border-radius: var(--r-xs); background: rgba(0, 0, 0, .6); color: #fff; font-size: var(--fs-sm); pointer-events: none; }
 .stage-status { margin-left: var(--s2); }
 /* A video tile: the whole tile is its button (watch, then focus); its name
@@ -891,7 +895,13 @@ img.emoji-big { width: 32px; height: 32px; object-fit: contain; }
 .mention-opt.sel, .mention-opt:hover { background: var(--accent-soft); }
 
 /* A DM call: on top of the conversation (voice.js renderStage). */
-.dm-call { flex: 0 0 auto; display: flex; flex-direction: column; height: 42vh; min-height: 220px; border-bottom: 1px solid var(--line); background: var(--rail); resize: vertical; overflow: hidden; }
+.dm-call { flex: 0 0 auto; display: flex; flex-direction: column; height: 50vh; min-height: 160px; background: var(--rail); overflow: hidden; }
+/* The divider under a DM call (dm.js dmCallDivider). */
+.dm-call-divider { flex: 0 0 6px; cursor: row-resize; background: var(--line); touch-action: none; }
+.dm-call-divider:hover, .dm-call-divider.dragging, .dm-call-divider:focus-visible { background: var(--accent); outline: none; }
+/* Hide chat: the call has the whole conversation. */
+.dm-view.chat-hidden .dm-call { flex: 1 1 auto; height: auto !important; }
+.dm-view.chat-hidden > :is(.dm-call-divider, #dm-messages, #dm-jump, #dm-typing, .composer) { display: none; }
 .dm-call .stage { flex: 1; }
 /* Under every stage: the call's controls and Leave. */
 .stage-controls-host { flex: 0 0 auto; background: var(--rail); }

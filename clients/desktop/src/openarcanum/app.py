@@ -1006,9 +1006,57 @@ def harden_webview(index_url: str) -> None:
         )
         return False
 
-    def create_window(self, _type):
-        log.warning("refused a new window from the page")
-        return None
+    # The one kind of window the page may open: a video pop-out (voice.js
+    # popout), an empty window it fills itself with a stream it already has.
+    # Same profile, so the page can reach it; no bridge (it isn't
+    # pywebview's page), no navigation anywhere, no windows of its own.
+    # A window asked to load anything (window.open with a URL) is refused
+    # and closed without being shown: it's shown only once it has stayed
+    # blank for a moment. Its first load doesn't always ask
+    # acceptNavigationRequest, so its URL is watched too.
+    from qtpy.QtCore import Qt, QTimer
+    from qtpy.QtWebEngineCore import QWebEnginePage
+    from qtpy.QtWebEngineWidgets import QWebEngineView
+
+    class PopoutPage(QWebEnginePage):
+        refused = False
+
+        def refuse(self) -> None:
+            if not self.refused:
+                self.refused = True
+                log.warning("refused a new window from the page")
+                QTimer.singleShot(0, self.parent().close)
+
+        def acceptNavigationRequest(self, url, nav_type, is_main_frame) -> bool:
+            if url.toString() in ("", "about:blank"):
+                return True
+            self.refuse()
+            return False
+
+        def createWindow(self, _type):
+            return None
+
+    popouts: set = set()
+
+    def create_window(self, win_type):
+        if win_type not in (QWebEnginePage.WebWindowType.WebBrowserWindow, QWebEnginePage.WebWindowType.WebDialog):
+            log.warning("refused a new window from the page")
+            return None
+        view = QWebEngineView()
+        page = PopoutPage(self.profile(), view)
+        view.setPage(page)
+        view.setWindowTitle(PRODUCT_NAME)
+        view.resize(960, 540)
+        page.windowCloseRequested.connect(view.close)
+        page.urlChanged.connect(lambda url, p=page: None if url.toString() in ("", "about:blank") else p.refuse())
+        page.titleChanged.connect(
+            lambda title, v=view: v.setWindowTitle(f"{title} - {PRODUCT_NAME}" if title else PRODUCT_NAME)
+        )
+        popouts.add(view)
+        view.destroyed.connect(lambda *_a, v=view: popouts.discard(v))
+        view.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        QTimer.singleShot(400, lambda: None if page.refused or view not in popouts else view.show())
+        return page
 
     def view_init(self, parent=None):
         original_view_init(self, parent)
@@ -1019,6 +1067,9 @@ def harden_webview(index_url: str) -> None:
         original_page_init(self, parent, profile)
         s = self.settings()
         s.setAttribute(type(s).WebAttribute.WebRTCPublicInterfacesOnly, True)
+        # window.open reaches create_window, which only lets a video
+        # pop-out through.
+        s.setAttribute(type(s).WebAttribute.JavascriptCanOpenWindows, True)
 
     def intercept_request(self, info):
         url = info.requestUrl()

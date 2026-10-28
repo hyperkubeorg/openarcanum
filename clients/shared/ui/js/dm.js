@@ -5,6 +5,10 @@
 const QUICK_EMOJI = ['👍', '❤️', '😂', '🎉', '😮', '😢'];
 
 const dmUI = {
+  // A DM call's panel: its height (ui_state "dm_call_height", the divider
+  // under it) and whether the call has the whole conversation (Hide chat).
+  callHeight: null,
+  chatHidden: false,
   list: [],
   current: null,
   info: null,
@@ -195,17 +199,70 @@ function renderDmMain(main) {
     h('div', { id: 'dm-head' }),
     // The call, while you're in this conversation's call: on top, the
     // messages below (voice.js renderStage).
-    voiceUI.inDmCall(c.id) ? h('div', { id: 'dm-call', class: 'dm-call', role: 'region', 'aria-label': t('Call') }) : null,
+    voiceUI.inDmCall(c.id) ? h('div', { id: 'dm-call', class: 'dm-call', role: 'region', 'aria-label': t('Call'),
+      style: dmUI.callHeight ? { height: dmUI.callHeight + 'px' } : {} }) : null,
+    voiceUI.inDmCall(c.id) ? dmCallDivider() : null,
     h('div', { id: 'dm-banners' }),
     h('div', { class: 'messages', id: 'dm-messages', role: 'log', 'aria-live': 'polite' }),
     h('div', { id: 'dm-jump' }),
     h('div', { class: 'typing small muted', id: 'dm-typing', 'aria-live': 'polite' }));
   if (info.status === 'active') view.appendChild(dmComposer(c, info));
+  view.classList.toggle('chat-hidden', voiceUI.inDmCall(c.id) && dmUI.chatHidden);
   main.appendChild(view);
   $('#dm-jump').replaceWith(jumpToLatest($('#dm-messages')));
   fillDmView(true);
   if (voiceUI.inDmCall(c.id)) voiceUI.renderStage();
 }
+
+// The divider under a DM call: drag it (or arrow keys on it) to give the
+// call more or less of the conversation. The height is kept, so a redraw (a
+// new message) doesn't undo it. Pointer events, not CSS resize, so it works
+// the same in every engine.
+function dmCallDivider() {
+  const MIN = 160;
+  const max = () => Math.max(MIN, (($('#dm-view') || document.body).clientHeight || window.innerHeight) - 160);
+  const set = (px) => {
+    dmUI.callHeight = Math.round(Math.min(max(), Math.max(MIN, px)));
+    const panel = $('#dm-call');
+    if (panel) panel.style.height = dmUI.callHeight + 'px';
+    bar.setAttribute('aria-valuenow', String(dmUI.callHeight));
+  };
+  const save = () => api('ui_state_set', 'dm_call_height', dmUI.callHeight).catch(() => {});
+  const bar = h('div', { class: 'dm-call-divider', role: 'separator', tabindex: '0', 'aria-orientation': 'horizontal',
+    'aria-label': t('Height of the call'), 'aria-valuemin': String(MIN), 'aria-valuenow': String(dmUI.callHeight || 0) });
+  let startY = 0;
+  let startH = 0;
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    startY = e.clientY;
+    startH = ($('#dm-call') || {}).offsetHeight || 0;
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add('dragging');
+  });
+  bar.addEventListener('pointermove', (e) => { if (bar.classList.contains('dragging')) set(startH + e.clientY - startY); });
+  const end = () => { if (bar.classList.contains('dragging')) { bar.classList.remove('dragging'); save(); } };
+  bar.addEventListener('pointerup', end);
+  bar.addEventListener('pointercancel', end);
+  bar.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 80 : 24;
+    const now = ($('#dm-call') || {}).offsetHeight || 0;
+    if (e.key === 'ArrowUp') set(now - step);
+    else if (e.key === 'ArrowDown') set(now + step);
+    else return;
+    e.preventDefault();
+    save();
+  });
+  return bar;
+}
+
+// Hide chat in a DM call: the call has the whole conversation.
+dmUI.setChatHidden = function (hidden) {
+  dmUI.chatHidden = hidden;
+  const view = $('#dm-view');
+  if (view) view.classList.toggle('chat-hidden', hidden && voiceUI.inDmCall(dmUI.current));
+  voiceUI.renderStage();
+};
 
 function fillDmView(first = false) {
   const c = dmUI.list.find((x) => x.id === dmUI.current) || { id: dmUI.current, name: dmUI.info.name || t('Conversation') };
@@ -234,7 +291,12 @@ function fillDmView(first = false) {
   // The owner can turn attachments on and off while the composer is open.
   const attach = $('#dm-attach');
   if (attach) attach.classList.toggle('hidden', !info.allow_attachments);
+  $('#dm-typing').textContent = typingText(info.typing);
   const list = $('#dm-messages');
+  // As chat.js renderMessagesNow: the same messages aren't drawn again.
+  const sig = JSON.stringify([dmUI.current, dmUI.newSince, dmUI.history, info.members.map((m) => [m.id, m.name])]);
+  if (!first && list.dataset.drawn === sig) return;
+  list.dataset.drawn = sig;
   const atBottom = first || list.scrollHeight - list.scrollTop - list.clientHeight < 40;
   clear(list);
   const byId = Object.fromEntries(dmUI.history.map((m) => [m.id, m]));
@@ -255,7 +317,6 @@ function fillDmView(first = false) {
   }
   if (!dmUI.history.length) list.appendChild(h('div', { class: 'empty' }, h('p', { text: t('No messages yet.') })));
   if (atBottom) setTimeout(() => { list.scrollTop = list.scrollHeight; }, 0);
-  $('#dm-typing').textContent = typingText(info.typing);
 }
 
 function typingText(names) {
@@ -583,42 +644,68 @@ async function pickMembers(title, max, okLabel, withName) {
     let done = false;
     const sel = selectEl([['', t('My contacts')], ...comms.map((c) => [c.id, c.name])], contacts.length || !comms.length ? '' : comms[0].id);
     const name = h('input', { type: 'text', placeholder: t('Optional') });
+    // The list can be long: a search filters it, and the people picked stay
+    // at the top (whatever the search), so they're always in view.
+    const search = h('input', { type: 'search', placeholder: t('Search by name'), 'aria-label': t('Search people') });
     const list = h('div', { class: 'pick-list', role: 'group', 'aria-label': t('People') });
-    const load = async () => {
+    const count = h('div', { class: 'small muted pick-count', 'aria-live': 'polite' });
+    let people = []; // [{id, name}] from the source chosen
+    let picked = new Set();
+    let empty = '';
+    const draw = (focusId = null) => {
+      const q = search.value.trim().toLowerCase();
+      const shown = people.filter((p) => picked.has(p.id) || !q || p.name.toLowerCase().includes(q))
+        .sort((a, b) => (picked.has(b.id) - picked.has(a.id)) || a.name.localeCompare(b.name));
       clear(list);
+      for (const p of shown) {
+        const cb = checkbox(p.name, picked.has(p.id));
+        cb.input.value = p.id;
+        cb.input.addEventListener('change', () => {
+          if (cb.input.checked) picked.add(p.id); else picked.delete(p.id);
+          draw(p.id);
+        });
+        list.appendChild(cb);
+      }
+      if (!people.length) list.appendChild(h('div', { class: 'small muted', text: empty }));
+      else if (!shown.length) list.appendChild(h('div', { class: 'small muted', text: t('Nobody by that name.') }));
+      count.textContent = picked.size ? tn('{n} picked', '{n} picked', picked.size, { n: picked.size }) : '';
+      if (focusId !== null) {
+        const again = $$('input[type=checkbox]', list).find((x) => x.value === focusId);
+        if (again) again.focus();
+      }
+    };
+    search.addEventListener('input', () => draw());
+    const load = async () => {
+      picked = new Set();
+      search.value = '';
       if (!sel.value) {
-        for (const c of contacts) {
-          const cb = checkbox(c.name, false);
-          cb.input.value = c.id;
-          list.appendChild(cb);
-        }
-        if (!list.children.length) list.appendChild(h('div', { class: 'small muted', text: t('No contacts yet. Add someone with their contact code first.') }));
+        people = contacts.map((c) => ({ id: c.id, name: c.name }));
+        empty = t('No contacts yet. Add someone with their contact code first.');
+        draw();
         return;
       }
-      list.appendChild(h('div', { class: 'small muted', text: t('Loading members…') }));
+      people = [];
+      clear(list).appendChild(h('div', { class: 'small muted', text: t('Loading members…') }));
       let members = [];
       try { members = await api('members', sel.value); } catch (e) { toastError(e); }
       // Who I am there (not loaded yet when the app opened in this view).
       if (!st.states[sel.value]) await loadState(sel.value);
       const mine = (st.states[sel.value] && st.states[sel.value].self) ? st.states[sel.value].self.key : '';
-      clear(list);
-      for (const mm of members.filter((x) => x.key !== mine)) {
-        const cb = checkbox(mm.display_name, false);
-        cb.input.value = mm.key;
-        list.appendChild(cb);
-      }
-      if (!list.children.length) list.appendChild(h('div', { class: 'small muted', text: t('Nobody else here yet.') }));
+      people = members.filter((x) => x.key !== mine).map((mm) => ({ id: mm.key, name: mm.display_name }));
+      empty = t('Nobody else here yet.');
+      draw();
     };
     sel.addEventListener('change', load);
     load();
     modal({
       title,
       body: h('div', { class: 'stack' }, field(t('People from'), sel), withName ? field(t('Group name'), name) : null,
-        h('div', { class: 'hint', text: t('Up to {max} people. From a community, they need a contact card there. Their privacy settings decide whether they can be invited.', { max }) }), list),
+        h('div', { class: 'hint', text: t('Up to {max} people. From a community, they need a contact card there. Their privacy settings decide whether they can be invited.', { max }) }),
+        search, count, list),
       actions: [
         { label: t('Cancel'), run: () => { done = true; resolve(null); } },
         { label: okLabel, kind: 'primary', run: () => {
-          const keys = $$('input[type=checkbox]', list).filter((x) => x.checked).map((x) => x.value);
+          const keys = [...picked];
           if (!keys.length) { toast(t('Pick at least one person.'), { error: true }); return false; }
           if (keys.length > max) { toast(t('You can pick at most {max} people.', { max }), { error: true }); return false; }
           done = true;
@@ -830,7 +917,15 @@ on('dm_call', (c) => {
     // It rings for a minute, then the banner stays as "Join call" in the header.
     setTimeout(() => { if (dmCallUI.ringing[c.id]) dmCallUI.dismiss(c.id); }, 60000);
   }
-  if (st.view === 'dms') render();
+  // Only what a call changes: the conversation list (its call marks), and
+  // the open conversation's header and banners; the whole view only when
+  // the call panel comes or goes. Calls say they're alive every few seconds,
+  // and a full redraw each time made the messages flicker.
+  if (st.view !== 'dms') return;
+  renderSidebar();
+  if (dmUI.current !== c.id || !dmViewMatches()) return;
+  if (!!$('#dm-call') !== voiceUI.inDmCall(c.id)) renderMain();
+  else fillDmView();
 });
 
 // ---------------------------------------------------------------- events

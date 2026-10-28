@@ -83,6 +83,7 @@ async function enterApp(status) {
     chat.drafts = (await api('ui_state_get', 'drafts')) || {};
     st.showMembers = !!(await api('ui_state_get', 'show_members'));
     setSidebarWidth(await api('ui_state_get', 'sidebar_width'));
+    { const hgt = await api('ui_state_get', 'dm_call_height'); dmUI.callHeight = Number.isFinite(hgt) && hgt >= 160 ? hgt : null; }
     await loadRailLayout();
     const last = (await api('ui_state_get', 'last')) || {};
     await refreshCommunities();

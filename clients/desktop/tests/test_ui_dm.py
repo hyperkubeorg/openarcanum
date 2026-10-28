@@ -190,7 +190,17 @@ def test_group_dm_create_rename_leave(tmp_path):
                 await alice.click(".menu .mi", "Add as contact")
                 await open_dms(olive)
                 await olive.click('button[aria-label="New group DM"]')
+                # The list has a search; whoever's picked stays at the top
+                # whatever it's filtered by.
+                await olive.wait_text(".modal .pick-list label", "Alice")
+                await olive.fill(".modal input[type=search]", "nobody-called-this")
+                await olive.wait_text(".modal .pick-list", "Nobody by that name.")
+                await olive.fill(".modal input[type=search]", "ali")
                 await olive.click(".modal .pick-list input[type=checkbox]", "Alice")
+                await olive.fill(".modal input[type=search]", "nobody-called-this")
+                await olive.wait_text(".modal .pick-list label", "Alice")
+                assert await olive.js("document.querySelector('.modal .pick-list input[type=checkbox]').checked")
+                await olive.wait_text(".modal .pick-count", "1 picked")
                 await olive.fill(".modal input[placeholder='Optional']", "Plans")
                 await olive.button("Create")
                 await olive.wait_text(".main-head .title", "Plans")

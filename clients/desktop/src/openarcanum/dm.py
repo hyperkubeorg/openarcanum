@@ -1545,7 +1545,7 @@ class DMManager:
                     # person's existing 1:1 conversation by these.
                     "peers": [b64(m.identity) for m in others],
                     "status": g.get("status", "active"),
-                    "last": self._for_ui(visible[-1]) if visible else None,
+                    "last": self._for_ui(self._named(gid, visible[-1])) if visible else None,
                     "unread": self._unread(gid),
                     "mentions": g.get("mentions", 0),
                     "blocked": st.direct and any(b64(m.identity) in self.d["blocked"] for m in others),
@@ -1606,7 +1606,7 @@ class DMManager:
             and len(st.members) + len(st.invited) < groups.MAX_MEMBERS,
             "max_members": groups.MAX_MEMBERS,
             "pins": [
-                self._for_ui(m)
+                self._for_ui(self._named(gid, m))
                 for m in (self.store.data.get(gid, []) if self.store else [])
                 if m.get("pinned") and not m.get("deleted")
             ],
@@ -1619,7 +1619,22 @@ class DMManager:
         """For the UI: never file keys or fetch tokens (keys stay in Python)."""
         if gid not in self.d["groups"]:
             raise UserError(_("Unknown conversation."))
-        return [self._for_ui(m) for m in (self.store.data.get(gid, []) if self.store else [])]
+        return [self._for_ui(self._named(gid, m)) for m in (self.store.data.get(gid, []) if self.store else [])]
+
+    def _named(self, gid: str, m: dict | None) -> dict | None:
+        """A message as shown: its author under the name they have now (my
+        nickname for them, else their name here), so a rename reaches old
+        messages too; the name it arrived with when neither is known."""
+        if not m or m.get("mine") or m.get("system") or not m.get("sender"):
+            return m
+        ident = m["sender"]
+        name = self._nickname(ident)
+        if not name:
+            with contextlib.suppress(Exception):
+                name = self._name_of(gid, unb64(ident))
+            if name in ("Someone", _("Someone")):
+                name = m.get("name") or name
+        return m if name == m.get("name") else dict(m, name=name)
 
     @staticmethod
     def _for_ui(m: dict) -> dict:
@@ -2092,7 +2107,7 @@ class DMManager:
         recipients = self._recipients(gid)
         entry = await self.send_event(gid, dm.DmEvent(text=body))
         await self.files.after_send(gid, refs, recipients)
-        return self._for_ui(entry) if entry else {}
+        return self._for_ui(self._named(gid, entry)) if entry else {}
 
     async def edit(self, gid: str, eid: str, text: str) -> dict:
         m = self._own_message(gid, eid)
@@ -3018,7 +3033,7 @@ class DMManager:
             if not mine:
                 self.typing.get(gid, {}).pop(entry["name"], None)
                 self._notify(gid, entry)
-            self.core.emit("dm_message", {"conv": gid, "message": self._for_ui(entry)})
+            self.core.emit("dm_message", {"conv": gid, "message": self._for_ui(self._named(gid, entry))})
             return entry
         target = (
             self.store.find(gid, getattr(ev, kind).target.hex())
@@ -3044,7 +3059,7 @@ class DMManager:
         else:
             return None
         self.store.save()
-        self.core.emit("dm_update", {"conv": gid, "message": self._for_ui(target)})
+        self.core.emit("dm_update", {"conv": gid, "message": self._for_ui(self._named(gid, target))})
         return target
 
     # ---------------------------------------------------------------- attachments
@@ -3081,7 +3096,7 @@ class DMManager:
     def file_available(self, digest: bytes) -> None:
         for gid, m, f in self._files_with(digest):
             f["state"] = "available"
-            self.core.emit("dm_update", {"conv": gid, "message": self._for_ui(m)})
+            self.core.emit("dm_update", {"conv": gid, "message": self._for_ui(self._named(gid, m))})
         if self.store is not None:
             self.store.save()
 
@@ -3089,7 +3104,7 @@ class DMManager:
         for gid, m, f in self._files_with(digest):
             if f["state"] != "available":
                 f["state"] = "expired"
-                self.core.emit("dm_update", {"conv": gid, "message": self._for_ui(m)})
+                self.core.emit("dm_update", {"conv": gid, "message": self._for_ui(self._named(gid, m))})
         if self.store is not None:
             self.store.save()
 

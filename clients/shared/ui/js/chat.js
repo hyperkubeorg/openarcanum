@@ -546,11 +546,16 @@ function renderMessages(keepScroll = false, only = null) {
 }
 
 function renderMessagesNow(list, pane, keepScroll) {
+  const k = key(st.cid, pane.channel());
+  const msgs = st.msgs[k] || [];
+  // Drawn again only when something it shows changed (the messages, the New
+  // marker, people's names): redrawing the same list makes it flicker.
+  const sig = JSON.stringify([k, chat.newSince[k], myKey(), msgs, (st.members[st.cid] || []).map((x) => [x.key, x.nickname, x.display_name])]);
+  if (list.dataset.drawn === sig && !keepScroll) return;
+  list.dataset.drawn = sig;
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
   const prevHeight = list.scrollHeight;
   clear(list);
-  const k = key(st.cid, pane.channel());
-  const msgs = st.msgs[k] || [];
   if (!msgs.length) list.appendChild(h('div', { class: 'empty' }, h('p', { text: t('No messages yet. Say hello!') })));
   let prev = null;
   const byId = {};

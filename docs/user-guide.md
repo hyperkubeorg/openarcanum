@@ -894,10 +894,12 @@ leaves your own devices.
 - **1:1:** in a community, right-click the person (in **Members**, or
   their name on a message) → **Message**. The conversation opens with "End-to-end
   encrypted" in its header; type and press Enter.
-- **Group:** **Direct messages** → **New group DM** (the plus): pick the
-  **Community** whose members you want, an optional **Group name** (up to
-  100 characters) and up to 9 people, then **Create**. "Group created.
-  People join once they accept the invitation."
+- **Group:** **Direct messages** → **New group DM** (the plus): pick
+  **People from** (your contacts, or a community's members), an optional
+  **Group name** (up to 100 characters) and up to 9 people, then
+  **Create**. "Group created. People join once they accept the
+  invitation." **Search by name** filters a long list; the people you've
+  picked stay at the top of it whatever you search for.
 
 Everyone you pick needs a contact card in that community, and their **Who
 can DM me** setting decides whether your message or invitation reaches
@@ -1351,6 +1353,11 @@ screen, **Mute stream** (the speaker) and **Stream volume** (the arrow
 beside it) set its sound for you only. Your own camera and screen show their
 preview.
 
+**Pop out** (the monitor on a watched video) opens it in a window of its
+own, which you can move to another screen and resize; the call goes on in
+the main window, and the sound stays there too. Close the window, or stop
+watching, to end it.
+
 ### Camera
 
 Click **Turn on camera** in the voice bar (shown if you may use video in
@@ -1361,7 +1368,11 @@ sizes they need: each watcher's app picks the size that fits the block it
 shows you in, and a smaller one when their connection starts losing packets.
 While nobody watches, nothing is sent (the camera stays on and everyone sees
 you have it on). Click **Turn off camera** to stop. You can share your
-camera and your screen at the same time.
+camera and your screen at the same time. Turning your camera off, or
+stopping a screen share, asks first (**Turn off your camera?**, **Stop
+sharing your screen?**), so a stray click doesn't cut you off; if the
+screen share ends on its own (the shared window closed), OpenArcanum says
+so.
 
 ### Share your screen
 
@@ -1411,8 +1422,13 @@ In a conversation, **Start a voice call** (the phone) or **Start a video
 call** (the camera) at the top. Everyone in the conversation hears it ring
 ("… is calling", with **Join**); while a call is on, the header shows
 **Join call (n)**. While you're in it, the call shows at the top of the
-conversation (drag its bottom edge to resize) with its controls under it:
-mute, deafen, camera, screen share and **Leave**; the messages stay below.
+conversation with its controls under it: mute, deafen, camera, screen share
+and **Leave**; the messages stay below. Drag the divider under the call (or
+focus it and use the up and down arrows) to give it more or less room; the
+height is kept for your next calls. **Hide chat** gives the call the whole
+conversation (**Show chat** brings the messages back), and **Videos only**
+leaves just the cameras and screens on the stage, without the people who
+have neither (**Show everyone** to undo).
 It works like a voice channel, with the same end-to-end encryption. You're
 in one call at a time: joining a conversation's call leaves a voice channel,
 and joining a voice channel leaves the call.

@@ -19,6 +19,8 @@ const voiceUI = {
   // are received. The one in focus is shown large, the others in a strip.
   watching: new Set(),
   focus: null,
+  videosOnly: false, // the stage shows only video tiles (stageControls)
+  popouts: new Map(), // `${participant}/${kind}` -> its pop-out window (popout)
 
   get current() { return this.state.active ? { cid: this.state.community, channel: this.state.channel, dm: this.state.dm } : null; },
 
@@ -155,6 +157,7 @@ const voiceUI = {
     const gen = session.generation;
     const call = new Call(await withDevices(session), (kind, ...args) => api('call_signal', gen, kind, args), () => this.changed());
     call.onProblem = (p) => this.onProblem(call, p);
+    call.onEnded = (kind) => { if (this.call === call) this.streamEnded(kind); };
     this.call = call;
     try {
       await call.start();
@@ -191,6 +194,7 @@ const voiceUI = {
   stop() {
     if (this.call) this.call.close();
     this.call = null;
+    for (const k of [...this.popouts.keys()]) this.closePopout(k);
     this.videos.clear();
     this.pttDown = false;
   },
@@ -314,18 +318,89 @@ const voiceUI = {
         btn(c && c.selfDeaf ? t('Undeafen') : t('Deafen'), c && c.selfDeaf ? icon('headphone-off') : icon('headphones'), c && c.selfDeaf, () => c && c.setSelfDeaf(!c.selfDeaf).catch(toastError)),
         t('Sound options'), 'dialog', (e) => this.soundMenu(e)),
       s.can_video ? split('camera',
-        btn(c && c.local.camera ? t('Turn off camera') : t('Turn on camera'), icon('video'), c && c.local.camera, () => c && c.setCamera(!c.local.camera).catch(toastError)),
+        btn(c && c.local.camera ? t('Turn off camera') : t('Turn on camera'), icon('video'), c && c.local.camera, () => this.toggleCamera()),
         t('Camera options'), 'menu', (e) => this.cameraMenu(e)) : null,
       s.can_screen ? split('screen',
-        btn(c && c.local.screen ? t('Stop sharing') : t('Share your screen'), icon('monitor-up'), c && c.local.screen, () => c && c.setScreen(!c.local.screen).catch(toastError)),
+        btn(c && c.local.screen ? t('Stop sharing') : t('Share your screen'), icon('monitor-up'), c && c.local.screen, () => this.toggleScreen()),
         t('Screen share options'), 'menu', (e) => this.screenMenu(e)) : null,
       s.can_priority ? btn(c && c.priorityOn ? t('Turn off priority speaker') : t('Turn on priority speaker'), icon('megaphone'), c && c.priorityOn, () => c && c.setPriority(!c.priorityOn).catch(toastError)) : null,
     ];
   },
 
-  // Under the stage: the same controls, and leaving, where the call is.
+  // Turning the camera or a screen share off asks first: everyone stops
+  // seeing it, and a click on the wrong button shouldn't do that unnoticed.
+  async toggleCamera() {
+    const c = this.call;
+    if (!c) return;
+    if (c.local.camera && !(await confirmModal(t('Turn off your camera?'), t('Everyone in the call stops seeing you.'), t('Turn off'), false))) return;
+    if (this.call === c) c.setCamera(!c.local.camera).catch(toastError);
+  },
+  async toggleScreen() {
+    const c = this.call;
+    if (!c) return;
+    if (c.local.screen && !(await confirmModal(t('Stop sharing your screen?'), t('Everyone in the call stops seeing it.'), t('Stop sharing'), false))) return;
+    if (this.call === c) c.setScreen(!c.local.screen).catch(toastError);
+  },
+  // A share that ended outside the app (call.js onEnded).
+  streamEnded(kind) {
+    if (kind === 'screen') toast(t('Your screen share ended: nobody sees it now.'));
+  },
+
+  // A video in a window of its own, the same stream (nothing is sent again):
+  // an empty window the page fills, which closes with the video.
+  popout(key, what) {
+    const old = this.popouts.get(key);
+    if (old && !old.closed) { old.focus(); return; }
+    const v = this.videos.get(key);
+    const stream = v && v.srcObject;
+    if (!stream) return;
+    const w = window.open('', 'openarcanum-' + key.replace(/[^A-Za-z0-9_-]/g, '_'), 'popup,width=960,height=540');
+    if (!w) { toast(t("Couldn't open a window for the video: allow pop-ups for this site."), { error: true }); return; }
+    // Filled now, and again if the window's blank page loads after opening
+    // (the desktop's window does), which replaces what was put in it.
+    const fill = () => {
+      const d = w.document;
+      if (!d || !d.body || d.querySelector('video')) return;
+      d.title = what;
+      Object.assign(d.documentElement.style, { height: '100%', background: '#000' });
+      Object.assign(d.body.style, { margin: '0', height: '100%', background: '#000' });
+      const pv = d.createElement('video');
+      pv.autoplay = true;
+      pv.playsInline = true;
+      pv.muted = true; // its sound plays in the call, once
+      Object.assign(pv.style, { width: '100%', height: '100%', objectFit: 'contain', display: 'block' });
+      d.body.replaceChildren(pv);
+      pv.srcObject = stream;
+      pv.play().catch(() => {});
+    };
+    fill();
+    this.popouts.set(key, w);
+    // Closed by its own close button: the tile's Pop out comes back. A
+    // check every second (unload events fire on the first blank page too).
+    const watch = setInterval(() => {
+      if (this.popouts.get(key) !== w) { clearInterval(watch); return; }
+      if (w.closed) { clearInterval(watch); this.popouts.delete(key); this.renderStage(); return; }
+      fill();
+    }, 1000);
+    this.renderStage();
+  },
+  closePopout(key) {
+    const w = this.popouts.get(key);
+    this.popouts.delete(key);
+    if (w && !w.closed) w.close();
+  },
+
+  // Under the stage: the same controls, and leaving, where the call is. A DM
+  // call also has Hide chat (the call takes the conversation's room); every
+  // call has Videos only (the people without video go from the stage).
   stageControls() {
+    const dm = this.state.dm;
     return h('div', { class: 'stage-controls', role: 'group', 'aria-label': t('Call controls') }, ...this.controls(),
+      dm ? h('button', { class: 'icon-btn' + (dmUI.chatHidden ? ' on' : ''), title: dmUI.chatHidden ? t('Show chat') : t('Hide chat'),
+        'aria-label': dmUI.chatHidden ? t('Show chat') : t('Hide chat'), 'aria-pressed': String(!!dmUI.chatHidden), onclick: () => dmUI.setChatHidden(!dmUI.chatHidden) }, icon('message-square')) : null,
+      h('button', { class: 'icon-btn' + (this.videosOnly ? ' on' : ''), title: this.videosOnly ? t('Show everyone') : t('Videos only'),
+        'aria-label': this.videosOnly ? t('Show everyone') : t('Videos only'), 'aria-pressed': String(!!this.videosOnly),
+        onclick: () => { this.videosOnly = !this.videosOnly; this.renderStage(); } }, icon('users')),
       h('button', { class: 'btn danger stage-leave', onclick: () => this.leave() }, icon('phone-off'), h('span', { text: t('Leave') })));
   },
 
@@ -459,7 +534,7 @@ const voiceUI = {
     });
     const q = c.s.cameraQuality || '720p';
     this.openAt(at, [
-      { label: c.local.camera ? t('Turn off camera') : t('Turn on camera'), run: () => c.setCamera(!c.local.camera).catch(toastError) },
+      { label: c.local.camera ? t('Turn off camera') : t('Turn on camera'), run: () => this.toggleCamera() },
       cams,
       { separator: true },
       ...cameraQualities().map(([id, label]) => ({ label, toggle: true, checked: q === id, run: () => this.setQuality('camera_quality', id) })),
@@ -474,7 +549,7 @@ const voiceUI = {
     if (!c) return;
     const sound = c.s.screenAudio !== false;
     this.openAt(at, [
-      { label: c.local.screen ? t('Stop sharing') : t('Share your screen'), run: () => c.setScreen(!c.local.screen).catch(toastError) },
+      { label: c.local.screen ? t('Stop sharing') : t('Share your screen'), run: () => this.toggleScreen() },
       { separator: true },
       ...screenQualities().map(([id, label]) => ({ label, toggle: true, checked: (c.s.screenQuality || 'balanced') === id, run: () => this.setQuality('screen_quality', id) })),
       { separator: true },
@@ -549,9 +624,13 @@ const voiceUI = {
       if (screen) keys.add(`${p.participant}/screen`);
     }
     // A video that ended isn't watched any more (or focused), and its element goes.
+    for (const k of [...this.popouts.keys()]) if (!keys.has(k)) this.closePopout(k);
     for (const k of [...this.watching]) if (!keys.has(k)) this.watching.delete(k);
     for (const k of [...this.videos.keys()]) if (!keys.has(k)) { this.videos.get(k).srcObject = null; this.videos.delete(k); }
     if (this.focus && !keys.has(this.focus)) this.focus = null;
+    // Videos only: the people without one leave the stage (all of them stay
+    // when nobody has a video, or the stage would be empty).
+    if (this.videosOnly && tiles.some((x) => x.classList.contains('video-tile'))) tiles.splice(0, tiles.length, ...tiles.filter((x) => x.classList.contains('video-tile')));
     this.lastStage = this.stageSignature();
     const focused = this.focus && tiles.find((x) => x.dataset.key === this.focus);
     // The keyboard stays on the same tile (its button's name changes with
@@ -608,6 +687,7 @@ const voiceUI = {
   },
 
   stopWatching(key) {
+    this.closePopout(key);
     this.watching.delete(key);
     if (this.focus === key) this.focus = null;
     this.renderStage();
@@ -647,6 +727,7 @@ const voiceUI = {
       tools.push(h('button', { class: 'icon-btn tile-btn', title: t('Video quality'), 'aria-label': t('Video quality'), 'aria-haspopup': 'menu',
         onclick: (e) => this.openAt(this.anchor(e), this.receiveQualityEntries(p, kind)) }, icon('settings')));
     }
+    if (watched && stream) tools.push(h('button', { class: 'icon-btn tile-btn' + (this.popouts.has(key) ? ' on' : ''), title: t('Pop out'), 'aria-label': t('Pop out {what}', { what }), onclick: () => this.popout(key, what) }, icon('monitor')));
     if (!me && watched) tools.push(h('button', { class: 'icon-btn tile-btn', title: t('Stop watching'), 'aria-label': t('Stop watching {what}', { what }), onclick: () => this.stopWatching(key) }, icon('eye-off')));
     if (!me && kind === 'screen' && watched) {
       const muted = !!(c && c.streamMuted.has(p.member));

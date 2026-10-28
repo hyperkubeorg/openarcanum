@@ -618,3 +618,24 @@ test('frames are bound to their kind of media', async () => {
   assert.ok(mod.frameMetadata('audio', new Uint8Array(0)).length === 1);
   assert.throws(() => mod.frameMetadata('other', new Uint8Array(0)), /unknown media kind/);
 });
+
+test("a receiver the relay reuses for someone else (no track event) is bound to the new person", async () => {
+  const { call } = await started({ audio: true });
+  const track = Object.assign(new FakeTrack('audio'), { id: 'audio' });
+  const receiver = Object.assign(fakeReceiver(), { track });
+  call.onTrack({ streams: [{ id: 'bb' }], track, receiver, transceiver: { mid: '3' } });
+  assert.ok(call.remote.get('bb').audio);
+  // bb left and cc's microphone took the same m-section in one offer: the
+  // transceiver kept receiving, so the browser fired no track event.
+  const tr = { mid: '3', currentDirection: 'recvonly', receiver };
+  call.pc.getTransceivers = () => [tr];
+  call.pc.remoteDescription = { sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:3\r\na=sendonly\r\na=msid:cc audio\r\n' };
+  call.rebindReceivers();
+  assert.equal(call.bound.get(receiver).participant, 'cc');
+  assert.ok(call.remote.get('cc').audio, "cc's voice plays");
+  assert.ok(!call.remote.get('bb') || !call.remote.get('bb').audio, "bb's is gone");
+  // The same offer again changes nothing.
+  const before = call.remote.get('cc').audio;
+  call.rebindReceivers();
+  assert.equal(call.remote.get('cc').audio, before);
+});

@@ -474,7 +474,9 @@ def test_call_menus_queues_prompts_and_group_dms_pass_axe(tmp_path, tone):
                 await alice.click('button[aria-label="Leave call"]')
                 await alice.wait_gone(".voice-bar")
                 await olive.click('.voice-bar button[aria-label="Stop sharing"]')
+                await olive.click(".modal-foot button", "Stop sharing")  # it asks first
                 await olive.click('.voice-bar button[aria-label="Turn off camera"]')
+                await olive.click(".modal-foot button", "Turn off")
 
                 # The update prompt, as the page shows it for the state
                 # Python sends when a verified update is ready (the whole

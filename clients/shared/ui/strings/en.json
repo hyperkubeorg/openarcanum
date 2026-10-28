@@ -1929,6 +1929,11 @@
     "ui/js/voice.js"
    ]
   },
+  "Couldn't open a window for the video: allow pop-ups for this site.": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "Couldn't reach that device.": {
    "used_in": [
     "dm.py"
@@ -2784,6 +2789,16 @@
     "ui/js/voice.js"
    ]
   },
+  "Everyone in the call stops seeing it.": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Everyone in the call stops seeing you.": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "Everything OpenArcanum keeps in this browser is deleted, and it starts fresh. You can then link it to another device, restore a backup, or create a new profile.": {
    "used_in": [
     "ui/js/lock.js"
@@ -2974,9 +2989,19 @@
     "dm.py"
    ]
   },
+  "Height of the call": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Hide": {
    "used_in": [
     "ui/js/dom.js"
+   ]
+  },
+  "Hide chat": {
+   "used_in": [
+    "ui/js/voice.js"
    ]
   },
   "Higher roles outrank lower ones: you can only manage roles and members below your own highest role, and only grant permissions you have. @everyone applies to all members.": {
@@ -4917,6 +4942,11 @@
     "updates.py"
    ]
   },
+  "Nobody by that name.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Nobody can connect this community to any other you're in.": {
    "used_in": [
     "ui/js/join.js"
@@ -5681,6 +5711,19 @@
    ],
    "used_in": [
     "ui/js/sounds.js"
+   ]
+  },
+  "Pop out": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Pop out {what}": {
+   "vars": [
+    "what"
+   ],
+   "used_in": [
+    "ui/js/voice.js"
    ]
   },
   "Post a message when someone joins or leaves.": {
@@ -6648,9 +6691,19 @@
     "ui/js/join.js"
    ]
   },
+  "Search by name": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Search messages": {
    "used_in": [
     "ui/js/chat.js"
+   ]
+  },
+  "Search people": {
+   "used_in": [
+    "ui/js/dm.js"
    ]
   },
   "Search public communities by name, tag or description": {
@@ -6903,6 +6956,16 @@
    "used_in": [
     "ui/js/chat.js",
     "ui/js/dom.js"
+   ]
+  },
+  "Show chat": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Show everyone": {
+   "used_in": [
+    "ui/js/voice.js"
    ]
   },
   "Show messages": {
@@ -7274,6 +7337,11 @@
    ]
   },
   "Stop sharing": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Stop sharing your screen?": {
    "used_in": [
     "ui/js/voice.js"
    ]
@@ -8693,12 +8761,22 @@
     "ui/js/voice.js"
    ]
   },
+  "Turn off": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
   "Turn off camera": {
    "used_in": [
     "ui/js/voice.js"
    ]
   },
   "Turn off priority speaker": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Turn off your camera?": {
    "used_in": [
     "ui/js/voice.js"
    ]
@@ -9150,6 +9228,11 @@
    ]
   },
   "Video quality": {
+   "used_in": [
+    "ui/js/voice.js"
+   ]
+  },
+  "Videos only": {
    "used_in": [
     "ui/js/voice.js"
    ]
@@ -9942,6 +10025,11 @@
   "Your request to join was declined.": {
    "used_in": [
     "community.py"
+   ]
+  },
+  "Your screen share ended: nobody sees it now.": {
+   "used_in": [
+    "ui/js/voice.js"
    ]
   },
   "Your status (online, idle, do not disturb) and custom text are end-to-end encrypted: only the people you share them with can read them, not any server. A community server still sees when you are connected and when your status changes, never what it says.": {
@@ -11749,6 +11837,15 @@
    ],
    "used_in": [
     "ui/js/chat.js",
+    "ui/js/dm.js"
+   ]
+  },
+  "{n} picked": {
+   "plural": "{n} picked",
+   "vars": [
+    "n"
+   ],
+   "used_in": [
     "ui/js/dm.js"
    ]
   },

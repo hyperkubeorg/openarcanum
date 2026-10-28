@@ -123,6 +123,8 @@ def test_voice_call_click_through(tmp_path, tone):
                 await olive.wait_js("document.querySelector('.voice-user .flag[title=\"Camera on\"]')", "camera flag")
                 # Camera off again: the tile goes back to her avatar.
                 await alice.click('button[aria-label="Turn off camera"]')
+                await alice.wait_text(".modal h2", "Turn off your camera?")  # it asks first
+                await alice.click(".modal-foot button", "Turn off")
                 await olive.wait_js(
                     "!document.querySelector('.voice-user .flag[title=\"Camera on\"]')", "camera flag gone"
                 )
@@ -180,6 +182,7 @@ def test_voice_call_click_through(tmp_path, tone):
                         40,
                     )
                     await olive.click('button[aria-label="Stop sharing"]')
+                    await olive.click(".modal-foot button", "Stop sharing")
                 else:
                     print("\nscreen capture isn't available on this display; the app reported it")
                 await olive.wait_js("voiceUI.call.debug().connection === 'connected'", "call still up")
@@ -477,6 +480,7 @@ def test_voice_bar_menus_streams_and_mute_for_me(tmp_path, tone):
                 assert await alice.js("voiceUI.call.debug().listen.screenAudio.length") == 0
                 await olive.wait_js(f"{sending(olive, 'screen-audio')} === false", "the screen's sound not sent", 20)
                 await olive.click('.voice-bar button[aria-label="Stop sharing"]')
+                await olive.click(".modal-foot button", "Stop sharing")
                 await alice.wait_gone(".voice-user .live-badge")
 
                 # Mute for me (right-click Alice): Olive's device neither plays

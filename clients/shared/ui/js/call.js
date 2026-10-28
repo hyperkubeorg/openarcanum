@@ -601,6 +601,7 @@ class Call {
     this.negotiation = this.negotiation.then(async () => {
       if (this.closed) return;
       await this.pc.setRemoteDescription({ type: 'offer', sdp: hardenSdp(sdp) });
+      this.rebindReceivers();
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription({ type: 'answer', sdp: hardenSdp(answer.sdp) });
       await this.signal('answer', this.pc.localDescription.sdp);
@@ -630,11 +631,36 @@ class Call {
     return e.track.id;
   }
 
+  // The relay reuses a freed m-section for someone else's track. When one
+  // person's track goes and another's takes its place in the same offer,
+  // the transceiver keeps receiving, so no track event fires (the spec only
+  // updates its streams): without this, that receiver stays bound to the
+  // person who left and everything from the new one is dropped (wrong key
+  // id) until a rejoin. Each offer's a=msid is the binding.
+  rebindReceivers() {
+    const sdp = this.pc.remoteDescription ? this.pc.remoteDescription.sdp : '';
+    for (const tr of this.pc.getTransceivers()) {
+      const bind = this.bound.get(tr.receiver);
+      if (!bind || !tr.mid || !/recv/.test(tr.currentDirection || tr.direction || '')) continue;
+      for (const section of sdp.split(/\r?\nm=/).slice(1)) {
+        if (!new RegExp(`\\r?\\na=mid:${tr.mid}\\r?(\\n|$)`).test('\n' + section.slice(section.indexOf('\n')))) continue;
+        const m = /\r?\na=msid:(\S+) (\S+)/.exec(section);
+        if (!m || /\r?\na=inactive/.test(section)) break;
+        const [, participant, trackId] = m;
+        const kind = CALL.KIND_TAGS[trackId] ? trackId : bind.kind;
+        if (participant !== bind.participant || kind !== bind.kind) {
+          this.onTrack({ track: tr.receiver.track, receiver: tr.receiver, transceiver: tr, streams: [{ id: participant }], kind });
+        }
+        break;
+      }
+    }
+  }
+
   onTrack(e) {
     const stream = e.streams[0];
     if (!stream) return;
     const participant = stream.id;
-    const kind = this.trackKind(e);
+    const kind = e.kind || this.trackKind(e);
     // A renegotiation can deliver a receiver again (when the call's grants
     // change, say). Its encoded streams can be created only once, so the
     // first decryption pipe stays and follows the new binding.
@@ -859,7 +885,9 @@ class Call {
       }
       this.local.screen = s.getVideoTracks()[0];
       this.local.screen.contentHint = this.screenQuality().contentHint;
-      this.local.screen.onended = () => this.setScreen(false).catch(() => {});
+      // Ended outside the app (the browser's or the system's Stop sharing):
+      // the page says so (voice.js onEnded).
+      this.local.screen.onended = () => { this.setScreen(false).catch(() => {}); if (this.onEnded) this.onEnded('screen'); };
       const a = s.getAudioTracks()[0];
       if (a && audio) this.local['screen-audio'] = a;
       else if (a) a.stop();
