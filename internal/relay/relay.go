@@ -96,6 +96,9 @@ type Server struct {
 type Stats struct {
 	SlowConsumers atomic.Int64
 	Delivered     atomic.Int64
+	// DeliveredBytes is the size of what Delivered carried (encrypted
+	// frames): the relay's messaging bandwidth, for scaling.
+	DeliveredBytes atomic.Int64
 	// Refused counts connections turned away at max_connections;
 	// UnstartedRefused those turned away because too many connections (in
 	// all, or from their network) hadn't started yet; NetworkRefused those
@@ -903,6 +906,7 @@ func (c *conn) publish(m *wire.Publish) {
 	for _, sub := range targets {
 		if sub.enqueue(b) {
 			s.stats.Delivered.Add(1)
+			s.stats.DeliveredBytes.Add(int64(len(b)))
 		}
 	}
 }

@@ -923,6 +923,7 @@ type ClientMessage struct {
 	//	*ClientMessage_AddKeyPackages
 	//	*ClientMessage_GetAvatar
 	//	*ClientMessage_AdoptServer
+	//	*ClientMessage_GetInsights
 	//	*ClientMessage_React
 	//	*ClientMessage_Pin
 	//	*ClientMessage_ListPins
@@ -1276,6 +1277,15 @@ func (x *ClientMessage) GetAdoptServer() *AdoptServer {
 	return nil
 }
 
+func (x *ClientMessage) GetGetInsights() *GetInsights {
+	if x != nil {
+		if x, ok := x.Body.(*ClientMessage_GetInsights); ok {
+			return x.GetInsights
+		}
+	}
+	return nil
+}
+
 func (x *ClientMessage) GetReact() *React {
 	if x != nil {
 		if x, ok := x.Body.(*ClientMessage_React); ok {
@@ -1552,6 +1562,11 @@ type ClientMessage_AdoptServer struct {
 	AdoptServer *AdoptServer `protobuf:"bytes,32,opt,name=adopt_server,json=adoptServer,proto3,oneof"`
 }
 
+type ClientMessage_GetInsights struct {
+	// Community Admin → Insights (docs/protocol.md §4.12): admins only.
+	GetInsights *GetInsights `protobuf:"bytes,33,opt,name=get_insights,json=getInsights,proto3,oneof"`
+}
+
 type ClientMessage_React struct {
 	// Messaging (docs/protocol.md §4.3).
 	React *React `protobuf:"bytes,60,opt,name=react,proto3,oneof"`
@@ -1683,6 +1698,8 @@ func (*ClientMessage_GetAvatar) isClientMessage_Body() {}
 
 func (*ClientMessage_AdoptServer) isClientMessage_Body() {}
 
+func (*ClientMessage_GetInsights) isClientMessage_Body() {}
+
 func (*ClientMessage_React) isClientMessage_Body() {}
 
 func (*ClientMessage_Pin) isClientMessage_Body() {}
@@ -1758,6 +1775,7 @@ type ServerMessage struct {
 	//	*ServerMessage_Statuses
 	//	*ServerMessage_StatusKeys
 	//	*ServerMessage_StatusKeyRequest
+	//	*ServerMessage_Insights
 	Body          isServerMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2140,6 +2158,15 @@ func (x *ServerMessage) GetStatusKeyRequest() *StatusKeyRequest {
 	return nil
 }
 
+func (x *ServerMessage) GetInsights() *Insights {
+	if x != nil {
+		if x, ok := x.Body.(*ServerMessage_Insights); ok {
+			return x.Insights
+		}
+	}
+	return nil
+}
+
 type isServerMessage_Body interface {
 	isServerMessage_Body()
 }
@@ -2304,6 +2331,10 @@ type ServerMessage_StatusKeyRequest struct {
 	StatusKeyRequest *StatusKeyRequest `protobuf:"bytes,106,opt,name=status_key_request,json=statusKeyRequest,proto3,oneof"`
 }
 
+type ServerMessage_Insights struct {
+	Insights *Insights `protobuf:"bytes,107,opt,name=insights,proto3,oneof"`
+}
+
 func (*ServerMessage_Error) isServerMessage_Body() {}
 
 func (*ServerMessage_Ok) isServerMessage_Body() {}
@@ -2377,6 +2408,8 @@ func (*ServerMessage_Statuses) isServerMessage_Body() {}
 func (*ServerMessage_StatusKeys) isServerMessage_Body() {}
 
 func (*ServerMessage_StatusKeyRequest) isServerMessage_Body() {}
+
+func (*ServerMessage_Insights) isServerMessage_Body() {}
 
 type Ok struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -13764,11 +13797,288 @@ func (x *EmojiImage) GetVersion() uint32 {
 	return 0
 }
 
+// GetInsights asks for the community's activity over its last `days` days
+// (1 to 400; 30 when 0). Members with Manage community or View audit log.
+type GetInsights struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Days          uint32                 `protobuf:"varint,1,opt,name=days,proto3" json:"days,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetInsights) Reset() {
+	*x = GetInsights{}
+	mi := &file_openarcanum_v1_community_proto_msgTypes[164]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetInsights) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetInsights) ProtoMessage() {}
+
+func (x *GetInsights) ProtoReflect() protoreflect.Message {
+	mi := &file_openarcanum_v1_community_proto_msgTypes[164]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetInsights.ProtoReflect.Descriptor instead.
+func (*GetInsights) Descriptor() ([]byte, []int) {
+	return file_openarcanum_v1_community_proto_rawDescGZIP(), []int{164}
+}
+
+func (x *GetInsights) GetDays() uint32 {
+	if x != nil {
+		return x.Days
+	}
+	return 0
+}
+
+// One UTC day's activity: counts only, nothing about who.
+type InsightDay struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Day           string                 `protobuf:"bytes,1,opt,name=day,proto3" json:"day,omitempty"`          // YYYY-MM-DD (UTC)
+	Members       uint32                 `protobuf:"varint,2,opt,name=members,proto3" json:"members,omitempty"` // active members on the roll at the day's last count
+	Joined        uint32                 `protobuf:"varint,3,opt,name=joined,proto3" json:"joined,omitempty"`
+	Left          uint32                 `protobuf:"varint,4,opt,name=left,proto3" json:"left,omitempty"` // left, kicked or banned
+	Messages      uint32                 `protobuf:"varint,5,opt,name=messages,proto3" json:"messages,omitempty"`
+	Active        uint32                 `protobuf:"varint,6,opt,name=active,proto3" json:"active,omitempty"`   // members who connected that day
+	Posters       uint32                 `protobuf:"varint,7,opt,name=posters,proto3" json:"posters,omitempty"` // members who posted that day
+	VoiceMinutes  uint32                 `protobuf:"varint,8,opt,name=voice_minutes,json=voiceMinutes,proto3" json:"voice_minutes,omitempty"`
+	PeakOnline    uint32                 `protobuf:"varint,9,opt,name=peak_online,json=peakOnline,proto3" json:"peak_online,omitempty"` // most members online at once (sampled each minute)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InsightDay) Reset() {
+	*x = InsightDay{}
+	mi := &file_openarcanum_v1_community_proto_msgTypes[165]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InsightDay) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InsightDay) ProtoMessage() {}
+
+func (x *InsightDay) ProtoReflect() protoreflect.Message {
+	mi := &file_openarcanum_v1_community_proto_msgTypes[165]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InsightDay.ProtoReflect.Descriptor instead.
+func (*InsightDay) Descriptor() ([]byte, []int) {
+	return file_openarcanum_v1_community_proto_rawDescGZIP(), []int{165}
+}
+
+func (x *InsightDay) GetDay() string {
+	if x != nil {
+		return x.Day
+	}
+	return ""
+}
+
+func (x *InsightDay) GetMembers() uint32 {
+	if x != nil {
+		return x.Members
+	}
+	return 0
+}
+
+func (x *InsightDay) GetJoined() uint32 {
+	if x != nil {
+		return x.Joined
+	}
+	return 0
+}
+
+func (x *InsightDay) GetLeft() uint32 {
+	if x != nil {
+		return x.Left
+	}
+	return 0
+}
+
+func (x *InsightDay) GetMessages() uint32 {
+	if x != nil {
+		return x.Messages
+	}
+	return 0
+}
+
+func (x *InsightDay) GetActive() uint32 {
+	if x != nil {
+		return x.Active
+	}
+	return 0
+}
+
+func (x *InsightDay) GetPosters() uint32 {
+	if x != nil {
+		return x.Posters
+	}
+	return 0
+}
+
+func (x *InsightDay) GetVoiceMinutes() uint32 {
+	if x != nil {
+		return x.VoiceMinutes
+	}
+	return 0
+}
+
+func (x *InsightDay) GetPeakOnline() uint32 {
+	if x != nil {
+		return x.PeakOnline
+	}
+	return 0
+}
+
+// Messages per channel in the last 30 days (those still kept: retention
+// may have removed older ones).
+type ChannelActivity struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChannelId     int64                  `protobuf:"varint,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	Messages      uint32                 `protobuf:"varint,2,opt,name=messages,proto3" json:"messages,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChannelActivity) Reset() {
+	*x = ChannelActivity{}
+	mi := &file_openarcanum_v1_community_proto_msgTypes[166]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChannelActivity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChannelActivity) ProtoMessage() {}
+
+func (x *ChannelActivity) ProtoReflect() protoreflect.Message {
+	mi := &file_openarcanum_v1_community_proto_msgTypes[166]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChannelActivity.ProtoReflect.Descriptor instead.
+func (*ChannelActivity) Descriptor() ([]byte, []int) {
+	return file_openarcanum_v1_community_proto_rawDescGZIP(), []int{166}
+}
+
+func (x *ChannelActivity) GetChannelId() int64 {
+	if x != nil {
+		return x.ChannelId
+	}
+	return 0
+}
+
+func (x *ChannelActivity) GetMessages() uint32 {
+	if x != nil {
+		return x.Messages
+	}
+	return 0
+}
+
+type Insights struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Days          []*InsightDay          `protobuf:"bytes,1,rep,name=days,proto3" json:"days,omitempty"` // oldest first; days with nothing recorded are left out
+	Channels      []*ChannelActivity     `protobuf:"bytes,2,rep,name=channels,proto3" json:"channels,omitempty"`
+	Members       uint32                 `protobuf:"varint,3,opt,name=members,proto3" json:"members,omitempty"` // now
+	Online        uint32                 `protobuf:"varint,4,opt,name=online,proto3" json:"online,omitempty"`   // now
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Insights) Reset() {
+	*x = Insights{}
+	mi := &file_openarcanum_v1_community_proto_msgTypes[167]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Insights) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Insights) ProtoMessage() {}
+
+func (x *Insights) ProtoReflect() protoreflect.Message {
+	mi := &file_openarcanum_v1_community_proto_msgTypes[167]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Insights.ProtoReflect.Descriptor instead.
+func (*Insights) Descriptor() ([]byte, []int) {
+	return file_openarcanum_v1_community_proto_rawDescGZIP(), []int{167}
+}
+
+func (x *Insights) GetDays() []*InsightDay {
+	if x != nil {
+		return x.Days
+	}
+	return nil
+}
+
+func (x *Insights) GetChannels() []*ChannelActivity {
+	if x != nil {
+		return x.Channels
+	}
+	return nil
+}
+
+func (x *Insights) GetMembers() uint32 {
+	if x != nil {
+		return x.Members
+	}
+	return 0
+}
+
+func (x *Insights) GetOnline() uint32 {
+	if x != nil {
+		return x.Online
+	}
+	return 0
+}
+
 var File_openarcanum_v1_community_proto protoreflect.FileDescriptor
 
 const file_openarcanum_v1_community_proto_rawDesc = "" +
 	"\n" +
-	"\x1eopenarcanum/v1/community.proto\x12\x0eopenarcanum.v1\x1a\x19openarcanum/v1/call.proto\x1a\x1copenarcanum/v1/session.proto\"\xdc\x17\n" +
+	"\x1eopenarcanum/v1/community.proto\x12\x0eopenarcanum.v1\x1a\x19openarcanum/v1/call.proto\x1a\x1copenarcanum/v1/session.proto\"\x9e\x18\n" +
 	"\rClientMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x124\n" +
 	"\bget_info\x18\x02 \x01(\v2\x17.openarcanum.v1.GetInfoH\x00R\agetInfo\x12-\n" +
@@ -13808,7 +14118,8 @@ const file_openarcanum_v1_community_proto_rawDesc = "" +
 	"\x10add_key_packages\x18\x1e \x01(\v2\x1e.openarcanum.v1.AddKeyPackagesH\x00R\x0eaddKeyPackages\x12:\n" +
 	"\n" +
 	"get_avatar\x18\x1f \x01(\v2\x19.openarcanum.v1.GetAvatarH\x00R\tgetAvatar\x12@\n" +
-	"\fadopt_server\x18  \x01(\v2\x1b.openarcanum.v1.AdoptServerH\x00R\vadoptServer\x12-\n" +
+	"\fadopt_server\x18  \x01(\v2\x1b.openarcanum.v1.AdoptServerH\x00R\vadoptServer\x12@\n" +
+	"\fget_insights\x18! \x01(\v2\x1b.openarcanum.v1.GetInsightsH\x00R\vgetInsights\x12-\n" +
 	"\x05react\x18< \x01(\v2\x15.openarcanum.v1.ReactH\x00R\x05react\x12'\n" +
 	"\x03pin\x18= \x01(\v2\x13.openarcanum.v1.PinH\x00R\x03pin\x127\n" +
 	"\tlist_pins\x18> \x01(\v2\x18.openarcanum.v1.ListPinsH\x00R\blistPins\x120\n" +
@@ -13826,7 +14137,7 @@ const file_openarcanum_v1_community_proto_rawDesc = "" +
 	"\x10send_status_keys\x18] \x01(\v2\x1e.openarcanum.v1.SendStatusKeysH\x00R\x0esendStatusKeys\x12M\n" +
 	"\x11fetch_status_keys\x18^ \x01(\v2\x1f.openarcanum.v1.FetchStatusKeysH\x00R\x0ffetchStatusKeys\x12P\n" +
 	"\x12request_status_key\x18_ \x01(\v2 .openarcanum.v1.RequestStatusKeyH\x00R\x10requestStatusKeyB\x06\n" +
-	"\x04body\"\xfb\x11\n" +
+	"\x04body\"\xb3\x12\n" +
 	"\rServerMessage\x12\x19\n" +
 	"\breply_to\x18\x01 \x01(\x04R\areplyTo\x120\n" +
 	"\x05error\x18\x02 \x01(\v2\x18.openarcanum.v1.RpcErrorH\x00R\x05error\x12$\n" +
@@ -13872,7 +14183,8 @@ const file_openarcanum_v1_community_proto_rawDesc = "" +
 	"\bstatuses\x18h \x01(\v2\x1a.openarcanum.v1.StatusListH\x00R\bstatuses\x12=\n" +
 	"\vstatus_keys\x18i \x01(\v2\x1a.openarcanum.v1.StatusKeysH\x00R\n" +
 	"statusKeys\x12P\n" +
-	"\x12status_key_request\x18j \x01(\v2 .openarcanum.v1.StatusKeyRequestH\x00R\x10statusKeyRequestB\x06\n" +
+	"\x12status_key_request\x18j \x01(\v2 .openarcanum.v1.StatusKeyRequestH\x00R\x10statusKeyRequest\x126\n" +
+	"\binsights\x18k \x01(\v2\x18.openarcanum.v1.InsightsH\x00R\binsightsB\x06\n" +
 	"\x04body\"\x04\n" +
 	"\x02Ok\"V\n" +
 	"\bRpcError\x120\n" +
@@ -14790,7 +15102,30 @@ const file_openarcanum_v1_community_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\fR\x05image\x12\x12\n" +
 	"\x04mime\x18\x03 \x01(\tR\x04mime\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\rR\aversion*\xc3\x02\n" +
+	"\aversion\x18\x04 \x01(\rR\aversion\"!\n" +
+	"\vGetInsights\x12\x12\n" +
+	"\x04days\x18\x01 \x01(\rR\x04days\"\xf8\x01\n" +
+	"\n" +
+	"InsightDay\x12\x10\n" +
+	"\x03day\x18\x01 \x01(\tR\x03day\x12\x18\n" +
+	"\amembers\x18\x02 \x01(\rR\amembers\x12\x16\n" +
+	"\x06joined\x18\x03 \x01(\rR\x06joined\x12\x12\n" +
+	"\x04left\x18\x04 \x01(\rR\x04left\x12\x1a\n" +
+	"\bmessages\x18\x05 \x01(\rR\bmessages\x12\x16\n" +
+	"\x06active\x18\x06 \x01(\rR\x06active\x12\x18\n" +
+	"\aposters\x18\a \x01(\rR\aposters\x12#\n" +
+	"\rvoice_minutes\x18\b \x01(\rR\fvoiceMinutes\x12\x1f\n" +
+	"\vpeak_online\x18\t \x01(\rR\n" +
+	"peakOnline\"L\n" +
+	"\x0fChannelActivity\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x01 \x01(\x03R\tchannelId\x12\x1a\n" +
+	"\bmessages\x18\x02 \x01(\rR\bmessages\"\xa9\x01\n" +
+	"\bInsights\x12.\n" +
+	"\x04days\x18\x01 \x03(\v2\x1a.openarcanum.v1.InsightDayR\x04days\x12;\n" +
+	"\bchannels\x18\x02 \x03(\v2\x1f.openarcanum.v1.ChannelActivityR\bchannels\x12\x18\n" +
+	"\amembers\x18\x03 \x01(\rR\amembers\x12\x16\n" +
+	"\x06online\x18\x04 \x01(\rR\x06online*\xc3\x02\n" +
 	"\fRpcErrorCode\x12\x1e\n" +
 	"\x1aRPC_ERROR_CODE_UNSPECIFIED\x10\x00\x12$\n" +
 	" RPC_ERROR_CODE_PERMISSION_DENIED\x10\x01\x12\x1c\n" +
@@ -14895,7 +15230,7 @@ func file_openarcanum_v1_community_proto_rawDescGZIP() []byte {
 }
 
 var file_openarcanum_v1_community_proto_enumTypes = make([]protoimpl.EnumInfo, 16)
-var file_openarcanum_v1_community_proto_msgTypes = make([]protoimpl.MessageInfo, 164)
+var file_openarcanum_v1_community_proto_msgTypes = make([]protoimpl.MessageInfo, 168)
 var file_openarcanum_v1_community_proto_goTypes = []any{
 	(RpcErrorCode)(0),              // 0: openarcanum.v1.RpcErrorCode
 	(MemberStatus)(0),              // 1: openarcanum.v1.MemberStatus
@@ -15077,11 +15412,15 @@ var file_openarcanum_v1_community_proto_goTypes = []any{
 	(*DeleteEmoji)(nil),            // 177: openarcanum.v1.DeleteEmoji
 	(*GetEmoji)(nil),               // 178: openarcanum.v1.GetEmoji
 	(*EmojiImage)(nil),             // 179: openarcanum.v1.EmojiImage
-	(*SignedServerCert)(nil),       // 180: openarcanum.v1.SignedServerCert
-	(*OwnerAdd)(nil),               // 181: openarcanum.v1.OwnerAdd
-	(*SignedOwnerChange)(nil),      // 182: openarcanum.v1.SignedOwnerChange
-	(*SignedCallGrant)(nil),        // 183: openarcanum.v1.SignedCallGrant
-	(*SignedCallControl)(nil),      // 184: openarcanum.v1.SignedCallControl
+	(*GetInsights)(nil),            // 180: openarcanum.v1.GetInsights
+	(*InsightDay)(nil),             // 181: openarcanum.v1.InsightDay
+	(*ChannelActivity)(nil),        // 182: openarcanum.v1.ChannelActivity
+	(*Insights)(nil),               // 183: openarcanum.v1.Insights
+	(*SignedServerCert)(nil),       // 184: openarcanum.v1.SignedServerCert
+	(*OwnerAdd)(nil),               // 185: openarcanum.v1.OwnerAdd
+	(*SignedOwnerChange)(nil),      // 186: openarcanum.v1.SignedOwnerChange
+	(*SignedCallGrant)(nil),        // 187: openarcanum.v1.SignedCallGrant
+	(*SignedCallControl)(nil),      // 188: openarcanum.v1.SignedCallControl
 }
 var file_openarcanum_v1_community_proto_depIdxs = []int32{
 	33,  // 0: openarcanum.v1.ClientMessage.get_info:type_name -> openarcanum.v1.GetInfo
@@ -15116,206 +15455,210 @@ var file_openarcanum_v1_community_proto_depIdxs = []int32{
 	117, // 29: openarcanum.v1.ClientMessage.add_key_packages:type_name -> openarcanum.v1.AddKeyPackages
 	52,  // 30: openarcanum.v1.ClientMessage.get_avatar:type_name -> openarcanum.v1.GetAvatar
 	113, // 31: openarcanum.v1.ClientMessage.adopt_server:type_name -> openarcanum.v1.AdoptServer
-	137, // 32: openarcanum.v1.ClientMessage.react:type_name -> openarcanum.v1.React
-	138, // 33: openarcanum.v1.ClientMessage.pin:type_name -> openarcanum.v1.Pin
-	139, // 34: openarcanum.v1.ClientMessage.list_pins:type_name -> openarcanum.v1.ListPins
-	141, // 35: openarcanum.v1.ClientMessage.typing:type_name -> openarcanum.v1.Typing
-	142, // 36: openarcanum.v1.ClientMessage.update_profile:type_name -> openarcanum.v1.UpdateProfile
-	161, // 37: openarcanum.v1.ClientMessage.report_message:type_name -> openarcanum.v1.ReportMessage
-	162, // 38: openarcanum.v1.ClientMessage.list_reports:type_name -> openarcanum.v1.ListReports
-	171, // 39: openarcanum.v1.ClientMessage.list_automod_rules:type_name -> openarcanum.v1.ListAutoModRules
-	178, // 40: openarcanum.v1.ClientMessage.get_emoji:type_name -> openarcanum.v1.GetEmoji
-	175, // 41: openarcanum.v1.ClientMessage.emoji_upload:type_name -> openarcanum.v1.EmojiUpload
-	145, // 42: openarcanum.v1.ClientMessage.set_status_device:type_name -> openarcanum.v1.SetStatusDevice
-	146, // 43: openarcanum.v1.ClientMessage.set_status:type_name -> openarcanum.v1.SetStatus
-	147, // 44: openarcanum.v1.ClientMessage.list_statuses:type_name -> openarcanum.v1.ListStatuses
-	151, // 45: openarcanum.v1.ClientMessage.send_status_keys:type_name -> openarcanum.v1.SendStatusKeys
-	152, // 46: openarcanum.v1.ClientMessage.fetch_status_keys:type_name -> openarcanum.v1.FetchStatusKeys
-	155, // 47: openarcanum.v1.ClientMessage.request_status_key:type_name -> openarcanum.v1.RequestStatusKey
-	19,  // 48: openarcanum.v1.ServerMessage.error:type_name -> openarcanum.v1.RpcError
-	18,  // 49: openarcanum.v1.ServerMessage.ok:type_name -> openarcanum.v1.Ok
-	34,  // 50: openarcanum.v1.ServerMessage.info:type_name -> openarcanum.v1.CommunityInfo
-	36,  // 51: openarcanum.v1.ServerMessage.claim_result:type_name -> openarcanum.v1.ClaimResult
-	38,  // 52: openarcanum.v1.ServerMessage.join_result:type_name -> openarcanum.v1.JoinResult
-	41,  // 53: openarcanum.v1.ServerMessage.state:type_name -> openarcanum.v1.SyncState
-	46,  // 54: openarcanum.v1.ServerMessage.messages:type_name -> openarcanum.v1.MessageList
-	28,  // 55: openarcanum.v1.ServerMessage.message:type_name -> openarcanum.v1.Message
-	112, // 56: openarcanum.v1.ServerMessage.admin_result:type_name -> openarcanum.v1.AdminResult
-	55,  // 57: openarcanum.v1.ServerMessage.members:type_name -> openarcanum.v1.MemberList
-	57,  // 58: openarcanum.v1.ServerMessage.join_keys:type_name -> openarcanum.v1.JoinKeyList
-	61,  // 59: openarcanum.v1.ServerMessage.bans:type_name -> openarcanum.v1.BanList
-	64,  // 60: openarcanum.v1.ServerMessage.audit:type_name -> openarcanum.v1.AuditList
-	66,  // 61: openarcanum.v1.ServerMessage.search_results:type_name -> openarcanum.v1.SearchResults
-	69,  // 62: openarcanum.v1.ServerMessage.upload_started:type_name -> openarcanum.v1.UploadStarted
-	73,  // 63: openarcanum.v1.ServerMessage.file_chunk:type_name -> openarcanum.v1.FileChunk
-	76,  // 64: openarcanum.v1.ServerMessage.devices:type_name -> openarcanum.v1.DeviceList
-	119, // 65: openarcanum.v1.ServerMessage.contact_card:type_name -> openarcanum.v1.ContactCardResult
-	124, // 66: openarcanum.v1.ServerMessage.voice_session:type_name -> openarcanum.v1.VoiceSession
-	20,  // 67: openarcanum.v1.ServerMessage.status:type_name -> openarcanum.v1.SessionStatus
-	53,  // 68: openarcanum.v1.ServerMessage.avatar:type_name -> openarcanum.v1.AvatarResult
-	164, // 69: openarcanum.v1.ServerMessage.reports:type_name -> openarcanum.v1.ReportList
-	172, // 70: openarcanum.v1.ServerMessage.automod_rules:type_name -> openarcanum.v1.AutoModRuleList
-	179, // 71: openarcanum.v1.ServerMessage.emoji_image:type_name -> openarcanum.v1.EmojiImage
-	44,  // 72: openarcanum.v1.ServerMessage.state_changed:type_name -> openarcanum.v1.StateChanged
-	125, // 73: openarcanum.v1.ServerMessage.voice_update:type_name -> openarcanum.v1.VoiceUpdate
-	126, // 74: openarcanum.v1.ServerMessage.voice_rooms:type_name -> openarcanum.v1.VoiceRooms
-	140, // 75: openarcanum.v1.ServerMessage.pins:type_name -> openarcanum.v1.PinList
-	143, // 76: openarcanum.v1.ServerMessage.presence:type_name -> openarcanum.v1.PresenceUpdate
-	68,  // 77: openarcanum.v1.ServerMessage.staged_file:type_name -> openarcanum.v1.StagedFile
-	134, // 78: openarcanum.v1.ServerMessage.message_update:type_name -> openarcanum.v1.MessageUpdate
-	166, // 79: openarcanum.v1.ServerMessage.mod_alert:type_name -> openarcanum.v1.ModAlert
-	144, // 80: openarcanum.v1.ServerMessage.presence_batch:type_name -> openarcanum.v1.PresenceBatch
-	167, // 81: openarcanum.v1.ServerMessage.mod_queue:type_name -> openarcanum.v1.ModQueue
-	149, // 82: openarcanum.v1.ServerMessage.statuses:type_name -> openarcanum.v1.StatusList
-	154, // 83: openarcanum.v1.ServerMessage.status_keys:type_name -> openarcanum.v1.StatusKeys
-	156, // 84: openarcanum.v1.ServerMessage.status_key_request:type_name -> openarcanum.v1.StatusKeyRequest
-	0,   // 85: openarcanum.v1.RpcError.code:type_name -> openarcanum.v1.RpcErrorCode
-	1,   // 86: openarcanum.v1.SessionStatus.status:type_name -> openarcanum.v1.MemberStatus
-	2,   // 87: openarcanum.v1.CommunitySettings.visibility:type_name -> openarcanum.v1.Visibility
-	3,   // 88: openarcanum.v1.CommunitySettings.join_policy:type_name -> openarcanum.v1.JoinPolicy
-	4,   // 89: openarcanum.v1.CommunitySettings.audit_visibility:type_name -> openarcanum.v1.AuditVisibility
-	5,   // 90: openarcanum.v1.CommunitySettings.relay_mode:type_name -> openarcanum.v1.RelayMode
-	6,   // 91: openarcanum.v1.CommunitySettings.attachment_kinds:type_name -> openarcanum.v1.AttachmentKinds
-	8,   // 92: openarcanum.v1.Channel.kind:type_name -> openarcanum.v1.ChannelKind
-	24,  // 93: openarcanum.v1.Channel.overrides:type_name -> openarcanum.v1.ChannelOverride
-	7,   // 94: openarcanum.v1.Channel.attachments:type_name -> openarcanum.v1.ChannelToggle
-	7,   // 95: openarcanum.v1.Channel.link_previews:type_name -> openarcanum.v1.ChannelToggle
-	7,   // 96: openarcanum.v1.Channel.reactions:type_name -> openarcanum.v1.ChannelToggle
-	7,   // 97: openarcanum.v1.Channel.history_for_new_members:type_name -> openarcanum.v1.ChannelToggle
-	24,  // 98: openarcanum.v1.Category.overrides:type_name -> openarcanum.v1.ChannelOverride
-	1,   // 99: openarcanum.v1.Member.status:type_name -> openarcanum.v1.MemberStatus
-	27,  // 100: openarcanum.v1.Message.files:type_name -> openarcanum.v1.FileRef
-	29,  // 101: openarcanum.v1.Message.reactions:type_name -> openarcanum.v1.Reaction
-	30,  // 102: openarcanum.v1.Message.preview:type_name -> openarcanum.v1.LinkPreview
-	31,  // 103: openarcanum.v1.Message.system:type_name -> openarcanum.v1.SystemEvent
-	27,  // 104: openarcanum.v1.LinkPreview.image:type_name -> openarcanum.v1.FileRef
-	9,   // 105: openarcanum.v1.SystemEvent.kind:type_name -> openarcanum.v1.SystemEventKind
-	3,   // 106: openarcanum.v1.CommunityInfo.join_policy:type_name -> openarcanum.v1.JoinPolicy
-	2,   // 107: openarcanum.v1.CommunityInfo.visibility:type_name -> openarcanum.v1.Visibility
-	180, // 108: openarcanum.v1.Claim.cert:type_name -> openarcanum.v1.SignedServerCert
-	21,  // 109: openarcanum.v1.Claim.settings:type_name -> openarcanum.v1.CommunitySettings
-	41,  // 110: openarcanum.v1.ClaimResult.state:type_name -> openarcanum.v1.SyncState
-	32,  // 111: openarcanum.v1.ClaimResult.first_invite:type_name -> openarcanum.v1.JoinKey
-	10,  // 112: openarcanum.v1.JoinResult.status:type_name -> openarcanum.v1.JoinStatus
-	11,  // 113: openarcanum.v1.JoinResult.reason:type_name -> openarcanum.v1.RefusalReason
-	41,  // 114: openarcanum.v1.JoinResult.state:type_name -> openarcanum.v1.SyncState
-	34,  // 115: openarcanum.v1.SyncState.info:type_name -> openarcanum.v1.CommunityInfo
-	26,  // 116: openarcanum.v1.SyncState.self:type_name -> openarcanum.v1.Member
-	25,  // 117: openarcanum.v1.SyncState.roles:type_name -> openarcanum.v1.Role
-	22,  // 118: openarcanum.v1.SyncState.channels:type_name -> openarcanum.v1.Channel
-	21,  // 119: openarcanum.v1.SyncState.settings:type_name -> openarcanum.v1.CommunitySettings
-	180, // 120: openarcanum.v1.SyncState.cert:type_name -> openarcanum.v1.SignedServerCert
-	42,  // 121: openarcanum.v1.SyncState.owners:type_name -> openarcanum.v1.OwnerEntry
-	43,  // 122: openarcanum.v1.SyncState.pending_owners:type_name -> openarcanum.v1.PendingOwner
-	23,  // 123: openarcanum.v1.SyncState.categories:type_name -> openarcanum.v1.Category
-	173, // 124: openarcanum.v1.SyncState.emoji:type_name -> openarcanum.v1.CustomEmoji
-	167, // 125: openarcanum.v1.SyncState.mod_queue:type_name -> openarcanum.v1.ModQueue
-	181, // 126: openarcanum.v1.PendingOwner.add:type_name -> openarcanum.v1.OwnerAdd
-	41,  // 127: openarcanum.v1.StateChanged.state:type_name -> openarcanum.v1.SyncState
-	1,   // 128: openarcanum.v1.StateChanged.status:type_name -> openarcanum.v1.MemberStatus
-	28,  // 129: openarcanum.v1.MessageList.messages:type_name -> openarcanum.v1.Message
-	26,  // 130: openarcanum.v1.MemberList.members:type_name -> openarcanum.v1.Member
-	32,  // 131: openarcanum.v1.JoinKeyList.keys:type_name -> openarcanum.v1.JoinKey
-	12,  // 132: openarcanum.v1.Ban.network_block:type_name -> openarcanum.v1.NetworkBlockStatus
-	60,  // 133: openarcanum.v1.BanList.bans:type_name -> openarcanum.v1.Ban
-	79,  // 134: openarcanum.v1.AuditEntry.action:type_name -> openarcanum.v1.SignedAction
-	63,  // 135: openarcanum.v1.AuditList.entries:type_name -> openarcanum.v1.AuditEntry
-	28,  // 136: openarcanum.v1.SearchResults.messages:type_name -> openarcanum.v1.Message
-	27,  // 137: openarcanum.v1.StagedFile.file:type_name -> openarcanum.v1.FileRef
-	75,  // 138: openarcanum.v1.DeviceList.devices:type_name -> openarcanum.v1.Device
-	21,  // 139: openarcanum.v1.AdminAction.update_settings:type_name -> openarcanum.v1.CommunitySettings
-	81,  // 140: openarcanum.v1.AdminAction.create_join_key:type_name -> openarcanum.v1.CreateJoinKey
-	82,  // 141: openarcanum.v1.AdminAction.revoke_join_key:type_name -> openarcanum.v1.RevokeJoinKey
-	83,  // 142: openarcanum.v1.AdminAction.create_channel:type_name -> openarcanum.v1.CreateChannel
-	84,  // 143: openarcanum.v1.AdminAction.edit_channel:type_name -> openarcanum.v1.EditChannel
-	90,  // 144: openarcanum.v1.AdminAction.delete_channel:type_name -> openarcanum.v1.DeleteChannel
-	91,  // 145: openarcanum.v1.AdminAction.create_role:type_name -> openarcanum.v1.CreateRole
-	92,  // 146: openarcanum.v1.AdminAction.edit_role:type_name -> openarcanum.v1.EditRole
-	93,  // 147: openarcanum.v1.AdminAction.delete_role:type_name -> openarcanum.v1.DeleteRole
-	94,  // 148: openarcanum.v1.AdminAction.reorder_roles:type_name -> openarcanum.v1.ReorderRoles
-	95,  // 149: openarcanum.v1.AdminAction.set_channel_override:type_name -> openarcanum.v1.SetChannelOverride
-	96,  // 150: openarcanum.v1.AdminAction.assign_roles:type_name -> openarcanum.v1.AssignRoles
-	97,  // 151: openarcanum.v1.AdminAction.kick:type_name -> openarcanum.v1.Kick
-	98,  // 152: openarcanum.v1.AdminAction.ban:type_name -> openarcanum.v1.BanMember
-	99,  // 153: openarcanum.v1.AdminAction.unban:type_name -> openarcanum.v1.Unban
-	100, // 154: openarcanum.v1.AdminAction.approve:type_name -> openarcanum.v1.Approve
-	101, // 155: openarcanum.v1.AdminAction.deny:type_name -> openarcanum.v1.Deny
-	102, // 156: openarcanum.v1.AdminAction.raid_revoke:type_name -> openarcanum.v1.RaidRevoke
-	103, // 157: openarcanum.v1.AdminAction.replace_member:type_name -> openarcanum.v1.ReplaceMember
-	108, // 158: openarcanum.v1.AdminAction.prepare_key_rotation:type_name -> openarcanum.v1.PrepareKeyRotation
-	109, // 159: openarcanum.v1.AdminAction.commit_key_rotation:type_name -> openarcanum.v1.CommitKeyRotation
-	110, // 160: openarcanum.v1.AdminAction.server_backup:type_name -> openarcanum.v1.ServerBackup
-	111, // 161: openarcanum.v1.AdminAction.create_community:type_name -> openarcanum.v1.CreateCommunity
-	104, // 162: openarcanum.v1.AdminAction.invite_owner:type_name -> openarcanum.v1.InviteOwner
-	105, // 163: openarcanum.v1.AdminAction.submit_owner_key:type_name -> openarcanum.v1.SubmitOwnerKey
-	106, // 164: openarcanum.v1.AdminAction.change_owners:type_name -> openarcanum.v1.ChangeOwners
-	85,  // 165: openarcanum.v1.AdminAction.create_category:type_name -> openarcanum.v1.CreateCategory
-	86,  // 166: openarcanum.v1.AdminAction.edit_category:type_name -> openarcanum.v1.EditCategory
-	87,  // 167: openarcanum.v1.AdminAction.delete_category:type_name -> openarcanum.v1.DeleteCategory
-	88,  // 168: openarcanum.v1.AdminAction.reorder_categories:type_name -> openarcanum.v1.ReorderCategories
-	89,  // 169: openarcanum.v1.AdminAction.reorder_channels:type_name -> openarcanum.v1.ReorderChannels
-	128, // 170: openarcanum.v1.AdminAction.voice_mute:type_name -> openarcanum.v1.VoiceMute
-	129, // 171: openarcanum.v1.AdminAction.voice_deafen:type_name -> openarcanum.v1.VoiceDeafen
-	130, // 172: openarcanum.v1.AdminAction.voice_move:type_name -> openarcanum.v1.VoiceMove
-	107, // 173: openarcanum.v1.AdminAction.set_nickname:type_name -> openarcanum.v1.SetNickname
-	158, // 174: openarcanum.v1.AdminAction.timeout:type_name -> openarcanum.v1.TimeoutMember
-	160, // 175: openarcanum.v1.AdminAction.bulk_delete:type_name -> openarcanum.v1.BulkDelete
-	169, // 176: openarcanum.v1.AdminAction.save_automod_rule:type_name -> openarcanum.v1.SaveAutoModRule
-	170, // 177: openarcanum.v1.AdminAction.delete_automod_rule:type_name -> openarcanum.v1.DeleteAutoModRule
-	165, // 178: openarcanum.v1.AdminAction.resolve_report:type_name -> openarcanum.v1.ResolveReport
-	174, // 179: openarcanum.v1.AdminAction.add_emoji:type_name -> openarcanum.v1.AddEmoji
-	176, // 180: openarcanum.v1.AdminAction.rename_emoji:type_name -> openarcanum.v1.RenameEmoji
-	177, // 181: openarcanum.v1.AdminAction.delete_emoji:type_name -> openarcanum.v1.DeleteEmoji
-	159, // 182: openarcanum.v1.AdminAction.bulk_remove:type_name -> openarcanum.v1.BulkRemove
-	8,   // 183: openarcanum.v1.CreateChannel.kind:type_name -> openarcanum.v1.ChannelKind
-	7,   // 184: openarcanum.v1.EditChannel.attachments:type_name -> openarcanum.v1.ChannelToggle
-	7,   // 185: openarcanum.v1.EditChannel.link_previews:type_name -> openarcanum.v1.ChannelToggle
-	7,   // 186: openarcanum.v1.EditChannel.reactions:type_name -> openarcanum.v1.ChannelToggle
-	7,   // 187: openarcanum.v1.EditChannel.history_for_new_members:type_name -> openarcanum.v1.ChannelToggle
-	181, // 188: openarcanum.v1.SubmitOwnerKey.add:type_name -> openarcanum.v1.OwnerAdd
-	182, // 189: openarcanum.v1.ChangeOwners.change:type_name -> openarcanum.v1.SignedOwnerChange
-	180, // 190: openarcanum.v1.ChangeOwners.cert:type_name -> openarcanum.v1.SignedServerCert
-	180, // 191: openarcanum.v1.CommitKeyRotation.cert:type_name -> openarcanum.v1.SignedServerCert
-	32,  // 192: openarcanum.v1.AdminResult.join_key:type_name -> openarcanum.v1.JoinKey
-	12,  // 193: openarcanum.v1.AdminResult.network_block:type_name -> openarcanum.v1.NetworkBlockStatus
-	180, // 194: openarcanum.v1.AdoptServer.cert:type_name -> openarcanum.v1.SignedServerCert
-	114, // 195: openarcanum.v1.PublishContactCard.key_packages:type_name -> openarcanum.v1.KeyPackage
-	114, // 196: openarcanum.v1.AddKeyPackages.key_packages:type_name -> openarcanum.v1.KeyPackage
-	114, // 197: openarcanum.v1.ContactCardResult.key_packages:type_name -> openarcanum.v1.KeyPackage
-	115, // 198: openarcanum.v1.ContactCardResult.left:type_name -> openarcanum.v1.DeviceKeyCount
-	123, // 199: openarcanum.v1.VoiceSession.participants:type_name -> openarcanum.v1.VoiceParticipant
-	183, // 200: openarcanum.v1.VoiceSession.grant:type_name -> openarcanum.v1.SignedCallGrant
-	184, // 201: openarcanum.v1.VoiceSession.control:type_name -> openarcanum.v1.SignedCallControl
-	124, // 202: openarcanum.v1.VoiceUpdate.session:type_name -> openarcanum.v1.VoiceSession
-	127, // 203: openarcanum.v1.VoiceRooms.rooms:type_name -> openarcanum.v1.VoiceRoom
-	123, // 204: openarcanum.v1.VoiceRoom.participants:type_name -> openarcanum.v1.VoiceParticipant
-	28,  // 205: openarcanum.v1.ChannelEvent.message:type_name -> openarcanum.v1.Message
-	28,  // 206: openarcanum.v1.ChannelEvent.edited:type_name -> openarcanum.v1.Message
-	136, // 207: openarcanum.v1.ChannelEvent.typing:type_name -> openarcanum.v1.TypingEvent
-	134, // 208: openarcanum.v1.ChannelEvent.update:type_name -> openarcanum.v1.MessageUpdate
-	157, // 209: openarcanum.v1.ChannelEvent.deleted_many:type_name -> openarcanum.v1.DeletedMessages
-	135, // 210: openarcanum.v1.MessageUpdate.reactions:type_name -> openarcanum.v1.ReactionList
-	30,  // 211: openarcanum.v1.MessageUpdate.preview:type_name -> openarcanum.v1.LinkPreview
-	29,  // 212: openarcanum.v1.ReactionList.reactions:type_name -> openarcanum.v1.Reaction
-	28,  // 213: openarcanum.v1.PinList.messages:type_name -> openarcanum.v1.Message
-	143, // 214: openarcanum.v1.PresenceBatch.updates:type_name -> openarcanum.v1.PresenceUpdate
-	148, // 215: openarcanum.v1.PresenceBatch.statuses:type_name -> openarcanum.v1.StatusEntry
-	148, // 216: openarcanum.v1.StatusList.entries:type_name -> openarcanum.v1.StatusEntry
-	150, // 217: openarcanum.v1.SendStatusKeys.drops:type_name -> openarcanum.v1.StatusKeyDrop
-	153, // 218: openarcanum.v1.StatusKeys.items:type_name -> openarcanum.v1.StatusKeyItem
-	13,  // 219: openarcanum.v1.Report.kind:type_name -> openarcanum.v1.ReportKind
-	14,  // 220: openarcanum.v1.Report.status:type_name -> openarcanum.v1.ReportStatus
-	163, // 221: openarcanum.v1.ReportList.reports:type_name -> openarcanum.v1.Report
-	163, // 222: openarcanum.v1.ModAlert.report:type_name -> openarcanum.v1.Report
-	15,  // 223: openarcanum.v1.AutoModRule.trigger:type_name -> openarcanum.v1.AutoModTrigger
-	168, // 224: openarcanum.v1.SaveAutoModRule.rule:type_name -> openarcanum.v1.AutoModRule
-	168, // 225: openarcanum.v1.AutoModRuleList.rules:type_name -> openarcanum.v1.AutoModRule
-	79,  // 226: openarcanum.v1.EmojiUpload.action:type_name -> openarcanum.v1.SignedAction
-	227, // [227:227] is the sub-list for method output_type
-	227, // [227:227] is the sub-list for method input_type
-	227, // [227:227] is the sub-list for extension type_name
-	227, // [227:227] is the sub-list for extension extendee
-	0,   // [0:227] is the sub-list for field type_name
+	180, // 32: openarcanum.v1.ClientMessage.get_insights:type_name -> openarcanum.v1.GetInsights
+	137, // 33: openarcanum.v1.ClientMessage.react:type_name -> openarcanum.v1.React
+	138, // 34: openarcanum.v1.ClientMessage.pin:type_name -> openarcanum.v1.Pin
+	139, // 35: openarcanum.v1.ClientMessage.list_pins:type_name -> openarcanum.v1.ListPins
+	141, // 36: openarcanum.v1.ClientMessage.typing:type_name -> openarcanum.v1.Typing
+	142, // 37: openarcanum.v1.ClientMessage.update_profile:type_name -> openarcanum.v1.UpdateProfile
+	161, // 38: openarcanum.v1.ClientMessage.report_message:type_name -> openarcanum.v1.ReportMessage
+	162, // 39: openarcanum.v1.ClientMessage.list_reports:type_name -> openarcanum.v1.ListReports
+	171, // 40: openarcanum.v1.ClientMessage.list_automod_rules:type_name -> openarcanum.v1.ListAutoModRules
+	178, // 41: openarcanum.v1.ClientMessage.get_emoji:type_name -> openarcanum.v1.GetEmoji
+	175, // 42: openarcanum.v1.ClientMessage.emoji_upload:type_name -> openarcanum.v1.EmojiUpload
+	145, // 43: openarcanum.v1.ClientMessage.set_status_device:type_name -> openarcanum.v1.SetStatusDevice
+	146, // 44: openarcanum.v1.ClientMessage.set_status:type_name -> openarcanum.v1.SetStatus
+	147, // 45: openarcanum.v1.ClientMessage.list_statuses:type_name -> openarcanum.v1.ListStatuses
+	151, // 46: openarcanum.v1.ClientMessage.send_status_keys:type_name -> openarcanum.v1.SendStatusKeys
+	152, // 47: openarcanum.v1.ClientMessage.fetch_status_keys:type_name -> openarcanum.v1.FetchStatusKeys
+	155, // 48: openarcanum.v1.ClientMessage.request_status_key:type_name -> openarcanum.v1.RequestStatusKey
+	19,  // 49: openarcanum.v1.ServerMessage.error:type_name -> openarcanum.v1.RpcError
+	18,  // 50: openarcanum.v1.ServerMessage.ok:type_name -> openarcanum.v1.Ok
+	34,  // 51: openarcanum.v1.ServerMessage.info:type_name -> openarcanum.v1.CommunityInfo
+	36,  // 52: openarcanum.v1.ServerMessage.claim_result:type_name -> openarcanum.v1.ClaimResult
+	38,  // 53: openarcanum.v1.ServerMessage.join_result:type_name -> openarcanum.v1.JoinResult
+	41,  // 54: openarcanum.v1.ServerMessage.state:type_name -> openarcanum.v1.SyncState
+	46,  // 55: openarcanum.v1.ServerMessage.messages:type_name -> openarcanum.v1.MessageList
+	28,  // 56: openarcanum.v1.ServerMessage.message:type_name -> openarcanum.v1.Message
+	112, // 57: openarcanum.v1.ServerMessage.admin_result:type_name -> openarcanum.v1.AdminResult
+	55,  // 58: openarcanum.v1.ServerMessage.members:type_name -> openarcanum.v1.MemberList
+	57,  // 59: openarcanum.v1.ServerMessage.join_keys:type_name -> openarcanum.v1.JoinKeyList
+	61,  // 60: openarcanum.v1.ServerMessage.bans:type_name -> openarcanum.v1.BanList
+	64,  // 61: openarcanum.v1.ServerMessage.audit:type_name -> openarcanum.v1.AuditList
+	66,  // 62: openarcanum.v1.ServerMessage.search_results:type_name -> openarcanum.v1.SearchResults
+	69,  // 63: openarcanum.v1.ServerMessage.upload_started:type_name -> openarcanum.v1.UploadStarted
+	73,  // 64: openarcanum.v1.ServerMessage.file_chunk:type_name -> openarcanum.v1.FileChunk
+	76,  // 65: openarcanum.v1.ServerMessage.devices:type_name -> openarcanum.v1.DeviceList
+	119, // 66: openarcanum.v1.ServerMessage.contact_card:type_name -> openarcanum.v1.ContactCardResult
+	124, // 67: openarcanum.v1.ServerMessage.voice_session:type_name -> openarcanum.v1.VoiceSession
+	20,  // 68: openarcanum.v1.ServerMessage.status:type_name -> openarcanum.v1.SessionStatus
+	53,  // 69: openarcanum.v1.ServerMessage.avatar:type_name -> openarcanum.v1.AvatarResult
+	164, // 70: openarcanum.v1.ServerMessage.reports:type_name -> openarcanum.v1.ReportList
+	172, // 71: openarcanum.v1.ServerMessage.automod_rules:type_name -> openarcanum.v1.AutoModRuleList
+	179, // 72: openarcanum.v1.ServerMessage.emoji_image:type_name -> openarcanum.v1.EmojiImage
+	44,  // 73: openarcanum.v1.ServerMessage.state_changed:type_name -> openarcanum.v1.StateChanged
+	125, // 74: openarcanum.v1.ServerMessage.voice_update:type_name -> openarcanum.v1.VoiceUpdate
+	126, // 75: openarcanum.v1.ServerMessage.voice_rooms:type_name -> openarcanum.v1.VoiceRooms
+	140, // 76: openarcanum.v1.ServerMessage.pins:type_name -> openarcanum.v1.PinList
+	143, // 77: openarcanum.v1.ServerMessage.presence:type_name -> openarcanum.v1.PresenceUpdate
+	68,  // 78: openarcanum.v1.ServerMessage.staged_file:type_name -> openarcanum.v1.StagedFile
+	134, // 79: openarcanum.v1.ServerMessage.message_update:type_name -> openarcanum.v1.MessageUpdate
+	166, // 80: openarcanum.v1.ServerMessage.mod_alert:type_name -> openarcanum.v1.ModAlert
+	144, // 81: openarcanum.v1.ServerMessage.presence_batch:type_name -> openarcanum.v1.PresenceBatch
+	167, // 82: openarcanum.v1.ServerMessage.mod_queue:type_name -> openarcanum.v1.ModQueue
+	149, // 83: openarcanum.v1.ServerMessage.statuses:type_name -> openarcanum.v1.StatusList
+	154, // 84: openarcanum.v1.ServerMessage.status_keys:type_name -> openarcanum.v1.StatusKeys
+	156, // 85: openarcanum.v1.ServerMessage.status_key_request:type_name -> openarcanum.v1.StatusKeyRequest
+	183, // 86: openarcanum.v1.ServerMessage.insights:type_name -> openarcanum.v1.Insights
+	0,   // 87: openarcanum.v1.RpcError.code:type_name -> openarcanum.v1.RpcErrorCode
+	1,   // 88: openarcanum.v1.SessionStatus.status:type_name -> openarcanum.v1.MemberStatus
+	2,   // 89: openarcanum.v1.CommunitySettings.visibility:type_name -> openarcanum.v1.Visibility
+	3,   // 90: openarcanum.v1.CommunitySettings.join_policy:type_name -> openarcanum.v1.JoinPolicy
+	4,   // 91: openarcanum.v1.CommunitySettings.audit_visibility:type_name -> openarcanum.v1.AuditVisibility
+	5,   // 92: openarcanum.v1.CommunitySettings.relay_mode:type_name -> openarcanum.v1.RelayMode
+	6,   // 93: openarcanum.v1.CommunitySettings.attachment_kinds:type_name -> openarcanum.v1.AttachmentKinds
+	8,   // 94: openarcanum.v1.Channel.kind:type_name -> openarcanum.v1.ChannelKind
+	24,  // 95: openarcanum.v1.Channel.overrides:type_name -> openarcanum.v1.ChannelOverride
+	7,   // 96: openarcanum.v1.Channel.attachments:type_name -> openarcanum.v1.ChannelToggle
+	7,   // 97: openarcanum.v1.Channel.link_previews:type_name -> openarcanum.v1.ChannelToggle
+	7,   // 98: openarcanum.v1.Channel.reactions:type_name -> openarcanum.v1.ChannelToggle
+	7,   // 99: openarcanum.v1.Channel.history_for_new_members:type_name -> openarcanum.v1.ChannelToggle
+	24,  // 100: openarcanum.v1.Category.overrides:type_name -> openarcanum.v1.ChannelOverride
+	1,   // 101: openarcanum.v1.Member.status:type_name -> openarcanum.v1.MemberStatus
+	27,  // 102: openarcanum.v1.Message.files:type_name -> openarcanum.v1.FileRef
+	29,  // 103: openarcanum.v1.Message.reactions:type_name -> openarcanum.v1.Reaction
+	30,  // 104: openarcanum.v1.Message.preview:type_name -> openarcanum.v1.LinkPreview
+	31,  // 105: openarcanum.v1.Message.system:type_name -> openarcanum.v1.SystemEvent
+	27,  // 106: openarcanum.v1.LinkPreview.image:type_name -> openarcanum.v1.FileRef
+	9,   // 107: openarcanum.v1.SystemEvent.kind:type_name -> openarcanum.v1.SystemEventKind
+	3,   // 108: openarcanum.v1.CommunityInfo.join_policy:type_name -> openarcanum.v1.JoinPolicy
+	2,   // 109: openarcanum.v1.CommunityInfo.visibility:type_name -> openarcanum.v1.Visibility
+	184, // 110: openarcanum.v1.Claim.cert:type_name -> openarcanum.v1.SignedServerCert
+	21,  // 111: openarcanum.v1.Claim.settings:type_name -> openarcanum.v1.CommunitySettings
+	41,  // 112: openarcanum.v1.ClaimResult.state:type_name -> openarcanum.v1.SyncState
+	32,  // 113: openarcanum.v1.ClaimResult.first_invite:type_name -> openarcanum.v1.JoinKey
+	10,  // 114: openarcanum.v1.JoinResult.status:type_name -> openarcanum.v1.JoinStatus
+	11,  // 115: openarcanum.v1.JoinResult.reason:type_name -> openarcanum.v1.RefusalReason
+	41,  // 116: openarcanum.v1.JoinResult.state:type_name -> openarcanum.v1.SyncState
+	34,  // 117: openarcanum.v1.SyncState.info:type_name -> openarcanum.v1.CommunityInfo
+	26,  // 118: openarcanum.v1.SyncState.self:type_name -> openarcanum.v1.Member
+	25,  // 119: openarcanum.v1.SyncState.roles:type_name -> openarcanum.v1.Role
+	22,  // 120: openarcanum.v1.SyncState.channels:type_name -> openarcanum.v1.Channel
+	21,  // 121: openarcanum.v1.SyncState.settings:type_name -> openarcanum.v1.CommunitySettings
+	184, // 122: openarcanum.v1.SyncState.cert:type_name -> openarcanum.v1.SignedServerCert
+	42,  // 123: openarcanum.v1.SyncState.owners:type_name -> openarcanum.v1.OwnerEntry
+	43,  // 124: openarcanum.v1.SyncState.pending_owners:type_name -> openarcanum.v1.PendingOwner
+	23,  // 125: openarcanum.v1.SyncState.categories:type_name -> openarcanum.v1.Category
+	173, // 126: openarcanum.v1.SyncState.emoji:type_name -> openarcanum.v1.CustomEmoji
+	167, // 127: openarcanum.v1.SyncState.mod_queue:type_name -> openarcanum.v1.ModQueue
+	185, // 128: openarcanum.v1.PendingOwner.add:type_name -> openarcanum.v1.OwnerAdd
+	41,  // 129: openarcanum.v1.StateChanged.state:type_name -> openarcanum.v1.SyncState
+	1,   // 130: openarcanum.v1.StateChanged.status:type_name -> openarcanum.v1.MemberStatus
+	28,  // 131: openarcanum.v1.MessageList.messages:type_name -> openarcanum.v1.Message
+	26,  // 132: openarcanum.v1.MemberList.members:type_name -> openarcanum.v1.Member
+	32,  // 133: openarcanum.v1.JoinKeyList.keys:type_name -> openarcanum.v1.JoinKey
+	12,  // 134: openarcanum.v1.Ban.network_block:type_name -> openarcanum.v1.NetworkBlockStatus
+	60,  // 135: openarcanum.v1.BanList.bans:type_name -> openarcanum.v1.Ban
+	79,  // 136: openarcanum.v1.AuditEntry.action:type_name -> openarcanum.v1.SignedAction
+	63,  // 137: openarcanum.v1.AuditList.entries:type_name -> openarcanum.v1.AuditEntry
+	28,  // 138: openarcanum.v1.SearchResults.messages:type_name -> openarcanum.v1.Message
+	27,  // 139: openarcanum.v1.StagedFile.file:type_name -> openarcanum.v1.FileRef
+	75,  // 140: openarcanum.v1.DeviceList.devices:type_name -> openarcanum.v1.Device
+	21,  // 141: openarcanum.v1.AdminAction.update_settings:type_name -> openarcanum.v1.CommunitySettings
+	81,  // 142: openarcanum.v1.AdminAction.create_join_key:type_name -> openarcanum.v1.CreateJoinKey
+	82,  // 143: openarcanum.v1.AdminAction.revoke_join_key:type_name -> openarcanum.v1.RevokeJoinKey
+	83,  // 144: openarcanum.v1.AdminAction.create_channel:type_name -> openarcanum.v1.CreateChannel
+	84,  // 145: openarcanum.v1.AdminAction.edit_channel:type_name -> openarcanum.v1.EditChannel
+	90,  // 146: openarcanum.v1.AdminAction.delete_channel:type_name -> openarcanum.v1.DeleteChannel
+	91,  // 147: openarcanum.v1.AdminAction.create_role:type_name -> openarcanum.v1.CreateRole
+	92,  // 148: openarcanum.v1.AdminAction.edit_role:type_name -> openarcanum.v1.EditRole
+	93,  // 149: openarcanum.v1.AdminAction.delete_role:type_name -> openarcanum.v1.DeleteRole
+	94,  // 150: openarcanum.v1.AdminAction.reorder_roles:type_name -> openarcanum.v1.ReorderRoles
+	95,  // 151: openarcanum.v1.AdminAction.set_channel_override:type_name -> openarcanum.v1.SetChannelOverride
+	96,  // 152: openarcanum.v1.AdminAction.assign_roles:type_name -> openarcanum.v1.AssignRoles
+	97,  // 153: openarcanum.v1.AdminAction.kick:type_name -> openarcanum.v1.Kick
+	98,  // 154: openarcanum.v1.AdminAction.ban:type_name -> openarcanum.v1.BanMember
+	99,  // 155: openarcanum.v1.AdminAction.unban:type_name -> openarcanum.v1.Unban
+	100, // 156: openarcanum.v1.AdminAction.approve:type_name -> openarcanum.v1.Approve
+	101, // 157: openarcanum.v1.AdminAction.deny:type_name -> openarcanum.v1.Deny
+	102, // 158: openarcanum.v1.AdminAction.raid_revoke:type_name -> openarcanum.v1.RaidRevoke
+	103, // 159: openarcanum.v1.AdminAction.replace_member:type_name -> openarcanum.v1.ReplaceMember
+	108, // 160: openarcanum.v1.AdminAction.prepare_key_rotation:type_name -> openarcanum.v1.PrepareKeyRotation
+	109, // 161: openarcanum.v1.AdminAction.commit_key_rotation:type_name -> openarcanum.v1.CommitKeyRotation
+	110, // 162: openarcanum.v1.AdminAction.server_backup:type_name -> openarcanum.v1.ServerBackup
+	111, // 163: openarcanum.v1.AdminAction.create_community:type_name -> openarcanum.v1.CreateCommunity
+	104, // 164: openarcanum.v1.AdminAction.invite_owner:type_name -> openarcanum.v1.InviteOwner
+	105, // 165: openarcanum.v1.AdminAction.submit_owner_key:type_name -> openarcanum.v1.SubmitOwnerKey
+	106, // 166: openarcanum.v1.AdminAction.change_owners:type_name -> openarcanum.v1.ChangeOwners
+	85,  // 167: openarcanum.v1.AdminAction.create_category:type_name -> openarcanum.v1.CreateCategory
+	86,  // 168: openarcanum.v1.AdminAction.edit_category:type_name -> openarcanum.v1.EditCategory
+	87,  // 169: openarcanum.v1.AdminAction.delete_category:type_name -> openarcanum.v1.DeleteCategory
+	88,  // 170: openarcanum.v1.AdminAction.reorder_categories:type_name -> openarcanum.v1.ReorderCategories
+	89,  // 171: openarcanum.v1.AdminAction.reorder_channels:type_name -> openarcanum.v1.ReorderChannels
+	128, // 172: openarcanum.v1.AdminAction.voice_mute:type_name -> openarcanum.v1.VoiceMute
+	129, // 173: openarcanum.v1.AdminAction.voice_deafen:type_name -> openarcanum.v1.VoiceDeafen
+	130, // 174: openarcanum.v1.AdminAction.voice_move:type_name -> openarcanum.v1.VoiceMove
+	107, // 175: openarcanum.v1.AdminAction.set_nickname:type_name -> openarcanum.v1.SetNickname
+	158, // 176: openarcanum.v1.AdminAction.timeout:type_name -> openarcanum.v1.TimeoutMember
+	160, // 177: openarcanum.v1.AdminAction.bulk_delete:type_name -> openarcanum.v1.BulkDelete
+	169, // 178: openarcanum.v1.AdminAction.save_automod_rule:type_name -> openarcanum.v1.SaveAutoModRule
+	170, // 179: openarcanum.v1.AdminAction.delete_automod_rule:type_name -> openarcanum.v1.DeleteAutoModRule
+	165, // 180: openarcanum.v1.AdminAction.resolve_report:type_name -> openarcanum.v1.ResolveReport
+	174, // 181: openarcanum.v1.AdminAction.add_emoji:type_name -> openarcanum.v1.AddEmoji
+	176, // 182: openarcanum.v1.AdminAction.rename_emoji:type_name -> openarcanum.v1.RenameEmoji
+	177, // 183: openarcanum.v1.AdminAction.delete_emoji:type_name -> openarcanum.v1.DeleteEmoji
+	159, // 184: openarcanum.v1.AdminAction.bulk_remove:type_name -> openarcanum.v1.BulkRemove
+	8,   // 185: openarcanum.v1.CreateChannel.kind:type_name -> openarcanum.v1.ChannelKind
+	7,   // 186: openarcanum.v1.EditChannel.attachments:type_name -> openarcanum.v1.ChannelToggle
+	7,   // 187: openarcanum.v1.EditChannel.link_previews:type_name -> openarcanum.v1.ChannelToggle
+	7,   // 188: openarcanum.v1.EditChannel.reactions:type_name -> openarcanum.v1.ChannelToggle
+	7,   // 189: openarcanum.v1.EditChannel.history_for_new_members:type_name -> openarcanum.v1.ChannelToggle
+	185, // 190: openarcanum.v1.SubmitOwnerKey.add:type_name -> openarcanum.v1.OwnerAdd
+	186, // 191: openarcanum.v1.ChangeOwners.change:type_name -> openarcanum.v1.SignedOwnerChange
+	184, // 192: openarcanum.v1.ChangeOwners.cert:type_name -> openarcanum.v1.SignedServerCert
+	184, // 193: openarcanum.v1.CommitKeyRotation.cert:type_name -> openarcanum.v1.SignedServerCert
+	32,  // 194: openarcanum.v1.AdminResult.join_key:type_name -> openarcanum.v1.JoinKey
+	12,  // 195: openarcanum.v1.AdminResult.network_block:type_name -> openarcanum.v1.NetworkBlockStatus
+	184, // 196: openarcanum.v1.AdoptServer.cert:type_name -> openarcanum.v1.SignedServerCert
+	114, // 197: openarcanum.v1.PublishContactCard.key_packages:type_name -> openarcanum.v1.KeyPackage
+	114, // 198: openarcanum.v1.AddKeyPackages.key_packages:type_name -> openarcanum.v1.KeyPackage
+	114, // 199: openarcanum.v1.ContactCardResult.key_packages:type_name -> openarcanum.v1.KeyPackage
+	115, // 200: openarcanum.v1.ContactCardResult.left:type_name -> openarcanum.v1.DeviceKeyCount
+	123, // 201: openarcanum.v1.VoiceSession.participants:type_name -> openarcanum.v1.VoiceParticipant
+	187, // 202: openarcanum.v1.VoiceSession.grant:type_name -> openarcanum.v1.SignedCallGrant
+	188, // 203: openarcanum.v1.VoiceSession.control:type_name -> openarcanum.v1.SignedCallControl
+	124, // 204: openarcanum.v1.VoiceUpdate.session:type_name -> openarcanum.v1.VoiceSession
+	127, // 205: openarcanum.v1.VoiceRooms.rooms:type_name -> openarcanum.v1.VoiceRoom
+	123, // 206: openarcanum.v1.VoiceRoom.participants:type_name -> openarcanum.v1.VoiceParticipant
+	28,  // 207: openarcanum.v1.ChannelEvent.message:type_name -> openarcanum.v1.Message
+	28,  // 208: openarcanum.v1.ChannelEvent.edited:type_name -> openarcanum.v1.Message
+	136, // 209: openarcanum.v1.ChannelEvent.typing:type_name -> openarcanum.v1.TypingEvent
+	134, // 210: openarcanum.v1.ChannelEvent.update:type_name -> openarcanum.v1.MessageUpdate
+	157, // 211: openarcanum.v1.ChannelEvent.deleted_many:type_name -> openarcanum.v1.DeletedMessages
+	135, // 212: openarcanum.v1.MessageUpdate.reactions:type_name -> openarcanum.v1.ReactionList
+	30,  // 213: openarcanum.v1.MessageUpdate.preview:type_name -> openarcanum.v1.LinkPreview
+	29,  // 214: openarcanum.v1.ReactionList.reactions:type_name -> openarcanum.v1.Reaction
+	28,  // 215: openarcanum.v1.PinList.messages:type_name -> openarcanum.v1.Message
+	143, // 216: openarcanum.v1.PresenceBatch.updates:type_name -> openarcanum.v1.PresenceUpdate
+	148, // 217: openarcanum.v1.PresenceBatch.statuses:type_name -> openarcanum.v1.StatusEntry
+	148, // 218: openarcanum.v1.StatusList.entries:type_name -> openarcanum.v1.StatusEntry
+	150, // 219: openarcanum.v1.SendStatusKeys.drops:type_name -> openarcanum.v1.StatusKeyDrop
+	153, // 220: openarcanum.v1.StatusKeys.items:type_name -> openarcanum.v1.StatusKeyItem
+	13,  // 221: openarcanum.v1.Report.kind:type_name -> openarcanum.v1.ReportKind
+	14,  // 222: openarcanum.v1.Report.status:type_name -> openarcanum.v1.ReportStatus
+	163, // 223: openarcanum.v1.ReportList.reports:type_name -> openarcanum.v1.Report
+	163, // 224: openarcanum.v1.ModAlert.report:type_name -> openarcanum.v1.Report
+	15,  // 225: openarcanum.v1.AutoModRule.trigger:type_name -> openarcanum.v1.AutoModTrigger
+	168, // 226: openarcanum.v1.SaveAutoModRule.rule:type_name -> openarcanum.v1.AutoModRule
+	168, // 227: openarcanum.v1.AutoModRuleList.rules:type_name -> openarcanum.v1.AutoModRule
+	79,  // 228: openarcanum.v1.EmojiUpload.action:type_name -> openarcanum.v1.SignedAction
+	181, // 229: openarcanum.v1.Insights.days:type_name -> openarcanum.v1.InsightDay
+	182, // 230: openarcanum.v1.Insights.channels:type_name -> openarcanum.v1.ChannelActivity
+	231, // [231:231] is the sub-list for method output_type
+	231, // [231:231] is the sub-list for method input_type
+	231, // [231:231] is the sub-list for extension type_name
+	231, // [231:231] is the sub-list for extension extendee
+	0,   // [0:231] is the sub-list for field type_name
 }
 
 func init() { file_openarcanum_v1_community_proto_init() }
@@ -15358,6 +15701,7 @@ func file_openarcanum_v1_community_proto_init() {
 		(*ClientMessage_AddKeyPackages)(nil),
 		(*ClientMessage_GetAvatar)(nil),
 		(*ClientMessage_AdoptServer)(nil),
+		(*ClientMessage_GetInsights)(nil),
 		(*ClientMessage_React)(nil),
 		(*ClientMessage_Pin)(nil),
 		(*ClientMessage_ListPins)(nil),
@@ -15413,6 +15757,7 @@ func file_openarcanum_v1_community_proto_init() {
 		(*ServerMessage_Statuses)(nil),
 		(*ServerMessage_StatusKeys)(nil),
 		(*ServerMessage_StatusKeyRequest)(nil),
+		(*ServerMessage_Insights)(nil),
 	}
 	file_openarcanum_v1_community_proto_msgTypes[5].OneofWrappers = []any{}
 	file_openarcanum_v1_community_proto_msgTypes[6].OneofWrappers = []any{}
@@ -15482,7 +15827,7 @@ func file_openarcanum_v1_community_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openarcanum_v1_community_proto_rawDesc), len(file_openarcanum_v1_community_proto_rawDesc)),
 			NumEnums:      16,
-			NumMessages:   164,
+			NumMessages:   168,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

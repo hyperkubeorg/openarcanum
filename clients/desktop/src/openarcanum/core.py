@@ -379,6 +379,9 @@ class Core:
             "appearance": {k: self.prefs.values[k] for k in ("theme", "text_size", "compact")},
             "backoff": self.guard.remaining(),
             "backup_current": self.vault.backup_current if self.vault else True,
+            # Which keys the backup reminder is about (a dismissed reminder
+            # comes back only when they change again).
+            "keys_revision": self.vault.data.get("keys_revision", 0) if self.vault and not self.vault.locked else 0,
             "device_name": self.device_name if self.vault else "",
             "display_name": self.settings.get("display_name", "") if self.vault else "",
             "notice": _(NOTICE),
@@ -1301,6 +1304,9 @@ class Core:
             **self._ownership(cid, conn),
             "info": {"member_range": st.info.member_range, "server_key": keys.encode(st.info.server_key)},
             "backup_current": self.vault.backup_current if self.vault else True,
+            # Which keys the backup reminder is about (a dismissed reminder
+            # comes back only when they change again).
+            "keys_revision": self.vault.data.get("keys_revision", 0) if self.vault and not self.vault.locked else 0,
         }
 
     # ---------------------------------------------------------------- join
@@ -2437,6 +2443,33 @@ class Core:
                 return (await self.moderation.audit(cid, params))["entries"]
             if what == "audit_page":
                 return await self.moderation.audit(cid, params)
+            if what == "insights":
+                # Community Admin → Insights: counts per day, nothing about who.
+                days = int(params.get("days", 30)) if str(params.get("days", 30)).isdigit() else 30
+                r = (await conn.call(get_insights=cp.GetInsights(days=min(max(days, 1), 400)))).insights
+                names = {c["id"]: c["name"] for c in (self.community_state(cid).get("channels") or [])}
+                return {
+                    "days": [
+                        {
+                            "day": d.day,
+                            "members": d.members,
+                            "joined": d.joined,
+                            "left": d.left,
+                            "messages": d.messages,
+                            "active": d.active,
+                            "posters": d.posters,
+                            "voice_minutes": d.voice_minutes,
+                            "peak_online": d.peak_online,
+                        }
+                        for d in r.days
+                    ],
+                    "channels": [
+                        {"id": c.channel_id, "name": names.get(c.channel_id, ""), "messages": c.messages}
+                        for c in r.channels
+                    ],
+                    "members": r.members,
+                    "online": r.online,
+                }
             if what == "reports":
                 return await self.moderation.reports(cid, bool(params.get("include_closed")))
             if what == "automod_rules":

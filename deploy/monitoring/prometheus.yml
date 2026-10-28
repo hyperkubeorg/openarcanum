@@ -1,0 +1,49 @@
+# Prometheus scrape configuration for the OpenArcanum network
+# (docs/operations.md "Monitoring"). Each node's status listener stays on
+# its machine's loopback until its setup runs with MONITOR_FROM=<this
+# server's address>; then /metrics answers this server only, and only with
+# that machine's token (setup.sh says where it is). Copy each token into
+# tokens/<machine> here, readable by Prometheus only.
+#
+# The metrics are counts and sizes: how busy each service is and whether
+# it's healthy. They carry no content and no person, member or community
+# ids. One job per machine (each has its own token); `service` groups them.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: maintainer-01
+    authorization: { credentials_file: tokens/maintainer-01 }
+    static_configs:
+      - targets: ["maintainer-01.openarcanum.org:7100"]
+        labels: { service: maintainer }
+
+  - job_name: relay-01
+    authorization: { credentials_file: tokens/relay-01 }
+    static_configs:
+      - targets: ["relay-01.openarcanum.org:7000"]
+        labels: { service: relay }
+
+  - job_name: relay-02
+    authorization: { credentials_file: tokens/relay-02 }
+    static_configs:
+      - targets: ["relay-02.openarcanum.org:7000"]
+        labels: { service: relay }
+
+  - job_name: site
+    authorization: { credentials_file: tokens/site }
+    static_configs:
+      - targets: ["openarcanum.org:7301"]
+        labels: { service: site }
+
+  # A community server you run (its kit sets METRICS_PORT=7201):
+  # - job_name: community-NAME
+  #   authorization: { credentials_file: tokens/community-NAME }
+  #   static_configs:
+  #     - targets: ["community-NAME.example.org:7201"]
+  #       labels: { service: community }

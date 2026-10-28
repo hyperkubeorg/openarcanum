@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -30,6 +31,8 @@ type Status struct {
 	Registry *Registry
 	Live     Check
 	Ready    Check
+	// Token, when set, is required for /metrics (Settings.MetricsToken).
+	Token string
 }
 
 // checkTimeout bounds one health check.
@@ -38,7 +41,19 @@ const checkTimeout = 3 * time.Second
 // Handler returns the status HTTP handler.
 func (s Status) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", s.Registry)
+	var metrics http.Handler = s.Registry
+	if s.Token != "" {
+		want := []byte("Bearer " + s.Token)
+		metrics = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			s.Registry.ServeHTTP(w, r)
+		})
+	}
+	mux.Handle("GET /metrics", metrics)
 	mux.HandleFunc("GET /healthz", checkHandler(s.Live))
 	ready := s.Ready
 	if ready == nil {
@@ -75,7 +90,11 @@ func ServeStatus(ctx context.Context, addr string, s Status, log *slog.Logger) (
 		return nil, fmt.Errorf("metrics_listen: %w", err)
 	}
 	if log != nil && ExposedAddr(addr) {
-		log.Warn("metrics_listen is not on loopback: /healthz, /readyz and /metrics answer other machines; bind 127.0.0.1 or firewall the port", "addr", addr)
+		if s.Token == "" {
+			log.Warn("metrics_listen is not on loopback: /healthz, /readyz and /metrics answer other machines; bind 127.0.0.1, set metrics_token_file, or firewall the port", "addr", addr)
+		} else {
+			log.Info("metrics_listen is not on loopback: /metrics needs the token; firewall the port to the monitoring server", "addr", addr)
+		}
 	}
 	hs := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second}
 	go func() {

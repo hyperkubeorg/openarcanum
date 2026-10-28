@@ -133,7 +133,11 @@ func serve() error {
 	}
 	if cfg.MetricsListen != "" {
 		reg := ops.NewRegistry()
-		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Live: st.Ping}, log); err != nil {
+		token, err := cfg.MetricsToken()
+		if err != nil {
+			return err
+		}
+		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Live: st.Ping, Token: token}, log); err != nil {
 			return err
 		}
 	}

@@ -15,6 +15,7 @@ import (
 	"net/mail"
 	"net/netip"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -41,6 +42,31 @@ type Settings struct {
 	// node's public listener so it can stay on loopback or a private
 	// network.
 	MetricsListen string `json:"metrics_listen" env:"METRICS_LISTEN"`
+	// MetricsTokenFile, when set, holds a token /metrics then requires
+	// ("Authorization: Bearer <token>"; Prometheus's
+	// authorization.credentials_file): for a status listener a monitoring
+	// server reaches over the network (docs/operations.md "Monitoring").
+	// /healthz and /readyz stay open (the container's own health check).
+	MetricsTokenFile string `json:"metrics_token_file" env:"METRICS_TOKEN_FILE"`
+}
+
+// MinMetricsToken is the shortest token metrics_token_file may hold.
+const MinMetricsToken = 32
+
+// MetricsToken reads metrics_token_file ("" when it isn't set).
+func (s *Settings) MetricsToken() (string, error) {
+	if s.MetricsTokenFile == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(s.MetricsTokenFile)
+	if err != nil {
+		return "", fmt.Errorf("metrics_token_file: %w", err)
+	}
+	tok := strings.TrimSpace(string(b))
+	if len(tok) < MinMetricsToken || strings.ContainsAny(tok, " \t\r\n") {
+		return "", fmt.Errorf("metrics_token_file: the token must be one line of at least %d characters", MinMetricsToken)
+	}
+	return tok, nil
 }
 
 // DefaultSettings are the documented defaults: text logs at info level to

@@ -47,6 +47,7 @@ func (s *Server) migrations() []store.Migration {
 		{SQL: schemaV9Tables},
 		{SQL: schemaV10Tables},
 		{SQL: schemaV11Tables},
+		{SQL: schemaV12Tables},
 	}
 }
 

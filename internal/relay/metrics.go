@@ -2,6 +2,7 @@ package relay
 
 import (
 	"github.com/hyperkubeorg/openarcanum/internal/ops"
+	"github.com/hyperkubeorg/openarcanum/internal/sfu"
 )
 
 // RegisterMetrics adds the relay's metrics to reg (docs/operations.md
@@ -50,6 +51,9 @@ func (s *Server) RegisterMetrics(reg *ops.Registry) {
 	reg.CounterFunc("openarcanum_relay_deliveries_total", "Published messages delivered to subscribers.", func() float64 {
 		return float64(s.stats.Delivered.Load())
 	})
+	reg.CounterFunc("openarcanum_relay_delivered_bytes_total", "Bytes of the frames delivered to subscribers (encrypted, as sent).", func() float64 {
+		return float64(s.stats.DeliveredBytes.Load())
+	})
 	reg.CounterFunc("openarcanum_relay_slow_consumers_total", "Subscribers disconnected because their send queue overflowed.", func() float64 {
 		return float64(s.stats.SlowConsumers.Load())
 	})
@@ -68,4 +72,30 @@ func (s *Server) RegisterMetrics(reg *ops.Registry) {
 		}
 		return float64(media.Calls())
 	})
+	reg.GaugeFunc("openarcanum_relay_call_participants", "People in calls on this relay's SFU.", func() float64 {
+		if media := s.sfuOf(); media != nil {
+			return float64(media.Participants())
+		}
+		return 0
+	})
+	reg.CounterFunc("openarcanum_relay_media_received_bytes_total", "Call media bytes (encrypted RTP payloads) taken in from senders since start.", func() float64 {
+		if media := s.sfuOf(); media != nil {
+			in, _ := media.MediaBytes()
+			return float64(in)
+		}
+		return 0
+	})
+	reg.CounterFunc("openarcanum_relay_media_sent_bytes_total", "Call media bytes (encrypted RTP payloads) forwarded to receivers since start.", func() float64 {
+		if media := s.sfuOf(); media != nil {
+			_, out := media.MediaBytes()
+			return float64(out)
+		}
+		return 0
+	})
+}
+
+func (s *Server) sfuOf() *sfu.SFU {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sfu
 }

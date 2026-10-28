@@ -25,18 +25,37 @@ type storeStats struct {
 	vals map[string]float64
 }
 
-var storeQueries = []struct{ name, help, query string }{
-	{"openarcanum_meta_listings", "Directory listings (not withdrawn).", `SELECT count(*) FROM listings WHERE withdrawn = 0`},
-	{"openarcanum_meta_routes", "Private community routes.", `SELECT count(*) FROM routes`},
-	{"openarcanum_meta_relays", "Relays in the registry.", `SELECT count(*) FROM relays`},
-	{"openarcanum_meta_mailbox_items", "Items waiting in DM mailboxes.", `SELECT count(*) FROM mailbox`},
-	{"openarcanum_meta_mailbox_bytes", "Bytes waiting in DM mailboxes.", `SELECT coalesce(sum(size), 0) FROM mailbox`},
-	{"openarcanum_meta_nameplates", "Open device-link nameplates.", `SELECT count(*) FROM nameplates`},
-	{"openarcanum_meta_blobs_stored", "Complete DM blobs in the blob store.", `SELECT count(*) FROM blobs WHERE complete = 1 AND remote = 0`},
-	{"openarcanum_meta_blobs_stored_bytes", "Bytes of complete DM blobs.", `SELECT coalesce(sum(size), 0) FROM blobs WHERE complete = 1 AND remote = 0`},
-	{"openarcanum_meta_blobs_remote", "DM blob records from cluster peers whose content isn't (all) here yet.", `SELECT count(*) FROM blobs WHERE remote = 1`},
-	{"openarcanum_meta_blobs_uploading", "DM blob uploads in progress.", `SELECT count(*) FROM blobs WHERE complete = 0`},
-	{"openarcanum_meta_blobs_uploading_bytes", "Bytes reserved by DM blob uploads in progress.", `SELECT coalesce(sum(size), 0) FROM blobs WHERE complete = 0`},
+// storeQueries count rows; a query with a window takes one argument, the
+// cutoff (Unix milliseconds) that far back. Activity is counted from the
+// network's own records (heartbeats, mailboxes), never per person or per
+// community: "are people using it, and how much".
+var storeQueries = []struct {
+	name, help, query string
+	window            time.Duration
+}{
+	{"openarcanum_meta_listings", "Directory listings (not withdrawn).", `SELECT count(*) FROM listings WHERE withdrawn = 0`, 0},
+	{"openarcanum_meta_routes", "Private community routes.", `SELECT count(*) FROM routes`, 0},
+	{"openarcanum_meta_relays", "Relays in the registry.", `SELECT count(*) FROM relays`, 0},
+	{"openarcanum_meta_mailbox_items", "Items waiting in DM mailboxes.", `SELECT count(*) FROM mailbox`, 0},
+	{"openarcanum_meta_mailbox_bytes", "Bytes waiting in DM mailboxes.", `SELECT coalesce(sum(size), 0) FROM mailbox`, 0},
+	{"openarcanum_meta_nameplates", "Open device-link nameplates.", `SELECT count(*) FROM nameplates`, 0},
+	{"openarcanum_meta_blobs_stored", "Complete DM blobs in the blob store.", `SELECT count(*) FROM blobs WHERE complete = 1 AND remote = 0`, 0},
+	{"openarcanum_meta_blobs_stored_bytes", "Bytes of complete DM blobs.", `SELECT coalesce(sum(size), 0) FROM blobs WHERE complete = 1 AND remote = 0`, 0},
+	{"openarcanum_meta_blobs_remote", "DM blob records from cluster peers whose content isn't (all) here yet.", `SELECT count(*) FROM blobs WHERE remote = 1`, 0},
+	{"openarcanum_meta_blobs_uploading", "DM blob uploads in progress.", `SELECT count(*) FROM blobs WHERE complete = 0`, 0},
+	{"openarcanum_meta_blobs_uploading_bytes", "Bytes reserved by DM blob uploads in progress.", `SELECT coalesce(sum(size), 0) FROM blobs WHERE complete = 0`, 0},
+	// Activity: communities whose servers checked in (heartbeats come every
+	// few minutes while a server runs), relays alive and how loaded they say
+	// they are (from their heartbeats: the network-wide sum, for scaling),
+	// and DM traffic waiting.
+	{"openarcanum_meta_communities_active_1h", "Communities whose server sent a heartbeat in the last hour.", `SELECT count(*) FROM community_status WHERE at >= ?`, time.Hour},
+	{"openarcanum_meta_communities_active_24h", "Communities whose server sent a heartbeat in the last 24 hours.", `SELECT count(*) FROM community_status WHERE at >= ?`, 24 * time.Hour},
+	{"openarcanum_meta_communities_active_7d", "Communities whose server sent a heartbeat in the last 7 days.", `SELECT count(*) FROM community_status WHERE at >= ?`, 7 * 24 * time.Hour},
+	{"openarcanum_meta_relays_alive", "Relays whose last heartbeat is under 2 minutes old (relay_ttl).", `SELECT count(*) FROM relays WHERE at >= ?`, 2 * time.Minute},
+	{"openarcanum_meta_relay_connections", "Client connections across the relays alive, as their heartbeats report.", `SELECT coalesce(sum(connections), 0) FROM relays WHERE at >= ?`, 2 * time.Minute},
+	{"openarcanum_meta_relay_capacity", "Connection capacity across the relays alive, as their heartbeats report.", `SELECT coalesce(sum(capacity), 0) FROM relays WHERE at >= ?`, 2 * time.Minute},
+	{"openarcanum_meta_contact_cards", "Published contact cards (not expired).", `SELECT count(*) FROM contact_cards WHERE expires_at >= ?`, -1},
+	{"openarcanum_meta_mailbox_items_24h", "DM mailbox items received in the last 24 hours (still waiting).", `SELECT count(*) FROM mailbox WHERE received_at >= ?`, 24 * time.Hour},
 }
 
 func (s *Server) storeValue(name string) float64 {
@@ -49,7 +68,14 @@ func (s *Server) storeValue(name string) float64 {
 		vals := make(map[string]float64, len(storeQueries))
 		for _, q := range storeQueries {
 			var v float64
-			if err := s.db.QueryRowContext(ctx, q.query).Scan(&v); err != nil {
+			var args []any
+			switch {
+			case q.window > 0:
+				args = []any{s.now().Add(-q.window).UnixMilli()}
+			case q.window < 0: // now: an expiry still ahead
+				args = []any{s.now().UnixMilli()}
+			}
+			if err := s.db.QueryRowContext(ctx, q.query, args...).Scan(&v); err != nil {
 				s.log.Warn("metrics: database count failed", "metric", q.name, "err", err)
 				v = math.NaN()
 			}
@@ -75,6 +101,9 @@ func (s *Server) RegisterMetrics(reg *ops.Registry) http.Handler {
 			}
 		}
 		return float64(n)
+	})
+	reg.GaugeFunc("openarcanum_meta_mailbox_watches", "Open mailbox watches (one per inbox a client is listening on): how many people are connected for direct messages.", func() float64 {
+		return float64(s.watchCount())
 	})
 	s.registerPeerMetrics(reg)
 	mux := s.routes()

@@ -31,6 +31,11 @@
     "ui/js/admin.js"
    ]
   },
+  "(deleted channel)": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "(no label)": {
    "used_in": [
     "ui/js/admin.js"
@@ -456,6 +461,16 @@
    ]
   },
   "Actions": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
+  "Active members a day": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
+  "Active members a day (average)": {
    "used_in": [
     "ui/js/moderation.js"
    ]
@@ -1052,6 +1067,11 @@
     "ui/js/moderation.js"
    ]
   },
+  "Busiest channels (last 30 days)": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "By default members of a community see only whether you are online, idle or busy; your custom text is for your contacts. Invisible hides you from members, not from the community server.": {
    "used_in": [
     "ui/js/status.js"
@@ -1334,6 +1354,11 @@
    "used_in": [
     "ui/js/admin.js",
     "ui/js/lock.js"
+   ]
+  },
+  "Channel": {
+   "used_in": [
+    "ui/js/moderation.js"
    ]
   },
   "Channel created": {
@@ -1674,7 +1699,8 @@
   },
   "Connected": {
    "used_in": [
-    "ui/js/chat.js"
+    "ui/js/chat.js",
+    "ui/js/moderation.js"
    ]
   },
   "Connecting…": {
@@ -2018,6 +2044,11 @@
     "dmfiles.py"
    ]
   },
+  "Counts kept by this community's server, per day (UTC): nothing here says who. Active members are those who connected that day.": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "Crash log": {
    "used_in": [
     "core.py",
@@ -2156,6 +2187,11 @@
   "Dates look like 2026-10-24.": {
    "used_in": [
     "moderation.py"
+   ]
+  },
+  "Day": {
+   "used_in": [
+    "ui/js/moderation.js"
    ]
   },
   "Deafen": {
@@ -3141,6 +3177,11 @@
     "ui/js/voice.js"
    ]
   },
+  "Insights": {
+   "used_in": [
+    "ui/js/admin.js"
+   ]
+  },
   "Install updates from the update message.": {
    "used_in": [
     "updates.py"
@@ -3365,6 +3406,16 @@
     "ui/js/join.js"
    ]
   },
+  "Joined": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
+  "Joined and left": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "Joined {name} from another device.": {
    "vars": [
     "name"
@@ -3537,12 +3588,22 @@
     "ui/js/moderation.js"
    ]
   },
+  "Last 30 days": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "Last 6 hours": {
    "used_in": [
     "ui/js/moderation.js"
    ]
   },
   "Last 7 days": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
+  "Last 90 days": {
    "used_in": [
     "ui/js/moderation.js"
    ]
@@ -3627,6 +3688,11 @@
   "Leave…": {
    "used_in": [
     "ui/js/settings.js"
+   ]
+  },
+  "Left": {
+   "used_in": [
+    "ui/js/moderation.js"
    ]
   },
   "Left the call: {error}": {
@@ -4049,6 +4115,11 @@
     "ui/js/admin.js"
    ]
   },
+  "Members now": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "Members of communities we share": {
    "used_in": [
     "ui/js/settings.js"
@@ -4179,6 +4250,16 @@
     "ui/js/dm.js"
    ]
   },
+  "Messages": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
+  "Messages a day": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "Messages and downloaded files kept on this device, for as long as each community keeps them. Using {size} now.": {
    "vars": [
     "size"
@@ -4253,6 +4334,11 @@
    ]
   },
   "Minimum membership age": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
+  "Minutes": {
    "used_in": [
     "ui/js/moderation.js"
    ]
@@ -5093,6 +5179,11 @@
     "ui/js/status.js"
    ]
   },
+  "Online now": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "Online status only": {
    "used_in": [
     "ui/js/status.js"
@@ -5432,6 +5523,11 @@
     "ui/js/admin.js"
    ]
   },
+  "Period": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
   "Permanent code": {
    "used_in": [
     "ui/js/dm.js"
@@ -5590,6 +5686,11 @@
   "Post a message when someone joins or leaves.": {
    "used_in": [
     "ui/js/admin.js"
+   ]
+  },
+  "Posted": {
+   "used_in": [
+    "ui/js/moderation.js"
    ]
   },
   "Preferences": {
@@ -9138,6 +9239,16 @@
   "Voice connected": {
    "used_in": [
     "ui/js/voice.js"
+   ]
+  },
+  "Voice minutes": {
+   "used_in": [
+    "ui/js/moderation.js"
+   ]
+  },
+  "Voice minutes a day": {
+   "used_in": [
+    "ui/js/moderation.js"
    ]
   },
   "Volume for {name}": {

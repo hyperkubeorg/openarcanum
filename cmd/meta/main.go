@@ -116,7 +116,11 @@ func run() error {
 	if cfg.MetricsListen != "" {
 		reg := ops.NewRegistry()
 		handler = srv.RegisterMetrics(reg)
-		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Live: srv.Live}, log); err != nil {
+		token, err := cfg.MetricsToken()
+		if err != nil {
+			return err
+		}
+		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Live: srv.Live, Token: token}, log); err != nil {
 			return err
 		}
 	}

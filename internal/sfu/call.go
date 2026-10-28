@@ -377,6 +377,7 @@ func (c *call) forwardAudio(p *Peer, remote *webrtc.TrackRemote, src *audioSourc
 		if src.muted.Load() || !p.inbound.allow(len(pkt.Payload)) {
 			continue
 		}
+		c.sfu.mediaIn.Add(int64(len(pkt.Payload)))
 		stripExtensions(pkt)
 		outs = outs[:0]
 		src.mu.Lock()
@@ -389,6 +390,7 @@ func (c *call) forwardAudio(p *Peer, remote *webrtc.TrackRemote, src *audioSourc
 		for _, o := range outs {
 			_ = o.local.WriteRTP(pkt)
 		}
+		c.sfu.mediaOut.Add(int64(len(pkt.Payload) * len(outs)))
 	}
 }
 
@@ -950,6 +952,7 @@ func (vs *videoSource) read(rid string, t *webrtc.TrackRemote) {
 		if vs.blocked.Load() || !vs.owner.inbound.allow(len(pkt.Payload)) {
 			continue
 		}
+		vs.call.sfu.mediaIn.Add(int64(len(pkt.Payload)))
 		key := isVP8Keyframe(pkt)
 		vs.mu.Lock()
 		subs := make([]*forwarder, 0, len(vs.subs))
@@ -1026,6 +1029,7 @@ func (f *forwarder) write(rid string, pkt *rtp.Packet, keyframe bool) {
 	f.lastWrite = time.Now()
 	stripExtensions(&out)
 	_ = f.local.WriteRTP(&out)
+	f.vs.call.sfu.mediaOut.Add(int64(len(out.Payload)))
 }
 
 func (vs *videoSource) hasLayer(rid string) bool {

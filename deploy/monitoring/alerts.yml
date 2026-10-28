@@ -1,0 +1,85 @@
+# Alert rules (Prometheus; Grafana can read the same rules or alert on the
+# dashboard's queries). Thresholds are starting points: tune them to what
+# the network normally looks like.
+
+groups:
+  - name: openarcanum-health
+    rules:
+      - alert: NodeDown
+        expr: up == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} isn't answering its scrape"
+          description: "The service is down, the machine is unreachable, or its token or firewall changed."
+
+      - alert: RelaysAliveLow
+        expr: openarcanum_meta_relays_alive < 2
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Only {{ $value }} relay(s) alive in the registry"
+          description: "Relays that stopped sending heartbeats (relay_ttl, 2 minutes). Communities and calls lose their fallback."
+
+      - alert: CommunityUnreachable
+        expr: openarcanum_community_unready > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} community(ies) on {{ $labels.job }} have no relay attached"
+          description: "Members can't reach them until a relay attaches."
+
+      - alert: MaintainerErrors
+        expr: sum by (job) (rate(openarcanum_meta_http_requests_total{code=~"5.."}[5m])) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.job }} answers server errors"
+
+      - alert: MaintainerClusterLag
+        expr: openarcanum_meta_peer_lag > 1000
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.job }} is {{ $value }} entries behind a cluster peer"
+
+      - alert: CommunityBackupFailing
+        expr: increase(openarcanum_community_backup_failures_total[1h]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "A community backup failed on {{ $labels.job }}"
+
+  - name: openarcanum-capacity
+    rules:
+      # The cue to add a relay: the relays alive say how many connections
+      # they hold and can hold (their heartbeats, summed by the maintainer).
+      - alert: RelayCapacityHigh
+        expr: openarcanum_meta_relay_connections / clamp_min(openarcanum_meta_relay_capacity, 1) > 0.7
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Relays are at {{ $value | humanizePercentage }} of their connection capacity"
+          description: "Add a relay before they start refusing connections."
+
+      - alert: RelayRefusingConnections
+        expr: increase(openarcanum_relay_connections_refused_total[10m]) > 0 or increase(openarcanum_relay_unstarted_refused_total[10m]) > 20
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.job }} is refusing connections (full)"
+
+      - alert: RelayCPUHigh
+        # A relay's process using most of a CPU for a while: calls and
+        # deliveries slow down. 0.8 means 80% of one core; raise it for
+        # machines with more cores the relay can use.
+        expr: rate(process_cpu_seconds_total{service="relay"}[5m]) > 0.8
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.job }} CPU at {{ $value | humanizePercentage }} of a core"
+
+      - alert: RelaySlowConsumers
+        expr: increase(openarcanum_relay_slow_consumers_total[10m]) > 10
+        labels: { severity: info }
+        annotations:
+          summary: "{{ $labels.job }} disconnected slow subscribers"
+          description: "Clients whose connection couldn't keep up; many at once can mean the relay's network is saturated."

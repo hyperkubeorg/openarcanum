@@ -49,6 +49,8 @@ message ClientMessage {
     AddKeyPackages add_key_packages = 30;
     GetAvatar get_avatar = 31;
     AdoptServer adopt_server = 32;
+    // Community Admin → Insights (docs/protocol.md §4.12): admins only.
+    GetInsights get_insights = 33;
     // Messaging (docs/protocol.md §4.3).
     React react = 60;
     Pin pin = 61;
@@ -124,6 +126,7 @@ message ServerMessage {
     StatusList statuses = 104;
     StatusKeys status_keys = 105;
     StatusKeyRequest status_key_request = 106;
+    Insights insights = 107;
   }
 }
 
@@ -1622,3 +1625,39 @@ message EmojiImage {
   string mime = 3;
   uint32 version = 4;
 }
+
+// ---------------------------------------------------------------- insights
+
+// GetInsights asks for the community's activity over its last `days` days
+// (1 to 400; 30 when 0). Members with Manage community or View audit log.
+message GetInsights {
+  uint32 days = 1;
+}
+
+// One UTC day's activity: counts only, nothing about who.
+message InsightDay {
+  string day = 1;          // YYYY-MM-DD (UTC)
+  uint32 members = 2;      // active members on the roll at the day's last count
+  uint32 joined = 3;
+  uint32 left = 4;         // left, kicked or banned
+  uint32 messages = 5;
+  uint32 active = 6;       // members who connected that day
+  uint32 posters = 7;      // members who posted that day
+  uint32 voice_minutes = 8;
+  uint32 peak_online = 9;  // most members online at once (sampled each minute)
+}
+
+// Messages per channel in the last 30 days (those still kept: retention
+// may have removed older ones).
+message ChannelActivity {
+  int64 channel_id = 1;
+  uint32 messages = 2;
+}
+
+message Insights {
+  repeated InsightDay days = 1;  // oldest first; days with nothing recorded are left out
+  repeated ChannelActivity channels = 2;
+  uint32 members = 3;            // now
+  uint32 online = 4;             // now
+}
+

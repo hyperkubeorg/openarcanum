@@ -36,6 +36,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/interceptor"
@@ -98,6 +99,11 @@ type SFU struct {
 	api  *webrtc.API
 	conn *net.UDPConn
 	log  *slog.Logger
+
+	// Media bytes (RTP payloads) taken in from senders and forwarded to
+	// receivers, for the relay's metrics: how much the calls carry, never
+	// whose.
+	mediaIn, mediaOut atomic.Int64
 
 	mu    sync.Mutex
 	calls map[string]*call
@@ -273,6 +279,27 @@ func (s *SFU) Calls() int {
 	defer s.mu.Unlock()
 	return len(s.calls)
 }
+
+// Participants is the number of people in calls on this relay (metrics).
+func (s *SFU) Participants() int {
+	s.mu.Lock()
+	calls := make([]*call, 0, len(s.calls))
+	for _, c := range s.calls {
+		calls = append(calls, c)
+	}
+	s.mu.Unlock()
+	n := 0
+	for _, c := range calls {
+		c.mu.Lock()
+		n += len(c.peers)
+		c.mu.Unlock()
+	}
+	return n
+}
+
+// MediaBytes is how many media payload bytes this relay has taken in and
+// forwarded since it started (metrics).
+func (s *SFU) MediaBytes() (in, out int64) { return s.mediaIn.Load(), s.mediaOut.Load() }
 
 // Join admits a participant on a grant and answers their offer. ip is the
 // participant's address; the per-address limit counts its network (an

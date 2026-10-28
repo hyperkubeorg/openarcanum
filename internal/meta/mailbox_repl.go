@@ -275,6 +275,7 @@ func (s *Server) applyItem(ctx context.Context, it *wire.PeerMailboxItem) (bool,
 		return false, err
 	}
 	s.mailboxBytes += size
+	s.wake(it.Inbox)
 	return true, nil
 }
 

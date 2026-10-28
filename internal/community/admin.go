@@ -216,6 +216,8 @@ func (s *Server) afterRemovalNoKeep(member []byte, status wire.MemberStatus) {
 // admitPending tells a pending member's open sessions they are in.
 func (s *Server) admitPending(member []byte) {
 	defer s.presenceChanged(member)
+	s.insightJoined()
+	s.insightSeen(member)
 	for _, ss := range s.sessionsFor(member) {
 		ss.setStatus(wire.MemberStatus_MEMBER_STATUS_ACTIVE)
 		st := s.buildState(member)

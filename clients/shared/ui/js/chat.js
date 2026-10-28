@@ -493,19 +493,45 @@ function banners(summary, s) {
   }
   const hosted = hostingBanner(summary);
   if (hosted) out.push(hosted);
-  if (s && summary.is_owner && s.single_owner) {
+  if (s && summary.is_owner && s.single_owner && !dismissed('single_owner', summary.id)) {
     out.push(h('div', { class: 'banner warn single-owner' }, h('span', { class: 'spacer', text: t(SINGLE_OWNER_WARNING) }),
-      h('button', { class: 'btn small', text: t('Add an owner'), onclick: () => openCommunitySettings(summary.id, 'ownership') })));
+      h('button', { class: 'btn small', text: t('Add an owner'), onclick: () => openCommunitySettings(summary.id, 'ownership') }),
+      dismissButton(() => dismiss('single_owner', summary.id))));
   }
   if (s && s.self && s.self.owner_invited && !summary.is_owner) {
     out.push(h('div', { class: 'banner info' }, h('span', { class: 'spacer', text: t('You\'ve been invited to become an owner of this community.') }),
       h('button', { class: 'btn small', text: t('Review'), onclick: () => openCommunitySettings(summary.id, 'ownership') })));
   }
-  if (st.status && st.status.backup_current === false) {
+  if (st.status && st.status.backup_current === false && !dismissed('backup', st.status.keys_revision)) {
     out.push(h('div', { class: 'banner warn' }, h('span', { class: 'spacer', text: t('Your backup is out of date.') }),
-      h('button', { class: 'btn small', text: t('Export backup'), onclick: exportBackupFlow })));
+      h('button', { class: 'btn small', text: t('Export backup'), onclick: exportBackupFlow }),
+      dismissButton(() => dismiss('backup', st.status.keys_revision))));
   }
   return out;
+}
+
+// Banners someone dismissed (ui_state "dismissed": banner -> what it was
+// about): a community's single-owner warning for good, the backup reminder
+// until the keys change again.
+let dismissedBanners = null;
+function dismissed(banner, about) {
+  if (dismissedBanners === null) {
+    dismissedBanners = {};
+    api('ui_state_get', 'dismissed').then((v) => { dismissedBanners = v || {}; renderMain(); }).catch(() => {});
+    return true; // not known yet: don't flash it
+  }
+  const seen = dismissedBanners[banner];
+  return Array.isArray(seen) ? seen.includes(about) : seen === about;
+}
+function dismiss(banner, about) {
+  const d = { ...(dismissedBanners || {}) };
+  d[banner] = banner === 'backup' ? about : [...new Set([...(Array.isArray(d[banner]) ? d[banner] : []), about])].slice(-500);
+  dismissedBanners = d;
+  api('ui_state_set', 'dismissed', d).catch(() => {});
+  renderMain();
+}
+function dismissButton(run) {
+  return h('button', { class: 'icon-btn', title: t('Dismiss'), 'aria-label': t('Dismiss'), icon: 'x', onclick: run });
 }
 
 function myKey() { const s = cstate(); return s && s.self ? s.self.key : ''; }

@@ -26,7 +26,6 @@ import (
 
 	"github.com/hyperkubeorg/openarcanum/internal/identity"
 	"github.com/hyperkubeorg/openarcanum/internal/meta/clusterset"
-	"github.com/hyperkubeorg/openarcanum/internal/ops"
 	"github.com/hyperkubeorg/openarcanum/internal/relayclient"
 	"github.com/hyperkubeorg/openarcanum/internal/session"
 	"github.com/hyperkubeorg/openarcanum/internal/wire"
@@ -34,7 +33,9 @@ import (
 
 // Server is a running community server.
 type Server struct {
-	cfg Config
+	// insights: today's activity counts (insights.go).
+	insights insightsState
+	cfg      Config
 	// host runs this community with others (host.go); nil for a server
 	// opened on its own (tests, tools).
 	host *Host
@@ -139,8 +140,7 @@ type Server struct {
 
 	// Metrics (metrics.go): event counts, and the backup outcome counter
 	// once RegisterMetrics has run.
-	counters     opCounters
-	backupMetric *ops.CounterVec
+	counters opCounters
 
 	publishCh chan struct{}
 	relayKick chan struct{}
@@ -252,6 +252,10 @@ func Open(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 	if err := s.recommitTopics(ctx); err != nil {
 		s.db.Close()
 		return nil, err
+	}
+	if err := s.loadInsights(ctx); err != nil {
+		s.db.Close()
+		return nil, fmt.Errorf("insights: %w", err)
 	}
 	if s.ownerKey != nil {
 		s.removeClaimFile()
@@ -750,6 +754,9 @@ func (s *Server) serveStream(ctx context.Context, st *relayclient.Stream) {
 	guard.n, guard.ss = 0, ss
 	go ss.writer()
 	status := s.admitSession(ctx, ss)
+	if status == wire.MemberStatus_MEMBER_STATUS_ACTIVE {
+		s.insightSeen(ss.member)
+	}
 	ss.setStatus(status)
 	ss.send(&wire.ServerMessage{Body: &wire.ServerMessage_Status{Status: &wire.SessionStatus{Status: status, Claimed: s.Claimed()}}})
 	if status == wire.MemberStatus_MEMBER_STATUS_BANNED {

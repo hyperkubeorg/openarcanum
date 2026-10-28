@@ -14,6 +14,11 @@ SERVICE=openarcanum-maintainer
 APP_DIR=maintainer
 CONFIG_NAME=meta.json
 DATA_DIRS="data acme"
+# Monitoring (lib/common.sh monitoring_choice): the status listener's port.
+METRICS_PORT=7100
+METRICS_ENV=OPENARCANUM_META
+METRICS_TOKEN_DIR=config
+METRICS_TOKEN_PATH=/etc/openarcanum/metrics.token
 TCP_PORTS="443/tcp"
 UDP_PORTS=""
 FORWARD_PORTS=""

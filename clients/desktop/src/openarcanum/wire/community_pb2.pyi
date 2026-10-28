@@ -198,7 +198,7 @@ AUTOMOD_TRIGGER_MENTION_SPAM: AutoModTrigger
 AUTOMOD_TRIGGER_LINKS: AutoModTrigger
 
 class ClientMessage(_message.Message):
-    __slots__ = ("id", "get_info", "claim", "join", "sync", "history", "post", "edit", "delete", "leave", "set_profile", "admin", "list_members", "list_join_keys", "list_pending", "list_bans", "audit_log", "search", "upload_begin", "upload_chunk", "upload_finish", "file_get", "list_devices", "revoke_device", "publish_contact_card", "get_contact_card", "voice_join", "voice_state", "voice_leave", "check_status", "add_key_packages", "get_avatar", "adopt_server", "react", "pin", "list_pins", "typing", "update_profile", "report_message", "list_reports", "list_automod_rules", "get_emoji", "emoji_upload", "set_status_device", "set_status", "list_statuses", "send_status_keys", "fetch_status_keys", "request_status_key")
+    __slots__ = ("id", "get_info", "claim", "join", "sync", "history", "post", "edit", "delete", "leave", "set_profile", "admin", "list_members", "list_join_keys", "list_pending", "list_bans", "audit_log", "search", "upload_begin", "upload_chunk", "upload_finish", "file_get", "list_devices", "revoke_device", "publish_contact_card", "get_contact_card", "voice_join", "voice_state", "voice_leave", "check_status", "add_key_packages", "get_avatar", "adopt_server", "get_insights", "react", "pin", "list_pins", "typing", "update_profile", "report_message", "list_reports", "list_automod_rules", "get_emoji", "emoji_upload", "set_status_device", "set_status", "list_statuses", "send_status_keys", "fetch_status_keys", "request_status_key")
     ID_FIELD_NUMBER: _ClassVar[int]
     GET_INFO_FIELD_NUMBER: _ClassVar[int]
     CLAIM_FIELD_NUMBER: _ClassVar[int]
@@ -232,6 +232,7 @@ class ClientMessage(_message.Message):
     ADD_KEY_PACKAGES_FIELD_NUMBER: _ClassVar[int]
     GET_AVATAR_FIELD_NUMBER: _ClassVar[int]
     ADOPT_SERVER_FIELD_NUMBER: _ClassVar[int]
+    GET_INSIGHTS_FIELD_NUMBER: _ClassVar[int]
     REACT_FIELD_NUMBER: _ClassVar[int]
     PIN_FIELD_NUMBER: _ClassVar[int]
     LIST_PINS_FIELD_NUMBER: _ClassVar[int]
@@ -281,6 +282,7 @@ class ClientMessage(_message.Message):
     add_key_packages: AddKeyPackages
     get_avatar: GetAvatar
     adopt_server: AdoptServer
+    get_insights: GetInsights
     react: React
     pin: Pin
     list_pins: ListPins
@@ -297,10 +299,10 @@ class ClientMessage(_message.Message):
     send_status_keys: SendStatusKeys
     fetch_status_keys: FetchStatusKeys
     request_status_key: RequestStatusKey
-    def __init__(self, id: _Optional[int] = ..., get_info: _Optional[_Union[GetInfo, _Mapping]] = ..., claim: _Optional[_Union[Claim, _Mapping]] = ..., join: _Optional[_Union[Join, _Mapping]] = ..., sync: _Optional[_Union[Sync, _Mapping]] = ..., history: _Optional[_Union[History, _Mapping]] = ..., post: _Optional[_Union[Post, _Mapping]] = ..., edit: _Optional[_Union[Edit, _Mapping]] = ..., delete: _Optional[_Union[DeleteMessage, _Mapping]] = ..., leave: _Optional[_Union[Leave, _Mapping]] = ..., set_profile: _Optional[_Union[SetProfile, _Mapping]] = ..., admin: _Optional[_Union[SignedAction, _Mapping]] = ..., list_members: _Optional[_Union[ListMembers, _Mapping]] = ..., list_join_keys: _Optional[_Union[ListJoinKeys, _Mapping]] = ..., list_pending: _Optional[_Union[ListPending, _Mapping]] = ..., list_bans: _Optional[_Union[ListBans, _Mapping]] = ..., audit_log: _Optional[_Union[AuditQuery, _Mapping]] = ..., search: _Optional[_Union[SearchQuery, _Mapping]] = ..., upload_begin: _Optional[_Union[UploadBegin, _Mapping]] = ..., upload_chunk: _Optional[_Union[UploadChunk, _Mapping]] = ..., upload_finish: _Optional[_Union[UploadFinish, _Mapping]] = ..., file_get: _Optional[_Union[FileGet, _Mapping]] = ..., list_devices: _Optional[_Union[ListDevices, _Mapping]] = ..., revoke_device: _Optional[_Union[SignedDeviceRevocation, _Mapping]] = ..., publish_contact_card: _Optional[_Union[PublishContactCard, _Mapping]] = ..., get_contact_card: _Optional[_Union[GetContactCard, _Mapping]] = ..., voice_join: _Optional[_Union[VoiceJoin, _Mapping]] = ..., voice_state: _Optional[_Union[VoiceState, _Mapping]] = ..., voice_leave: _Optional[_Union[VoiceLeave, _Mapping]] = ..., check_status: _Optional[_Union[CheckStatus, _Mapping]] = ..., add_key_packages: _Optional[_Union[AddKeyPackages, _Mapping]] = ..., get_avatar: _Optional[_Union[GetAvatar, _Mapping]] = ..., adopt_server: _Optional[_Union[AdoptServer, _Mapping]] = ..., react: _Optional[_Union[React, _Mapping]] = ..., pin: _Optional[_Union[Pin, _Mapping]] = ..., list_pins: _Optional[_Union[ListPins, _Mapping]] = ..., typing: _Optional[_Union[Typing, _Mapping]] = ..., update_profile: _Optional[_Union[UpdateProfile, _Mapping]] = ..., report_message: _Optional[_Union[ReportMessage, _Mapping]] = ..., list_reports: _Optional[_Union[ListReports, _Mapping]] = ..., list_automod_rules: _Optional[_Union[ListAutoModRules, _Mapping]] = ..., get_emoji: _Optional[_Union[GetEmoji, _Mapping]] = ..., emoji_upload: _Optional[_Union[EmojiUpload, _Mapping]] = ..., set_status_device: _Optional[_Union[SetStatusDevice, _Mapping]] = ..., set_status: _Optional[_Union[SetStatus, _Mapping]] = ..., list_statuses: _Optional[_Union[ListStatuses, _Mapping]] = ..., send_status_keys: _Optional[_Union[SendStatusKeys, _Mapping]] = ..., fetch_status_keys: _Optional[_Union[FetchStatusKeys, _Mapping]] = ..., request_status_key: _Optional[_Union[RequestStatusKey, _Mapping]] = ...) -> None: ...
+    def __init__(self, id: _Optional[int] = ..., get_info: _Optional[_Union[GetInfo, _Mapping]] = ..., claim: _Optional[_Union[Claim, _Mapping]] = ..., join: _Optional[_Union[Join, _Mapping]] = ..., sync: _Optional[_Union[Sync, _Mapping]] = ..., history: _Optional[_Union[History, _Mapping]] = ..., post: _Optional[_Union[Post, _Mapping]] = ..., edit: _Optional[_Union[Edit, _Mapping]] = ..., delete: _Optional[_Union[DeleteMessage, _Mapping]] = ..., leave: _Optional[_Union[Leave, _Mapping]] = ..., set_profile: _Optional[_Union[SetProfile, _Mapping]] = ..., admin: _Optional[_Union[SignedAction, _Mapping]] = ..., list_members: _Optional[_Union[ListMembers, _Mapping]] = ..., list_join_keys: _Optional[_Union[ListJoinKeys, _Mapping]] = ..., list_pending: _Optional[_Union[ListPending, _Mapping]] = ..., list_bans: _Optional[_Union[ListBans, _Mapping]] = ..., audit_log: _Optional[_Union[AuditQuery, _Mapping]] = ..., search: _Optional[_Union[SearchQuery, _Mapping]] = ..., upload_begin: _Optional[_Union[UploadBegin, _Mapping]] = ..., upload_chunk: _Optional[_Union[UploadChunk, _Mapping]] = ..., upload_finish: _Optional[_Union[UploadFinish, _Mapping]] = ..., file_get: _Optional[_Union[FileGet, _Mapping]] = ..., list_devices: _Optional[_Union[ListDevices, _Mapping]] = ..., revoke_device: _Optional[_Union[SignedDeviceRevocation, _Mapping]] = ..., publish_contact_card: _Optional[_Union[PublishContactCard, _Mapping]] = ..., get_contact_card: _Optional[_Union[GetContactCard, _Mapping]] = ..., voice_join: _Optional[_Union[VoiceJoin, _Mapping]] = ..., voice_state: _Optional[_Union[VoiceState, _Mapping]] = ..., voice_leave: _Optional[_Union[VoiceLeave, _Mapping]] = ..., check_status: _Optional[_Union[CheckStatus, _Mapping]] = ..., add_key_packages: _Optional[_Union[AddKeyPackages, _Mapping]] = ..., get_avatar: _Optional[_Union[GetAvatar, _Mapping]] = ..., adopt_server: _Optional[_Union[AdoptServer, _Mapping]] = ..., get_insights: _Optional[_Union[GetInsights, _Mapping]] = ..., react: _Optional[_Union[React, _Mapping]] = ..., pin: _Optional[_Union[Pin, _Mapping]] = ..., list_pins: _Optional[_Union[ListPins, _Mapping]] = ..., typing: _Optional[_Union[Typing, _Mapping]] = ..., update_profile: _Optional[_Union[UpdateProfile, _Mapping]] = ..., report_message: _Optional[_Union[ReportMessage, _Mapping]] = ..., list_reports: _Optional[_Union[ListReports, _Mapping]] = ..., list_automod_rules: _Optional[_Union[ListAutoModRules, _Mapping]] = ..., get_emoji: _Optional[_Union[GetEmoji, _Mapping]] = ..., emoji_upload: _Optional[_Union[EmojiUpload, _Mapping]] = ..., set_status_device: _Optional[_Union[SetStatusDevice, _Mapping]] = ..., set_status: _Optional[_Union[SetStatus, _Mapping]] = ..., list_statuses: _Optional[_Union[ListStatuses, _Mapping]] = ..., send_status_keys: _Optional[_Union[SendStatusKeys, _Mapping]] = ..., fetch_status_keys: _Optional[_Union[FetchStatusKeys, _Mapping]] = ..., request_status_key: _Optional[_Union[RequestStatusKey, _Mapping]] = ...) -> None: ...
 
 class ServerMessage(_message.Message):
-    __slots__ = ("reply_to", "error", "ok", "info", "claim_result", "join_result", "state", "messages", "message", "admin_result", "members", "join_keys", "bans", "audit", "search_results", "upload_started", "file_chunk", "devices", "contact_card", "voice_session", "status", "avatar", "reports", "automod_rules", "emoji_image", "state_changed", "voice_update", "voice_rooms", "pins", "presence", "staged_file", "message_update", "mod_alert", "presence_batch", "mod_queue", "statuses", "status_keys", "status_key_request")
+    __slots__ = ("reply_to", "error", "ok", "info", "claim_result", "join_result", "state", "messages", "message", "admin_result", "members", "join_keys", "bans", "audit", "search_results", "upload_started", "file_chunk", "devices", "contact_card", "voice_session", "status", "avatar", "reports", "automod_rules", "emoji_image", "state_changed", "voice_update", "voice_rooms", "pins", "presence", "staged_file", "message_update", "mod_alert", "presence_batch", "mod_queue", "statuses", "status_keys", "status_key_request", "insights")
     REPLY_TO_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     OK_FIELD_NUMBER: _ClassVar[int]
@@ -339,6 +341,7 @@ class ServerMessage(_message.Message):
     STATUSES_FIELD_NUMBER: _ClassVar[int]
     STATUS_KEYS_FIELD_NUMBER: _ClassVar[int]
     STATUS_KEY_REQUEST_FIELD_NUMBER: _ClassVar[int]
+    INSIGHTS_FIELD_NUMBER: _ClassVar[int]
     reply_to: int
     error: RpcError
     ok: Ok
@@ -377,7 +380,8 @@ class ServerMessage(_message.Message):
     statuses: StatusList
     status_keys: StatusKeys
     status_key_request: StatusKeyRequest
-    def __init__(self, reply_to: _Optional[int] = ..., error: _Optional[_Union[RpcError, _Mapping]] = ..., ok: _Optional[_Union[Ok, _Mapping]] = ..., info: _Optional[_Union[CommunityInfo, _Mapping]] = ..., claim_result: _Optional[_Union[ClaimResult, _Mapping]] = ..., join_result: _Optional[_Union[JoinResult, _Mapping]] = ..., state: _Optional[_Union[SyncState, _Mapping]] = ..., messages: _Optional[_Union[MessageList, _Mapping]] = ..., message: _Optional[_Union[Message, _Mapping]] = ..., admin_result: _Optional[_Union[AdminResult, _Mapping]] = ..., members: _Optional[_Union[MemberList, _Mapping]] = ..., join_keys: _Optional[_Union[JoinKeyList, _Mapping]] = ..., bans: _Optional[_Union[BanList, _Mapping]] = ..., audit: _Optional[_Union[AuditList, _Mapping]] = ..., search_results: _Optional[_Union[SearchResults, _Mapping]] = ..., upload_started: _Optional[_Union[UploadStarted, _Mapping]] = ..., file_chunk: _Optional[_Union[FileChunk, _Mapping]] = ..., devices: _Optional[_Union[DeviceList, _Mapping]] = ..., contact_card: _Optional[_Union[ContactCardResult, _Mapping]] = ..., voice_session: _Optional[_Union[VoiceSession, _Mapping]] = ..., status: _Optional[_Union[SessionStatus, _Mapping]] = ..., avatar: _Optional[_Union[AvatarResult, _Mapping]] = ..., reports: _Optional[_Union[ReportList, _Mapping]] = ..., automod_rules: _Optional[_Union[AutoModRuleList, _Mapping]] = ..., emoji_image: _Optional[_Union[EmojiImage, _Mapping]] = ..., state_changed: _Optional[_Union[StateChanged, _Mapping]] = ..., voice_update: _Optional[_Union[VoiceUpdate, _Mapping]] = ..., voice_rooms: _Optional[_Union[VoiceRooms, _Mapping]] = ..., pins: _Optional[_Union[PinList, _Mapping]] = ..., presence: _Optional[_Union[PresenceUpdate, _Mapping]] = ..., staged_file: _Optional[_Union[StagedFile, _Mapping]] = ..., message_update: _Optional[_Union[MessageUpdate, _Mapping]] = ..., mod_alert: _Optional[_Union[ModAlert, _Mapping]] = ..., presence_batch: _Optional[_Union[PresenceBatch, _Mapping]] = ..., mod_queue: _Optional[_Union[ModQueue, _Mapping]] = ..., statuses: _Optional[_Union[StatusList, _Mapping]] = ..., status_keys: _Optional[_Union[StatusKeys, _Mapping]] = ..., status_key_request: _Optional[_Union[StatusKeyRequest, _Mapping]] = ...) -> None: ...
+    insights: Insights
+    def __init__(self, reply_to: _Optional[int] = ..., error: _Optional[_Union[RpcError, _Mapping]] = ..., ok: _Optional[_Union[Ok, _Mapping]] = ..., info: _Optional[_Union[CommunityInfo, _Mapping]] = ..., claim_result: _Optional[_Union[ClaimResult, _Mapping]] = ..., join_result: _Optional[_Union[JoinResult, _Mapping]] = ..., state: _Optional[_Union[SyncState, _Mapping]] = ..., messages: _Optional[_Union[MessageList, _Mapping]] = ..., message: _Optional[_Union[Message, _Mapping]] = ..., admin_result: _Optional[_Union[AdminResult, _Mapping]] = ..., members: _Optional[_Union[MemberList, _Mapping]] = ..., join_keys: _Optional[_Union[JoinKeyList, _Mapping]] = ..., bans: _Optional[_Union[BanList, _Mapping]] = ..., audit: _Optional[_Union[AuditList, _Mapping]] = ..., search_results: _Optional[_Union[SearchResults, _Mapping]] = ..., upload_started: _Optional[_Union[UploadStarted, _Mapping]] = ..., file_chunk: _Optional[_Union[FileChunk, _Mapping]] = ..., devices: _Optional[_Union[DeviceList, _Mapping]] = ..., contact_card: _Optional[_Union[ContactCardResult, _Mapping]] = ..., voice_session: _Optional[_Union[VoiceSession, _Mapping]] = ..., status: _Optional[_Union[SessionStatus, _Mapping]] = ..., avatar: _Optional[_Union[AvatarResult, _Mapping]] = ..., reports: _Optional[_Union[ReportList, _Mapping]] = ..., automod_rules: _Optional[_Union[AutoModRuleList, _Mapping]] = ..., emoji_image: _Optional[_Union[EmojiImage, _Mapping]] = ..., state_changed: _Optional[_Union[StateChanged, _Mapping]] = ..., voice_update: _Optional[_Union[VoiceUpdate, _Mapping]] = ..., voice_rooms: _Optional[_Union[VoiceRooms, _Mapping]] = ..., pins: _Optional[_Union[PinList, _Mapping]] = ..., presence: _Optional[_Union[PresenceUpdate, _Mapping]] = ..., staged_file: _Optional[_Union[StagedFile, _Mapping]] = ..., message_update: _Optional[_Union[MessageUpdate, _Mapping]] = ..., mod_alert: _Optional[_Union[ModAlert, _Mapping]] = ..., presence_batch: _Optional[_Union[PresenceBatch, _Mapping]] = ..., mod_queue: _Optional[_Union[ModQueue, _Mapping]] = ..., statuses: _Optional[_Union[StatusList, _Mapping]] = ..., status_keys: _Optional[_Union[StatusKeys, _Mapping]] = ..., status_key_request: _Optional[_Union[StatusKeyRequest, _Mapping]] = ..., insights: _Optional[_Union[Insights, _Mapping]] = ...) -> None: ...
 
 class Ok(_message.Message):
     __slots__ = ()
@@ -2236,3 +2240,51 @@ class EmojiImage(_message.Message):
     mime: str
     version: int
     def __init__(self, id: _Optional[int] = ..., image: _Optional[bytes] = ..., mime: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
+
+class GetInsights(_message.Message):
+    __slots__ = ("days",)
+    DAYS_FIELD_NUMBER: _ClassVar[int]
+    days: int
+    def __init__(self, days: _Optional[int] = ...) -> None: ...
+
+class InsightDay(_message.Message):
+    __slots__ = ("day", "members", "joined", "left", "messages", "active", "posters", "voice_minutes", "peak_online")
+    DAY_FIELD_NUMBER: _ClassVar[int]
+    MEMBERS_FIELD_NUMBER: _ClassVar[int]
+    JOINED_FIELD_NUMBER: _ClassVar[int]
+    LEFT_FIELD_NUMBER: _ClassVar[int]
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    POSTERS_FIELD_NUMBER: _ClassVar[int]
+    VOICE_MINUTES_FIELD_NUMBER: _ClassVar[int]
+    PEAK_ONLINE_FIELD_NUMBER: _ClassVar[int]
+    day: str
+    members: int
+    joined: int
+    left: int
+    messages: int
+    active: int
+    posters: int
+    voice_minutes: int
+    peak_online: int
+    def __init__(self, day: _Optional[str] = ..., members: _Optional[int] = ..., joined: _Optional[int] = ..., left: _Optional[int] = ..., messages: _Optional[int] = ..., active: _Optional[int] = ..., posters: _Optional[int] = ..., voice_minutes: _Optional[int] = ..., peak_online: _Optional[int] = ...) -> None: ...
+
+class ChannelActivity(_message.Message):
+    __slots__ = ("channel_id", "messages")
+    CHANNEL_ID_FIELD_NUMBER: _ClassVar[int]
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    channel_id: int
+    messages: int
+    def __init__(self, channel_id: _Optional[int] = ..., messages: _Optional[int] = ...) -> None: ...
+
+class Insights(_message.Message):
+    __slots__ = ("days", "channels", "members", "online")
+    DAYS_FIELD_NUMBER: _ClassVar[int]
+    CHANNELS_FIELD_NUMBER: _ClassVar[int]
+    MEMBERS_FIELD_NUMBER: _ClassVar[int]
+    ONLINE_FIELD_NUMBER: _ClassVar[int]
+    days: _containers.RepeatedCompositeFieldContainer[InsightDay]
+    channels: _containers.RepeatedCompositeFieldContainer[ChannelActivity]
+    members: int
+    online: int
+    def __init__(self, days: _Optional[_Iterable[_Union[InsightDay, _Mapping]]] = ..., channels: _Optional[_Iterable[_Union[ChannelActivity, _Mapping]]] = ..., members: _Optional[int] = ..., online: _Optional[int] = ...) -> None: ...

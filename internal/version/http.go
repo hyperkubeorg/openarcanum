@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // Middleware negotiates the maintainer API version on every /v1/ request.
@@ -16,7 +17,13 @@ func Middleware(supported []uint32, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		v, err := Choose(supported, r.Header.Get(Header))
+		offered := r.Header.Get(Header)
+		// A browser can't set headers on a WebSocket: a watch says its
+		// versions in the URL (?v=), as it would in the header.
+		if offered == "" && strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			offered = r.URL.Query().Get("v")
+		}
+		v, err := Choose(supported, offered)
 		w.Header().Set(Header, Format(supported))
 		if err != nil {
 			var me *MismatchError

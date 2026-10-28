@@ -66,6 +66,22 @@ func NewRegistry() *Registry {
 		return float64(m.Sys)
 	})
 	if runtime.GOOS == "linux" {
+		// CPU and memory: what says a node needs more machine (a relay
+		// near its CPU is the cue for another relay).
+		r.CounterFunc("process_cpu_seconds_total", "Total user and system CPU time spent in seconds.", func() float64 {
+			utime, stime, _, ok := procStat()
+			if !ok {
+				return math.NaN()
+			}
+			return (utime + stime) / clockTicks
+		})
+		r.GaugeFunc("process_resident_memory_bytes", "Resident memory size in bytes.", func() float64 {
+			_, _, rss, ok := procStat()
+			if !ok {
+				return math.NaN()
+			}
+			return rss * float64(os.Getpagesize())
+		})
 		r.GaugeFunc("process_open_fds", "Number of open file descriptors.", func() float64 {
 			ents, err := os.ReadDir("/proc/self/fd")
 			if err != nil {
@@ -75,6 +91,36 @@ func NewRegistry() *Registry {
 		})
 	}
 	return r
+}
+
+// clockTicks is USER_HZ, the unit of /proc/<pid>/stat's CPU times: 100 on
+// every Linux the nodes run on.
+const clockTicks = 100
+
+// procStat reads utime, stime (clock ticks) and rss (pages) from
+// /proc/self/stat. Fields count from after the command name, which is in
+// parentheses and may hold spaces.
+func procStat() (utime, stime, rss float64, ok bool) {
+	b, err := os.ReadFile("/proc/self/stat")
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	i := strings.LastIndexByte(string(b), ')')
+	if i < 0 {
+		return 0, 0, 0, false
+	}
+	f := strings.Fields(string(b[i+1:]))
+	// After ")": state(0) ... utime(11) stime(12) ... rss(21).
+	if len(f) < 22 {
+		return 0, 0, 0, false
+	}
+	u, err1 := strconv.ParseFloat(f[11], 64)
+	st, err2 := strconv.ParseFloat(f[12], 64)
+	r, err3 := strconv.ParseFloat(f[21], 64)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return 0, 0, 0, false
+	}
+	return u, st, r, true
 }
 
 func (r *Registry) add(name string, c collector) {

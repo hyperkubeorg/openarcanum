@@ -280,6 +280,7 @@ func (s *Server) gcLoop(ctx context.Context) {
 		s.expireUploads(now)
 		s.mu.Unlock()
 		s.expireStatusKeys(ctx, now)
+		s.insightsTick(ctx)
 		if n, err := s.expireStaged(ctx, now); err != nil {
 			s.log.Error("expiring staged uploads failed", "err", err)
 		} else if n > 0 {

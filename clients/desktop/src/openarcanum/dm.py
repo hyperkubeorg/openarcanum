@@ -72,6 +72,14 @@ MAX_PAGES = 10
 # member of each cluster; docs/protocol.md §7.5), and global ids of handled
 # items are remembered this long (mailbox_ttl), at most this many.
 FULL_POLL_SECONDS = 60
+# Direct messages arrive as they're dropped: each of the most recently used
+# inboxes is watched (one WebSocket per inbox, so watches link inboxes no
+# more than separate fetches do; docs/protocol.md §7.1) and fetched when its
+# node says "check now". The rest, and anything a watch misses, come with
+# the poll. A watch that fails waits a little longer each time.
+WATCH_MAX = 24
+WATCH_RETRY_SECONDS = (2, 5, 15, 30, 60)
+WATCH_SIGNAL = b"\x01"
 HANDLED_GID_SECONDS = 14 * 24 * 3600
 MAX_HANDLED_GIDS = 50_000
 # A sender's clock can be ahead; their timestamps never count as later than this.
@@ -427,6 +435,8 @@ class DMManager:
         self.relays: dict[str, Relay] = {}
         self.typing: dict[str, dict[str, float]] = {}
         self._poll: asyncio.Task | None = None
+        # Mailbox watches running, by inbox token (_sync_watches).
+        self._watches: dict[bytes, asyncio.Task] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._subscribed: set[tuple[str, str]] = set()
         # Events whose room key hasn't arrived yet (it travels separately,
@@ -502,6 +512,9 @@ class DMManager:
     async def shutdown(self) -> None:
         if self._poll is not None:
             self._poll.cancel()
+        for task in self._watches.values():
+            task.cancel()
+        self._watches.clear()
         for r in self.relays.values():
             await r.close()
         self.relays.clear()
@@ -2348,6 +2361,8 @@ class DMManager:
         g = self.d["groups"].get(gid)
         if g is None:
             return
+        # A conversation just made, joined or used: watch its inbox now.
+        self._sync_watches()
         st = self._group(gid).state
         if (st.relay, st.topic.hex()) in self._subscribed:
             return
@@ -2363,6 +2378,7 @@ class DMManager:
     async def _poll_loop(self) -> None:
         while True:
             try:
+                self._sync_watches()
                 await self.poll_once()
                 self._sweep()
                 if self.core.unlocked:
@@ -2432,6 +2448,76 @@ class DMManager:
                 for base in nodes:
                     await self._poll_node(base, token)
             self._prune_gids()
+
+    def _watch_tokens(self) -> list[bytes]:
+        """The inboxes to watch: my identities' first-contact inboxes, then
+        the conversations used most recently, WATCH_MAX in all."""
+        tokens = [unb64(e["inbox_token"]) for e in self.d["ids"].values()]
+
+        def last(gid: str) -> float:
+            hist = self.store.data.get(gid, []) if self.store else []
+            return max([m.get("at", 0) for m in hist[-1:]] + [self.d["groups"][gid].get("created", 0) * 1000])
+
+        live = [gid for gid, g in self.d["groups"].items() if g.get("status") != "left" and g.get("inbox_token")]
+        for gid in sorted(live, key=last, reverse=True):
+            tokens.append(unb64(self.d["groups"][gid]["inbox_token"]))
+        return tokens[:WATCH_MAX]
+
+    def _sync_watches(self) -> None:
+        """Watch the inboxes _watch_tokens names, and only those."""
+        if self.core.vault is None:
+            return
+        want = set(self._watch_tokens())
+        for token in list(self._watches):
+            if token not in want or self._watches[token].done():
+                self._watches.pop(token).cancel()
+        for token in want - set(self._watches):
+            self._watches[token] = self.core.spawn(self._watch(token))
+
+    async def _watch(self, token: bytes) -> None:
+        """One inbox's watch: connected to the first node this client reads,
+        fetching the inbox from every node it reads on each "check now"."""
+        from websockets.asyncio.client import connect
+
+        from openarcanum import version as proto_version
+
+        failures = 0
+        while True:
+            nodes = self.core.meta.poll_nodes(False)
+            ws = None
+            if nodes:
+                base = nodes[0]
+                url = (
+                    "ws"
+                    + base.removeprefix("http")
+                    + "/v1/mailbox/watch?v="
+                    + proto_version.fmt(proto_version.SUPPORTED)
+                )
+                try:
+                    ws = await connect(url, max_size=64, ping_interval=20, ping_timeout=20, open_timeout=15)
+                    await ws.send(token)
+                    failures = 0
+                    async for msg in ws:
+                        if msg == WATCH_SIGNAL:
+                            await self._poll_token(token)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.debug("mailbox watch ended: %s", type(e).__name__)
+                finally:
+                    if ws is not None:
+                        with contextlib.suppress(Exception):
+                            await ws.close()
+            await asyncio.sleep(WATCH_RETRY_SECONDS[min(failures, len(WATCH_RETRY_SECONDS) - 1)])
+            failures += 1
+
+    async def _poll_token(self, token: bytes) -> None:
+        """Fetch one inbox from the nodes this client reads, now."""
+        if self.core.vault is None:
+            return
+        async with self._polling:
+            for base in self.core.meta.poll_nodes(False):
+                await self._poll_node(base, token)
 
     async def _poll_node(self, base: str, token: bytes) -> None:
         key = (base, token)

@@ -1488,17 +1488,31 @@ names a member, community, channel, topic, inbox or blob.
 
 | Node | Metrics |
 |---|---|
-| all | `process_start_time_seconds`, `process_open_fds` (Linux), `go_goroutines`, `go_memstats_heap_alloc_bytes`, `go_memstats_sys_bytes` |
-| relay | `openarcanum_relay_connections`, `openarcanum_relay_connections_accepted_total`, `openarcanum_relay_connections_refused_total` (over `max_connections`), `openarcanum_relay_topics`, `openarcanum_relay_endpoints`, `openarcanum_relay_deliveries_total`, `openarcanum_relay_slow_consumers_total`, `openarcanum_relay_calls`, `openarcanum_relay_network_refused_total` (over `max_connections_per_ip`), `openarcanum_relay_subscriptions`, `openarcanum_relay_blocked_networks` and `openarcanum_relay_blocked_refused_total` (dedicated relays) |
-| meta | `openarcanum_meta_http_requests_total{route,code}`, `openarcanum_meta_http_request_duration_seconds{route}` (histogram), `openarcanum_meta_listings`, `openarcanum_meta_routes`, `openarcanum_meta_relays`, `openarcanum_meta_mailbox_items`, `openarcanum_meta_mailbox_bytes`, `openarcanum_meta_nameplates`, `openarcanum_meta_blobs_stored`, `openarcanum_meta_blobs_stored_bytes`, `openarcanum_meta_blobs_uploading`, `openarcanum_meta_blobs_uploading_bytes` (table counts cached for 15 s), `openarcanum_meta_database_bytes` |
-| community | `openarcanum_community_sessions`, `openarcanum_community_members_online`, `openarcanum_community_members`, `openarcanum_community_channels`, `openarcanum_community_relays_attached`, `openarcanum_community_messages_total`, `openarcanum_community_backups_total{outcome}`, `openarcanum_community_last_backup_timestamp_seconds`, `openarcanum_community_purge_runs_total`, `openarcanum_community_purge_failures_total`, `openarcanum_community_database_bytes` |
+| all | `process_start_time_seconds`, `process_cpu_seconds_total`, `process_resident_memory_bytes` and `process_open_fds` (Linux), `go_goroutines`, `go_memstats_heap_alloc_bytes`, `go_memstats_sys_bytes` |
+| relay | `openarcanum_relay_connections`, `openarcanum_relay_connections_accepted_total`, `openarcanum_relay_connections_refused_total` (over `max_connections`), `openarcanum_relay_topics`, `openarcanum_relay_endpoints`, `openarcanum_relay_deliveries_total`, `openarcanum_relay_slow_consumers_total`, `openarcanum_relay_calls`, `openarcanum_relay_call_participants`, `openarcanum_relay_delivered_bytes_total`, `openarcanum_relay_media_received_bytes_total`, `openarcanum_relay_media_sent_bytes_total` (encrypted call media), `openarcanum_relay_network_refused_total` (over `max_connections_per_ip`), `openarcanum_relay_subscriptions`, `openarcanum_relay_blocked_networks` and `openarcanum_relay_blocked_refused_total` (dedicated relays) |
+| meta | `openarcanum_meta_http_requests_total{route,code}`, `openarcanum_meta_http_request_duration_seconds{route}` (histogram), `openarcanum_meta_listings`, `openarcanum_meta_routes`, `openarcanum_meta_relays`, `openarcanum_meta_mailbox_items`, `openarcanum_meta_mailbox_bytes`, `openarcanum_meta_nameplates`, `openarcanum_meta_blobs_stored`, `openarcanum_meta_blobs_stored_bytes`, `openarcanum_meta_blobs_uploading`, `openarcanum_meta_blobs_uploading_bytes`, activity: `openarcanum_meta_communities_active_{1h,24h,7d}` (community heartbeats), `openarcanum_meta_relays_alive`, `openarcanum_meta_relay_connections` and `openarcanum_meta_relay_capacity` (summed from the relays' heartbeats: network-wide load), `openarcanum_meta_contact_cards`, `openarcanum_meta_mailbox_items_24h` (table counts cached for 15 s), `openarcanum_meta_mailbox_watches`, `openarcanum_meta_database_bytes` |
+| community | totals across every community the server runs (none is per community): `openarcanum_community_communities`, `openarcanum_community_sessions`, `openarcanum_community_members_online`, `openarcanum_community_members`, `openarcanum_community_channels`, `openarcanum_community_call_participants`, `openarcanum_community_relays_attached`, `openarcanum_community_unready` (communities with no relay), `openarcanum_community_messages_total`, `openarcanum_community_backups_total`, `openarcanum_community_backup_failures_total`, `openarcanum_community_last_backup_timestamp_seconds`, `openarcanum_community_purge_runs_total`, `openarcanum_community_purge_failures_total`, `openarcanum_community_database_bytes` |
 
-**Exposure.** The status listener is off by default and has no
-authentication. Keep it on loopback (`127.0.0.1:7001` relay, `7101` meta,
-`7201` community are the documented choices) and let a local Prometheus
-scrape it, or bind it to a private interface behind a firewall. Even
-public, it reveals only the sizes above (how many members, sessions,
-mailbox bytes), which an operator may still want private.
+**Exposure.** The status listener is off by default. Keep it on loopback
+(`127.0.0.1:7001` relay, `7101` meta, `7201` community are the documented
+choices) and let a local Prometheus scrape it, or, for a monitoring server
+elsewhere, bind it to the network with `metrics_token_file`: `/metrics`
+then needs `Authorization: Bearer <token>` (Prometheus's
+`authorization.credentials_file`; one line, at least 32 characters), while
+`/healthz` and `/readyz` stay open for the local health check. Firewall the
+port to the monitoring server too. Even public, the metrics reveal only the
+sizes above (how many members, sessions, mailbox bytes), which an operator
+may still want private.
+
+### Monitoring
+
+`deploy/monitoring/` has a Prometheus scrape configuration, alert rules
+(nodes down, too few relays alive, communities with no relay, server
+errors, relays near capacity or CPU) and a Grafana dashboard (usage,
+health, capacity). The podman kit sets a machine up for it with
+`MONITOR_FROM=<the monitoring server's address> bash setup.sh`: the status
+listener on the network, a token made for it, and its port open to that
+address only (deploy/monitoring/README.md).
 
 ## Names and defaults built into a release
 

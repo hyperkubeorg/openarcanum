@@ -14,6 +14,11 @@ SERVICE=openarcanum-site
 APP_DIR=site
 CONFIG_NAME=site.json
 DATA_DIRS="data keys acme"
+# Monitoring (lib/common.sh monitoring_choice): the status listener's port.
+METRICS_PORT=7301
+METRICS_ENV=OPENARCANUM_SITE
+METRICS_TOKEN_DIR=config
+METRICS_TOKEN_PATH=/etc/openarcanum/metrics.token
 TCP_PORTS="443/tcp"
 UDP_PORTS=""
 # Port 80 only redirects to https; the site listens for it on 7380.

@@ -903,4 +903,16 @@ img.emoji-big { width: 32px; height: 32px; object-fit: contain; }
 /* "Jump to latest" (chat.js jumpToLatest): just above the composer. */
 .jump-latest { align-self: center; display: inline-flex; align-items: center; gap: var(--s1); margin: calc(-1 * var(--s6)) auto var(--s2); position: relative; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
 .jump-latest.hidden { display: none; }
+/* Community Admin → Insights (moderation.js adminInsights). */
+.insight-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--s2); margin: var(--s3) 0; }
+.insight-tile { background: var(--bg2); border-radius: var(--r-sm); padding: var(--s2) var(--s3); }
+.insight-value { font-size: 1.5em; font-weight: 700; }
+.insight-chart { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding: var(--s1) 0; border-bottom: 1px solid var(--line); }
+.insight-day { flex: 1 1 0; display: flex; align-items: flex-end; gap: 1px; height: 100%; min-width: 0; }
+.insight-bar { flex: 1 1 0; min-height: 1px; border-radius: 2px 2px 0 0; }
+.insight-bar-0 { background: var(--accent); }
+.insight-bar-1 { background: var(--ok, #23a55a); }
+.insight-legend { display: flex; gap: var(--s3); margin-top: var(--s1); }
+.insight-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.insight-channels td, .insight-channels th { padding: 2px var(--s3) 2px 0; text-align: left; }
 

@@ -82,6 +82,7 @@ async function openCommunitySettings(cid, initial, focus) {
     can.manage_community && { group: t('Moderation'), id: 'automod', label: t('AutoMod'), render: adminAutoMod },
     can.manage_community && { group: t('Moderation'), id: 'screening', label: t('Member screening'), render: adminScreening },
     (can.view_audit_log || adminUI.s.settings.audit_visibility === 'everyone') && { group: t('Moderation'), id: 'audit', label: t('Audit log'), render: adminAuditLog },
+    (can.manage_community || can.view_audit_log) && { group: adminUI.s.name, id: 'insights', label: t('Insights'), render: adminInsights },
     can.manage_community && { group: t('Network'), id: 'network', label: t('Relays'), render: adminNetwork },
     can.manage_community && { group: t('Network'), id: 'members-limits', label: t('Devices'), render: adminLimits },
     (owner || can.manage_community || adminUI.s.self.owner_invited) && { group: t('Ownership'), id: 'ownership', label: t('Ownership'), render: adminOwnership },

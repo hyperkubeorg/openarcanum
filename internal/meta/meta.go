@@ -189,11 +189,13 @@ func encodeKnown(m proto.Message, limit int, what string) ([]byte, error) {
 
 // Server is a maintainer node.
 type Server struct {
-	cfg  Config
-	log  *slog.Logger
-	db   *sql.DB
-	http *http.Client
-	now  func() time.Time
+	// watch: mailbox watches open (watch.go).
+	watch watchers
+	cfg   Config
+	log   *slog.Logger
+	db    *sql.DB
+	http  *http.Client
+	now   func() time.Time
 
 	// mu serializes writes so revisions are assigned in order.
 	mu sync.Mutex
@@ -399,6 +401,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /v1/communities/{id}/status", s.readLimit(s.getCommunityStatus))
 	mux.HandleFunc("POST /v1/mailbox/drop", s.writeLimit(int(min(s.cfg.MailboxMaxItem, maxBody))+smallBody, s.mailboxDrop))
 	mux.HandleFunc("POST /v1/mailbox/fetch", s.writeLimit(smallBody, s.mailboxFetch))
+	mux.HandleFunc("GET /v1/mailbox/watch", s.mailboxWatch)
 	mux.HandleFunc("POST /v1/mailbox/delete", s.writeLimit(mailboxDeleteMaxBody, s.mailboxDelete))
 	mux.HandleFunc("POST /v1/cards/put", s.writeLimit(MaxContactCard+smallBody, s.contactCardPut))
 	mux.HandleFunc("POST /v1/cards/delete", s.writeLimit(smallBody, s.contactCardDelete))
@@ -1146,6 +1149,7 @@ func (s *Server) mailboxDrop(r *http.Request, body []byte) (proto.Message, error
 	}
 	s.mailboxBytes += uint64(len(d.Blob))
 	s.notifyPeers()
+	s.wake(d.Inbox)
 	return nil, nil
 }
 

@@ -13,6 +13,12 @@
 #   EXTRA_TIMERS optional timers to enable
 #   BACKUP_TIMERS optional backup timers: on only when backups are on
 #                (backup_choice below), stopped and disabled otherwise
+#   METRICS_PORT, METRICS_ENV, METRICS_TOKEN_DIR, METRICS_TOKEN_PATH,
+#   METRICS_PUBLISH  the status listener's port, the service's environment
+#                prefix, where the metrics token lives (a directory under
+#                APP_DIR, and its path in the container) and whether the
+#                port is published (a container on its own network): for
+#                monitoring_choice below
 # and defines host_checks (run after the service is up), optionally
 # host_prechecks (before the image is pulled) and host_before_start (after
 # the image is pulled and verified, before the service starts).
@@ -36,6 +42,63 @@ backup_choice() {
         chown "$OA_USER:$OA_USER" "$f"
     fi
     if [ "$(cat "$f" 2>/dev/null)" = on ]; then echo on; else echo off; fi
+}
+
+# A monitoring server's address (an IP address or network, such as
+# 203.0.113.7 or 2001:db8::/64) may scrape /metrics; nobody else, and only
+# with the token. Off unless chosen: `MONITOR_FROM=ADDRESS bash setup.sh`
+# (MONITOR_FROM=off turns it off), kept in APP_DIR/config/monitoring for
+# later runs. Prints the address, or nothing.
+monitoring_choice() {
+    local f="$OA_HOME/$APP_DIR/config/monitoring"
+    if [ -n "${MONITOR_FROM:-}" ]; then
+        if [ "$MONITOR_FROM" = off ]; then
+            rm -f "$f"
+        else
+            printf '%s' "$MONITOR_FROM" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$|^[0-9A-Fa-f:]+:[0-9A-Fa-f:]*(/[0-9]{1,3})?$' ||
+                die "MONITOR_FROM must be an IP address or network (or off), not $MONITOR_FROM"
+            printf '%s\n' "$MONITOR_FROM" > "$f"
+            chown "$OA_USER:$OA_USER" "$f"
+        fi
+    fi
+    cat "$f" 2>/dev/null || true
+}
+
+# The lines the Quadlet file gets for monitoring (none when it's off).
+monitoring_lines() {
+    local from="$1"
+    [ -n "$from" ] && [ -n "${METRICS_PORT:-}" ] || return 0
+    echo "# Monitoring (setup.sh MONITOR_FROM): /metrics on the network, with the token."
+    echo "Environment=${METRICS_ENV}_METRICS_LISTEN=0.0.0.0:${METRICS_PORT}"
+    echo "Environment=${METRICS_ENV}_METRICS_TOKEN_FILE=${METRICS_TOKEN_PATH}"
+    if [ -n "${METRICS_PUBLISH:-}" ]; then echo "PublishPort=${METRICS_PORT}:${METRICS_PORT}/tcp"; fi
+}
+
+# The metrics token, and the firewall: the port open to the monitoring
+# server only, or to nobody.
+ensure_monitoring() {
+    [ -n "${METRICS_PORT:-}" ] || return 0
+    local from="$1" rule token="$OA_HOME/$APP_DIR/${METRICS_TOKEN_DIR:-config}/metrics.token"
+    say "Monitoring"
+    firewall-cmd --permanent --list-rich-rules | grep "port=\"$METRICS_PORT\"" | while IFS= read -r rule; do
+        firewall-cmd -q --permanent --remove-rich-rule="$rule"
+    done
+    if [ -z "$from" ]; then
+        firewall-cmd -q --reload
+        info "off: /metrics answers on this machine only (MONITOR_FROM=ADDRESS bash setup.sh lets a monitoring server in; README.md, 'Monitoring')"
+        return 0
+    fi
+    if [ ! -s "$token" ]; then
+        (umask 077; od -An -tx1 -N32 /dev/urandom | tr -d ' \n' > "$token")
+        chown "$OA_USER:$OA_USER" "$token"
+        chmod 0640 "$token"
+        info "made the metrics token: $token (give it to Prometheus; contents not shown)"
+    fi
+    local family=ipv4
+    case "$from" in *:*) family=ipv6 ;; esac
+    firewall-cmd -q --permanent --add-rich-rule="rule family=\"$family\" source address=\"$from\" port port=\"$METRICS_PORT\" protocol=\"tcp\" accept"
+    firewall-cmd -q --reload
+    info "on: $METRICS_PORT/tcp open to $from only; /metrics needs the token in $token"
 }
 
 # The images are signed by the Containers workflow (keyless cosign, from
@@ -343,7 +406,16 @@ install_files() {
     if [ -n "${CONFIG_NAME:-}" ]; then
         put_file "$HOST_DIR/$CONFIG_NAME" "$OA_HOME/$APP_DIR/config/$CONFIG_NAME" 0640
     fi
-    put_file "$HOST_DIR/$SERVICE.container" "$QUADLET_DIR/$SERVICE.container" 0640
+    # The Quadlet file as the kit has it, plus the monitoring lines (if on)
+    # at the top of [Container].
+    local from quadlet
+    from=$(monitoring_choice)
+    quadlet=$(mktemp)
+    awk -v extra="$(monitoring_lines "$from")" '{ print } /^\[Container\]$/ && extra != "" { print extra }' \
+        "$HOST_DIR/$SERVICE.container" > "$quadlet"
+    put_file "$quadlet" "$QUADLET_DIR/$SERVICE.container" 0640
+    rm -f "$quadlet"
+    ensure_monitoring "$from"
     local u
     for u in ${EXTRA_UNITS:-}; do
         put_file "$HOST_DIR/$u" "$USER_UNIT_DIR/$u" 0640

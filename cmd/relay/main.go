@@ -92,7 +92,11 @@ func run() error {
 	if cfg.MetricsListen != "" {
 		reg := ops.NewRegistry()
 		srv.RegisterMetrics(reg)
-		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg}, log); err != nil {
+		token, err := cfg.MetricsToken()
+		if err != nil {
+			return err
+		}
+		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Token: token}, log); err != nil {
 			return err
 		}
 	}

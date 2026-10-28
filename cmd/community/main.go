@@ -149,10 +149,14 @@ func cmdRun(args []string) error {
 	}()
 	servers := host.Servers()
 	if cfg.MetricsListen != "" {
-		// Health covers every community; the metrics are the first one's.
+		// Health and metrics cover every community.
 		reg := ops.NewRegistry()
-		host.First().RegisterMetrics(reg)
-		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Live: host.Live, Ready: host.Ready}, log); err != nil {
+		host.RegisterMetrics(reg)
+		token, err := cfg.MetricsToken()
+		if err != nil {
+			return err
+		}
+		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Live: host.Live, Ready: host.Ready, Token: token}, log); err != nil {
 			return err
 		}
 	}

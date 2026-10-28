@@ -366,6 +366,56 @@ function ruleDialog(r, after) {
   } }] });
 }
 
+// Community Admin → Insights: the community's activity per day, counted by
+// its server (counts only: nothing says who). Days with nothing recorded
+// are shown as zero.
+// (Community Admin calls a section with arguments of its own: the period
+// is insightsPage's.)
+function adminInsights(sec) { return insightsPage(sec, 30); }
+
+async function insightsPage(sec, days) {
+  sec.appendChild(h('p', { class: 'small muted', text: t('Counts kept by this community\'s server, per day (UTC): nothing here says who. Active members are those who connected that day.') }));
+  const range = selectEl([['7', t('Last 7 days')], ['30', t('Last 30 days')], ['90', t('Last 90 days')]], String(days));
+  range.addEventListener('change', () => insightsPage(clear(sec), Number(range.value)));
+  sec.appendChild(field(t('Period'), range));
+  let r;
+  try { r = await api('admin_query', adminUI.cid, 'insights', { days }); } catch (e) { sec.appendChild(h('div', { class: 'error', text: e.message })); return; }
+  const byDay = new Map(r.days.map((d) => [d.day, d]));
+  const series = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    series.push(byDay.get(day) || { day, members: 0, joined: 0, left: 0, messages: 0, active: 0, posters: 0, voice_minutes: 0, peak_online: 0 });
+  }
+  const sum = (k) => series.reduce((n, d) => n + d[k], 0);
+  const avg = (k) => Math.round(sum(k) / Math.max(1, series.length));
+  const tile = (label, value) => h('div', { class: 'insight-tile' }, h('div', { class: 'insight-value', text: String(value) }), h('div', { class: 'small muted', text: label }));
+  sec.appendChild(h('div', { class: 'insight-tiles' },
+    tile(t('Members now'), r.members), tile(t('Online now'), r.online),
+    tile(t('Joined'), sum('joined')), tile(t('Left'), sum('left')),
+    tile(t('Messages'), sum('messages')), tile(t('Active members a day (average)'), avg('active')),
+    tile(t('Voice minutes'), sum('voice_minutes'))));
+  const chart = (title, keys) => {
+    const peak = Math.max(1, ...series.map((d) => Math.max(...keys.map(([k]) => d[k]))));
+    const bars = h('div', { class: 'insight-chart', 'aria-hidden': 'true' }, ...series.map((d) => h('div', { class: 'insight-day', title: d.day + ': ' + keys.map(([k, label]) => `${label} ${d[k]}`).join(', ') },
+      ...keys.map(([k], i) => h('div', { class: 'insight-bar insight-bar-' + i, style: { height: (100 * d[k] / peak) + '%' } })))));
+    // The same numbers as a table, for screen readers and copying.
+    const table = h('table', { class: 'sr-only' }, h('tr', {}, h('th', { text: t('Day') }), ...keys.map(([, label]) => h('th', { text: label }))),
+      ...series.map((d) => h('tr', {}, h('td', { text: d.day }), ...keys.map(([k]) => h('td', { text: String(d[k]) })))));
+    const legend = keys.length > 1 ? h('div', { class: 'insight-legend small' }, ...keys.map(([, label], i) => h('span', {}, h('i', { class: 'insight-bar-' + i }), label))) : null;
+    return formSection(title, [bars, legend, table]);
+  };
+  sec.append(
+    chart(t('Messages a day'), [['messages', t('Messages')]]),
+    chart(t('Active members a day'), [['active', t('Connected')], ['posters', t('Posted')]]),
+    chart(t('Joined and left'), [['joined', t('Joined')], ['left', t('Left')]]),
+    chart(t('Voice minutes a day'), [['voice_minutes', t('Minutes')]]));
+  if (r.channels.length) {
+    sec.appendChild(formSection(t('Busiest channels (last 30 days)'), [h('table', { class: 'insight-channels' },
+      h('tr', {}, h('th', { text: t('Channel') }), h('th', { text: t('Messages') })),
+      ...r.channels.slice(0, 15).map((c) => h('tr', {}, h('td', { text: c.name ? '#' + c.name : t('(deleted channel)') }), h('td', { text: String(c.messages) }))))]));
+  }
+}
+
 async function adminAuditLog(sec) {
   if (adminUI.s.can.manage_community) {
     const vis = selectEl([['admins', t('Admins (members with View audit log)')], ['everyone', t('Every member')]], adminUI.s.settings.audit_visibility);

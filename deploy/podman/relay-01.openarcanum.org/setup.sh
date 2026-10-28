@@ -15,6 +15,11 @@ SERVICE=openarcanum-relay
 APP_DIR=relay
 CONFIG_NAME=relay.json
 DATA_DIRS="keys acme"
+# Monitoring (lib/common.sh monitoring_choice): the status listener's port.
+METRICS_PORT=7000
+METRICS_ENV=OPENARCANUM_RELAY
+METRICS_TOKEN_DIR=config
+METRICS_TOKEN_PATH=/etc/openarcanum/metrics.token
 TCP_PORTS="443/tcp"
 UDP_PORTS="7000/udp"
 FORWARD_PORTS=""

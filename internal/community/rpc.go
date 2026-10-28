@@ -123,6 +123,8 @@ func (s *Server) route(ctx context.Context, ss *sess, m *wire.ClientMessage) (*w
 		return s.listBans(ctx, ss)
 	case *wire.ClientMessage_AuditLog:
 		return s.auditLog(ctx, ss, b.AuditLog)
+	case *wire.ClientMessage_GetInsights:
+		return s.getInsights(ctx, ss, b.GetInsights)
 	case *wire.ClientMessage_Search:
 		return s.searchMessages(ctx, ss, b.Search)
 	case *wire.ClientMessage_UploadBegin:
@@ -624,6 +626,8 @@ func (s *Server) join(ctx context.Context, ss *sess, j *wire.Join) (*wire.Server
 	ss.setStatus(m.Status)
 	if !pending {
 		s.presenceChanged(ss.member)
+		s.insightJoined()
+		s.insightSeen(ss.member)
 	}
 	s.log.Info("member joined", "member", identity.Fingerprint(ss.member), "pending", pending, "join_key", keyID)
 	s.requestPublish()
@@ -906,6 +910,7 @@ func (s *Server) insertMessage(ctx context.Context, c *channelRec, body *wire.Me
 		return nil, err
 	}
 	s.counters.messages.Add(1)
+	s.insightPost(body.Author, body.System != nil)
 	if body.System == nil {
 		s.recordPost(c, body.Author, now)
 	}
@@ -1195,6 +1200,9 @@ func (s *Server) leave(ctx context.Context, ss *sess) (*wire.ServerMessage, erro
 // removeMember marks a member removed or banned and rotates every channel
 // they could read (new key and topic). Callers hold s.mu.
 func (s *Server) removeMember(ctx context.Context, m *memberRec, status wire.MemberStatus) error {
+	if m.Status == wire.MemberStatus_MEMBER_STATUS_ACTIVE {
+		s.insightLeft()
+	}
 	before := s.viewSets()
 	m.Status = status
 	m.Roles = nil
