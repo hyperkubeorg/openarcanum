@@ -336,8 +336,8 @@ def test_host_file_version_1_and_unversioned_load(tmp_path):
         "broken": "not json",
     }
     for name, text in layouts.items():
-        (root / name / hosting.SERVER_DIR).mkdir(parents=True)
-        (root / name / hosting.SERVER_DIR / "server.key").write_text("00" * 32)
+        (root / name / hosting.SERVER_DIR / "communities" / "c1").mkdir(parents=True)
+        (root / name / hosting.SERVER_DIR / "communities" / "c1" / "server.key").write_text("00" * 32)
         (root / name / hosting.HOST_FILE).write_text(text)
     (root / "empty").mkdir()
     hm = hosting.HostManager(lambda: root, lambda: tmp_path / "log", lambda hid: None)

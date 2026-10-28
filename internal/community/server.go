@@ -34,7 +34,10 @@ import (
 
 // Server is a running community server.
 type Server struct {
-	cfg  Config
+	cfg Config
+	// host runs this community with others (host.go); nil for a server
+	// opened on its own (tests, tools).
+	host *Host
 	log  *slog.Logger
 	db   *sql.DB
 	http httpClient
@@ -198,7 +201,7 @@ func Open(ctx context.Context, cfg Config, log *slog.Logger) (*Server, error) {
 	s.startedAt = s.now()
 	s.openReports.Store(-1)
 	var err error
-	if s.storageKey, err = readHexFile(cfg.StorageKeyFile, chacha20poly1305.KeySize); err != nil {
+	if s.storageKey, err = cfg.readStorageKey(); err != nil {
 		return nil, fmt.Errorf("storage key: %w", err)
 	}
 	seed, err := readHexFile(filepath.Join(cfg.DataDir, "server.key"), 32)
@@ -1081,7 +1084,7 @@ func Init(ctx context.Context, cfg Config) (*InitResult, error) {
 	if err := writeHexFile(filepath.Join(cfg.DataDir, "noise.key"), static.Private); err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(cfg.StorageKeyFile); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(cfg.StorageKeyFile); cfg.StorageKey == nil && errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(filepath.Dir(cfg.StorageKeyFile), 0o700); err != nil {
 			return nil, err
 		}
@@ -1089,7 +1092,7 @@ func Init(ctx context.Context, cfg Config) (*InitResult, error) {
 			return nil, err
 		}
 	}
-	storageKey, err := readHexFile(cfg.StorageKeyFile, chacha20poly1305.KeySize)
+	storageKey, err := cfg.readStorageKey()
 	if err != nil {
 		return nil, fmt.Errorf("storage key: %w", err)
 	}

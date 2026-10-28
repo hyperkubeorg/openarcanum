@@ -144,7 +144,7 @@ def test_host_on_this_computer_claims_serves_and_supervises(tmp_path, hosted_env
             folder = olive.paths.data / "hosted" / hid
             # The server's data in the profile's private data folder, 0700;
             # the claim code is gone once claimed.
-            assert (folder / "server" / "server.key").is_file()
+            assert any((folder / "server" / "communities").glob("*/server.key"))
             if os.name == "posix":
                 assert stat.S_IMODE((olive.paths.data / "hosted").stat().st_mode) == 0o700
                 assert stat.S_IMODE((folder / "server").stat().st_mode) == 0o700

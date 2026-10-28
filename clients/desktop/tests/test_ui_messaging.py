@@ -252,7 +252,7 @@ def test_purged_messages_leave_the_open_app(tmp_path):
                 await open_channel(olive, "general")
 
                 node.stop()
-                db = sqlite3.connect(node.data / "community.db")
+                db = sqlite3.connect(node.community / "community.db")
                 db.execute("UPDATE messages SET created_at = created_at - 2*86400000 WHERE channel_id = ?", (channel,))
                 db.commit()
                 db.close()

@@ -241,16 +241,19 @@ same, so expose a dedicated relay directly. Metrics:
 community init -data DIR -relay wss://relay.example.invalid/ws [-relay …] [-maintainer https://…] [-storage-key PATH]
                [-automatic-relays] [-install home|vps] [-metrics-listen ADDR]
 community init -interactive        # guided setup (the default in a terminal without -data)
-community run -data DIR            # or -config FILE
-community backup -data DIR         # prints the backup path
-community restore -data NEWDIR -backup FILE -storage-key PATH [-relay …] [-maintainer …]
-community reregister -data DIR     # bring back a community maintainers reaped (see "Status and reaping")
+community run -data DIR            # or -config FILE: every community in DIR
+community backup -data DIR [-community ID]       # prints the backup path
+community restore -data DIR -backup FILE -storage-key PATH [-relay …] [-maintainer …]
+community reregister -data DIR [-community ID]   # bring back a community maintainers reaped (see "Status and reaping")
 community healthcheck URL
 ```
 
-`init` creates the data directory (server key, Noise key, storage key,
-database), writes `DIR/config.json` and prints the one-time claim code and
-next steps. The guided setup asks where the server runs (`home` behind a
+`init` creates the data directory as a host with its first community
+(`DIR/communities/<id>/`: server key, Noise key, database), the storage key,
+writes `DIR/config.json` and prints the one-time claim code and next steps.
+Owners start more communities on the same server from the app ("Several
+communities on one server" below); `-community ID` picks one for `backup`
+and `reregister` when there are several. The guided setup asks where the server runs (`home` behind a
 router, or `vps`) and explains what that means for the network: the
 community server never accepts connections, so it needs **no port
 forwarding and no DMZ** at home and no inbound firewall port on a VPS (only
@@ -287,6 +290,7 @@ only changes the advice printed. `DIR/config.json`:
 | `file_store_max` | 21474836480 (20 GiB; at least 25 MiB) | encrypted bytes of files the community stores in all (see "Quotas") |
 | `max_sessions_per_device` | 4 (at least 1) | sessions one device key may have open at once; a newer one past the cap closes the oldest (see "Quotas") |
 | `max_sessions_per_member` | 20 (at least 1) | sessions one member may have open at once across their devices; a newer one past the cap closes the oldest (see "Quotas") |
+| `max_communities` | 10 (1 to 100) | communities this server runs at most; owners start new ones from the app until then (see "Several communities on one server") |
 
 Every key has a `OPENARCANUM_COMMUNITY_<KEY>` environment override (lists are
 comma-separated, e.g. `OPENARCANUM_COMMUNITY_PREVIEW_SCHEMES=https,http`).
@@ -1276,6 +1280,26 @@ The disclosure policy (`internal/site/templates/security.html`: response
 times, 90-day disclosure, safe-harbour wording, scope) and the landing
 page's description (`templates/home.html`, `templates/layout.html`) are
 built into the binary. Changing them means a new build.
+
+### Several communities on one server
+
+A community server is a host: `community run` runs every community in its
+data directory, each in `DIR/communities/<id>/` with its own server key,
+database, relays and backups (`DIR/communities/<id>/backups`), and the
+host's settings (`config.json`: relays, maintainer nodes, limits) for all.
+An owner of any of them starts another from the app (**+ → Host on your own
+server → On one of my servers**): the server creates it (`AdminAction
+create_community`, owners only) and the app claims it at once, with no
+claim code to copy. `max_communities` bounds how many a server runs.
+
+They share one storage key file (`storage_key_file`): each community's key
+is derived from it (HKDF-SHA256, per community id), so backing up that one
+file covers every community's backups. A community restored onto a host
+keeps the key its backup was made with, in `communities/<id>.key` next to
+the host's key file. Health (`/healthz`, `/readyz`) covers every community;
+`/metrics` shows the first one's (the one `init` made), and
+`server_public_key_file` is that one's key: a dedicated relay serves the
+first community only.
 
 ## Backups
 

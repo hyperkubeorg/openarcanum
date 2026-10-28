@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/chacha20poly1305"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/hyperkubeorg/openarcanum/internal/identity"
@@ -186,7 +185,7 @@ func Reregister(ctx context.Context, cfg Config, now time.Time) error {
 	if _, err := os.Stat(filepath.Join(cfg.DataDir, "server.key")); err != nil {
 		return fmt.Errorf("%s is not a community server's data directory", cfg.DataDir)
 	}
-	storageKey, err := readHexFile(cfg.StorageKeyFile, chacha20poly1305.KeySize)
+	storageKey, err := cfg.readStorageKey()
 	if err != nil {
 		return fmt.Errorf("storage key: %w", err)
 	}

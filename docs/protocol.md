@@ -1562,6 +1562,12 @@ to members in `SyncState.cert`. `ServerBackup` (an on-demand backup,
 (`RATE_LIMITED`), since every backup prunes the oldest beyond the server's
 `backup_keep`.
 
+`CreateCommunity` (owners only) asks the server to start another community
+beside this one, in the same process with its own keys and database
+(operations.md "Several communities on one server"); `AdminResult.claim_code`
+is the new community's claim code, which the owner's client uses at once.
+A server that runs only one community, or has `max_communities`, refuses.
+
 ## 9. Direct messages and group DMs (`dm.proto`)
 
 End-to-end encrypted with **vodozemac** (Olm and Megolm, the Matrix

@@ -157,7 +157,8 @@ class HostManager:
         if not self.root.is_dir():
             return
         for folder in sorted(self.root.iterdir()):
-            if not (folder / SERVER_DIR / "server.key").is_file():
+            # Each is a host: its communities in server/communities/<id>/.
+            if not any((folder / SERVER_DIR / "communities").glob("*/server.key")):
                 continue
             enabled = True
             with contextlib.suppress(OSError, ValueError):

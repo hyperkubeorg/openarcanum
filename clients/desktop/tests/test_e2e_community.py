@@ -260,7 +260,7 @@ def test_messages_past_retention_leave_this_device(tmp_path):
             assert [m["text"] for m in core.cache(cid).channel(short)] == ["old one", "old two"]
 
             node.stop()
-            db = sqlite3.connect(node.data / "community.db")
+            db = sqlite3.connect(node.community / "community.db")
             db.execute("UPDATE messages SET created_at = created_at - 2*86400000 WHERE channel_id = ?", (short,))
             db.commit()
             db.close()

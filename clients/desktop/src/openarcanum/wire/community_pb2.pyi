@@ -1170,7 +1170,7 @@ class SignedAction(_message.Message):
     def __init__(self, action: _Optional[bytes] = ..., signature: _Optional[bytes] = ...) -> None: ...
 
 class AdminAction(_message.Message):
-    __slots__ = ("community", "actor", "at", "nonce", "update_settings", "create_join_key", "revoke_join_key", "create_channel", "edit_channel", "delete_channel", "create_role", "edit_role", "delete_role", "reorder_roles", "set_channel_override", "assign_roles", "kick", "ban", "unban", "approve", "deny", "raid_revoke", "replace_member", "prepare_key_rotation", "commit_key_rotation", "server_backup", "invite_owner", "submit_owner_key", "change_owners", "create_category", "edit_category", "delete_category", "reorder_categories", "reorder_channels", "voice_mute", "voice_deafen", "voice_move", "set_nickname", "timeout", "bulk_delete", "save_automod_rule", "delete_automod_rule", "resolve_report", "add_emoji", "rename_emoji", "delete_emoji", "bulk_remove")
+    __slots__ = ("community", "actor", "at", "nonce", "update_settings", "create_join_key", "revoke_join_key", "create_channel", "edit_channel", "delete_channel", "create_role", "edit_role", "delete_role", "reorder_roles", "set_channel_override", "assign_roles", "kick", "ban", "unban", "approve", "deny", "raid_revoke", "replace_member", "prepare_key_rotation", "commit_key_rotation", "server_backup", "create_community", "invite_owner", "submit_owner_key", "change_owners", "create_category", "edit_category", "delete_category", "reorder_categories", "reorder_channels", "voice_mute", "voice_deafen", "voice_move", "set_nickname", "timeout", "bulk_delete", "save_automod_rule", "delete_automod_rule", "resolve_report", "add_emoji", "rename_emoji", "delete_emoji", "bulk_remove")
     COMMUNITY_FIELD_NUMBER: _ClassVar[int]
     ACTOR_FIELD_NUMBER: _ClassVar[int]
     AT_FIELD_NUMBER: _ClassVar[int]
@@ -1197,6 +1197,7 @@ class AdminAction(_message.Message):
     PREPARE_KEY_ROTATION_FIELD_NUMBER: _ClassVar[int]
     COMMIT_KEY_ROTATION_FIELD_NUMBER: _ClassVar[int]
     SERVER_BACKUP_FIELD_NUMBER: _ClassVar[int]
+    CREATE_COMMUNITY_FIELD_NUMBER: _ClassVar[int]
     INVITE_OWNER_FIELD_NUMBER: _ClassVar[int]
     SUBMIT_OWNER_KEY_FIELD_NUMBER: _ClassVar[int]
     CHANGE_OWNERS_FIELD_NUMBER: _ClassVar[int]
@@ -1244,6 +1245,7 @@ class AdminAction(_message.Message):
     prepare_key_rotation: PrepareKeyRotation
     commit_key_rotation: CommitKeyRotation
     server_backup: ServerBackup
+    create_community: CreateCommunity
     invite_owner: InviteOwner
     submit_owner_key: SubmitOwnerKey
     change_owners: ChangeOwners
@@ -1265,7 +1267,7 @@ class AdminAction(_message.Message):
     rename_emoji: RenameEmoji
     delete_emoji: DeleteEmoji
     bulk_remove: BulkRemove
-    def __init__(self, community: _Optional[bytes] = ..., actor: _Optional[bytes] = ..., at: _Optional[int] = ..., nonce: _Optional[bytes] = ..., update_settings: _Optional[_Union[CommunitySettings, _Mapping]] = ..., create_join_key: _Optional[_Union[CreateJoinKey, _Mapping]] = ..., revoke_join_key: _Optional[_Union[RevokeJoinKey, _Mapping]] = ..., create_channel: _Optional[_Union[CreateChannel, _Mapping]] = ..., edit_channel: _Optional[_Union[EditChannel, _Mapping]] = ..., delete_channel: _Optional[_Union[DeleteChannel, _Mapping]] = ..., create_role: _Optional[_Union[CreateRole, _Mapping]] = ..., edit_role: _Optional[_Union[EditRole, _Mapping]] = ..., delete_role: _Optional[_Union[DeleteRole, _Mapping]] = ..., reorder_roles: _Optional[_Union[ReorderRoles, _Mapping]] = ..., set_channel_override: _Optional[_Union[SetChannelOverride, _Mapping]] = ..., assign_roles: _Optional[_Union[AssignRoles, _Mapping]] = ..., kick: _Optional[_Union[Kick, _Mapping]] = ..., ban: _Optional[_Union[BanMember, _Mapping]] = ..., unban: _Optional[_Union[Unban, _Mapping]] = ..., approve: _Optional[_Union[Approve, _Mapping]] = ..., deny: _Optional[_Union[Deny, _Mapping]] = ..., raid_revoke: _Optional[_Union[RaidRevoke, _Mapping]] = ..., replace_member: _Optional[_Union[ReplaceMember, _Mapping]] = ..., prepare_key_rotation: _Optional[_Union[PrepareKeyRotation, _Mapping]] = ..., commit_key_rotation: _Optional[_Union[CommitKeyRotation, _Mapping]] = ..., server_backup: _Optional[_Union[ServerBackup, _Mapping]] = ..., invite_owner: _Optional[_Union[InviteOwner, _Mapping]] = ..., submit_owner_key: _Optional[_Union[SubmitOwnerKey, _Mapping]] = ..., change_owners: _Optional[_Union[ChangeOwners, _Mapping]] = ..., create_category: _Optional[_Union[CreateCategory, _Mapping]] = ..., edit_category: _Optional[_Union[EditCategory, _Mapping]] = ..., delete_category: _Optional[_Union[DeleteCategory, _Mapping]] = ..., reorder_categories: _Optional[_Union[ReorderCategories, _Mapping]] = ..., reorder_channels: _Optional[_Union[ReorderChannels, _Mapping]] = ..., voice_mute: _Optional[_Union[VoiceMute, _Mapping]] = ..., voice_deafen: _Optional[_Union[VoiceDeafen, _Mapping]] = ..., voice_move: _Optional[_Union[VoiceMove, _Mapping]] = ..., set_nickname: _Optional[_Union[SetNickname, _Mapping]] = ..., timeout: _Optional[_Union[TimeoutMember, _Mapping]] = ..., bulk_delete: _Optional[_Union[BulkDelete, _Mapping]] = ..., save_automod_rule: _Optional[_Union[SaveAutoModRule, _Mapping]] = ..., delete_automod_rule: _Optional[_Union[DeleteAutoModRule, _Mapping]] = ..., resolve_report: _Optional[_Union[ResolveReport, _Mapping]] = ..., add_emoji: _Optional[_Union[AddEmoji, _Mapping]] = ..., rename_emoji: _Optional[_Union[RenameEmoji, _Mapping]] = ..., delete_emoji: _Optional[_Union[DeleteEmoji, _Mapping]] = ..., bulk_remove: _Optional[_Union[BulkRemove, _Mapping]] = ...) -> None: ...
+    def __init__(self, community: _Optional[bytes] = ..., actor: _Optional[bytes] = ..., at: _Optional[int] = ..., nonce: _Optional[bytes] = ..., update_settings: _Optional[_Union[CommunitySettings, _Mapping]] = ..., create_join_key: _Optional[_Union[CreateJoinKey, _Mapping]] = ..., revoke_join_key: _Optional[_Union[RevokeJoinKey, _Mapping]] = ..., create_channel: _Optional[_Union[CreateChannel, _Mapping]] = ..., edit_channel: _Optional[_Union[EditChannel, _Mapping]] = ..., delete_channel: _Optional[_Union[DeleteChannel, _Mapping]] = ..., create_role: _Optional[_Union[CreateRole, _Mapping]] = ..., edit_role: _Optional[_Union[EditRole, _Mapping]] = ..., delete_role: _Optional[_Union[DeleteRole, _Mapping]] = ..., reorder_roles: _Optional[_Union[ReorderRoles, _Mapping]] = ..., set_channel_override: _Optional[_Union[SetChannelOverride, _Mapping]] = ..., assign_roles: _Optional[_Union[AssignRoles, _Mapping]] = ..., kick: _Optional[_Union[Kick, _Mapping]] = ..., ban: _Optional[_Union[BanMember, _Mapping]] = ..., unban: _Optional[_Union[Unban, _Mapping]] = ..., approve: _Optional[_Union[Approve, _Mapping]] = ..., deny: _Optional[_Union[Deny, _Mapping]] = ..., raid_revoke: _Optional[_Union[RaidRevoke, _Mapping]] = ..., replace_member: _Optional[_Union[ReplaceMember, _Mapping]] = ..., prepare_key_rotation: _Optional[_Union[PrepareKeyRotation, _Mapping]] = ..., commit_key_rotation: _Optional[_Union[CommitKeyRotation, _Mapping]] = ..., server_backup: _Optional[_Union[ServerBackup, _Mapping]] = ..., create_community: _Optional[_Union[CreateCommunity, _Mapping]] = ..., invite_owner: _Optional[_Union[InviteOwner, _Mapping]] = ..., submit_owner_key: _Optional[_Union[SubmitOwnerKey, _Mapping]] = ..., change_owners: _Optional[_Union[ChangeOwners, _Mapping]] = ..., create_category: _Optional[_Union[CreateCategory, _Mapping]] = ..., edit_category: _Optional[_Union[EditCategory, _Mapping]] = ..., delete_category: _Optional[_Union[DeleteCategory, _Mapping]] = ..., reorder_categories: _Optional[_Union[ReorderCategories, _Mapping]] = ..., reorder_channels: _Optional[_Union[ReorderChannels, _Mapping]] = ..., voice_mute: _Optional[_Union[VoiceMute, _Mapping]] = ..., voice_deafen: _Optional[_Union[VoiceDeafen, _Mapping]] = ..., voice_move: _Optional[_Union[VoiceMove, _Mapping]] = ..., set_nickname: _Optional[_Union[SetNickname, _Mapping]] = ..., timeout: _Optional[_Union[TimeoutMember, _Mapping]] = ..., bulk_delete: _Optional[_Union[BulkDelete, _Mapping]] = ..., save_automod_rule: _Optional[_Union[SaveAutoModRule, _Mapping]] = ..., delete_automod_rule: _Optional[_Union[DeleteAutoModRule, _Mapping]] = ..., resolve_report: _Optional[_Union[ResolveReport, _Mapping]] = ..., add_emoji: _Optional[_Union[AddEmoji, _Mapping]] = ..., rename_emoji: _Optional[_Union[RenameEmoji, _Mapping]] = ..., delete_emoji: _Optional[_Union[DeleteEmoji, _Mapping]] = ..., bulk_remove: _Optional[_Union[BulkRemove, _Mapping]] = ...) -> None: ...
 
 class CreateJoinKey(_message.Message):
     __slots__ = ("label", "expires_in_seconds", "max_uses", "role_ids", "request_only", "public")
@@ -1539,8 +1541,12 @@ class ServerBackup(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class CreateCommunity(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
 class AdminResult(_message.Message):
-    __slots__ = ("join_key", "id", "new_server_key", "backup_path", "removed", "deleted", "network_block")
+    __slots__ = ("join_key", "id", "new_server_key", "backup_path", "removed", "deleted", "network_block", "claim_code")
     JOIN_KEY_FIELD_NUMBER: _ClassVar[int]
     ID_FIELD_NUMBER: _ClassVar[int]
     NEW_SERVER_KEY_FIELD_NUMBER: _ClassVar[int]
@@ -1548,6 +1554,7 @@ class AdminResult(_message.Message):
     REMOVED_FIELD_NUMBER: _ClassVar[int]
     DELETED_FIELD_NUMBER: _ClassVar[int]
     NETWORK_BLOCK_FIELD_NUMBER: _ClassVar[int]
+    CLAIM_CODE_FIELD_NUMBER: _ClassVar[int]
     join_key: JoinKey
     id: int
     new_server_key: bytes
@@ -1555,7 +1562,8 @@ class AdminResult(_message.Message):
     removed: int
     deleted: int
     network_block: NetworkBlockStatus
-    def __init__(self, join_key: _Optional[_Union[JoinKey, _Mapping]] = ..., id: _Optional[int] = ..., new_server_key: _Optional[bytes] = ..., backup_path: _Optional[str] = ..., removed: _Optional[int] = ..., deleted: _Optional[int] = ..., network_block: _Optional[_Union[NetworkBlockStatus, str]] = ...) -> None: ...
+    claim_code: str
+    def __init__(self, join_key: _Optional[_Union[JoinKey, _Mapping]] = ..., id: _Optional[int] = ..., new_server_key: _Optional[bytes] = ..., backup_path: _Optional[str] = ..., removed: _Optional[int] = ..., deleted: _Optional[int] = ..., network_block: _Optional[_Union[NetworkBlockStatus, str]] = ..., claim_code: _Optional[str] = ...) -> None: ...
 
 class AdoptServer(_message.Message):
     __slots__ = ("secret", "cert")

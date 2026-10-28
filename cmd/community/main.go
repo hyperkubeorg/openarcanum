@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -137,24 +138,55 @@ func cmdRun(args []string) error {
 			stop()
 		}()
 	}
-	srv, err := community.Open(ctx, cfg, log)
+	host, err := community.OpenHost(ctx, cfg, log)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if err := srv.Close(); err != nil {
+		if err := host.Close(); err != nil {
 			log.Error("closing database", "err", err)
 		}
 	}()
+	servers := host.Servers()
 	if cfg.MetricsListen != "" {
+		// Health covers every community; the metrics are the first one's.
 		reg := ops.NewRegistry()
-		srv.RegisterMetrics(reg)
-		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Live: srv.Live, Ready: srv.Ready}, log); err != nil {
+		host.First().RegisterMetrics(reg)
+		if _, err := ops.ServeStatus(ctx, cfg.MetricsListen, ops.Status{Registry: reg, Live: host.Live, Ready: host.Ready}, log); err != nil {
 			return err
 		}
 	}
-	log.Info("community server starting", "server", identity.Fingerprint(srv.ServerKey()), "claimed", srv.Claimed())
-	return srv.Run(ctx)
+	for _, id := range sortedIDs(servers) {
+		srv := servers[id]
+		log.Info("community server starting", "community", id, "server", identity.Fingerprint(srv.ServerKey()), "claimed", srv.Claimed())
+	}
+	return host.Run(ctx)
+}
+
+func sortedIDs(m map[string]*community.Server) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// communityConfig is the config of one community on the host in dataDir:
+// the one named, or the only one.
+func communityConfig(dataDir, cfgPath, id string) (community.Config, error) {
+	host, err := loadConfig(dataDir, cfgPath)
+	if err != nil {
+		return host, err
+	}
+	if id == "" {
+		m, _ := filepath.Glob(filepath.Join(host.DataDir, "communities", "*", "server.key"))
+		if len(m) != 1 {
+			return host, errors.New("this server runs several communities: name one with -community ID (the directories in DATA/communities)")
+		}
+		id = filepath.Base(filepath.Dir(m[0]))
+	}
+	return community.CommunityConfig(host, id)
 }
 
 // cmdReregister brings back a community that maintainer nodes reaped after
@@ -166,8 +198,9 @@ func cmdReregister(args []string) error {
 	fs := flag.NewFlagSet("reregister", flag.ExitOnError)
 	data := fs.String("data", "", "data directory")
 	cfgPath := fs.String("config", "", "config file (default DATA/config.json)")
+	id := fs.String("community", "", "which community (a directory in DATA/communities; needed when there are several)")
 	fs.Parse(args)
-	cfg, err := loadConfig(*data, *cfgPath)
+	cfg, err := communityConfig(*data, *cfgPath, *id)
 	if err != nil {
 		return err
 	}
@@ -183,8 +216,9 @@ func cmdBackup(args []string) error {
 	fs := flag.NewFlagSet("backup", flag.ExitOnError)
 	data := fs.String("data", "", "data directory")
 	cfgPath := fs.String("config", "", "config file (default DATA/config.json)")
+	id := fs.String("community", "", "which community (a directory in DATA/communities; needed when there are several)")
 	fs.Parse(args)
-	cfg, err := loadConfig(*data, *cfgPath)
+	cfg, err := communityConfig(*data, *cfgPath, *id)
 	if err != nil {
 		return err
 	}
@@ -204,30 +238,71 @@ func cmdBackup(args []string) error {
 
 func cmdRestore(args []string) error {
 	fs := flag.NewFlagSet("restore", flag.ExitOnError)
-	data := fs.String("data", "", "new data directory")
+	data := fs.String("data", "", "the host's data directory (a new one is created)")
 	backup := fs.String("backup", "", "backup file (.fbk)")
-	storageKey := fs.String("storage-key", "", "the community's storage key file")
+	storageKey := fs.String("storage-key", "", "the storage key file of the server the backup is from")
+	from := fs.String("community", "", "which community on that server the backup is of (default: from the backup's path, DATA/communities/ID/backups/…)")
 	var relays, maintainers multi
-	fs.Var(&relays, "relay", "relay URL (repeatable)")
-	fs.Var(&maintainers, "maintainer", "maintainer node URL (repeatable)")
+	fs.Var(&relays, "relay", "relay URL (repeatable; a new host only)")
+	fs.Var(&maintainers, "maintainer", "maintainer node URL (repeatable; a new host only)")
 	fs.Parse(args)
 	if *data == "" || *backup == "" || *storageKey == "" {
 		return errors.New("-data, -backup and -storage-key are required")
 	}
-	cfg := community.DefaultConfig(*data)
-	cfg.Relays = relays
-	cfg.Maintainers = maintainers
-	cfg.Resolve()
-	if err := cfg.Validate(); err != nil {
-		return err
+	// Onto an existing host (its config), or a new one.
+	cfgFile := filepath.Join(*data, "config.json")
+	host, err := loadConfig(*data, "")
+	if _, statErr := os.Stat(cfgFile); statErr != nil {
+		host = community.DefaultConfig(*data)
+		host.Relays = relays
+		host.Maintainers = maintainers
+		host.Resolve()
+		err = host.Validate()
 	}
-	res, err := community.Restore(context.Background(), cfg, *backup, *storageKey)
 	if err != nil {
 		return err
 	}
-	if err := config.Save(filepath.Join(*data, "config.json"), cfg); err != nil {
+	if _, err := os.Stat(host.StorageKeyFile); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(host.StorageKeyFile), 0o700); err != nil {
+			return err
+		}
+		if err := community.WriteStorageKey(host.StorageKeyFile); err != nil {
+			return err
+		}
+	}
+	// The restored community keeps the storage key its backup was made
+	// with, in a key file of its own next to the host's, and its id when
+	// that's free here.
+	if *from == "" {
+		if dir := filepath.Dir(filepath.Dir(*backup)); filepath.Base(filepath.Dir(dir)) == "communities" {
+			*from = filepath.Base(dir)
+		}
+	}
+	id := *from
+	if _, err := os.Stat(filepath.Join(host.DataDir, "communities", id)); id == "" || err == nil {
+		id = community.NewCommunityID()
+	}
+	cfg, err := community.CommunityConfig(host, id)
+	if err != nil {
 		return err
 	}
+	cfg.StorageKey = nil
+	var res *community.MoveResult
+	if *from != "" {
+		res, err = community.RestoreHosted(context.Background(), cfg, *backup, *storageKey, *from)
+	} else {
+		// A backup from a server that ran one community on its own.
+		res, err = community.Restore(context.Background(), cfg, *backup, *storageKey)
+	}
+	if err != nil {
+		return err
+	}
+	if _, statErr := os.Stat(cfgFile); statErr != nil {
+		if err := config.Save(cfgFile, host); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("Community: %s\n", id)
 	fmt.Printf("New server key: %s\n\n", identity.Encode(res.ServerKey))
 	fmt.Println("Move code (any owner pastes it into Community settings → Ownership → Move to new hardware):")
 	fmt.Println(res.MoveCode)

@@ -1,6 +1,8 @@
 package community
 
 import (
+	"golang.org/x/crypto/chacha20poly1305"
+
 	"errors"
 	"fmt"
 	"net/url"
@@ -21,6 +23,12 @@ type Config struct {
 	// StorageKeyFile holds the key that encrypts content at rest. Keep it off
 	// the data disk where possible; default: <data_dir>/storage.key.
 	StorageKeyFile string `json:"storage_key_file" env:"STORAGE_KEY_FILE"`
+	// StorageKey, when set, is used instead of StorageKeyFile: a community
+	// on a host (host.go) has a key derived from the host's.
+	StorageKey []byte `json:"-"`
+	// MaxCommunities bounds how many communities a host runs; owners can
+	// start new ones from the app until then (host.go).
+	MaxCommunities int `json:"max_communities" env:"MAX_COMMUNITIES"`
 	// ClaimFile holds the claim code where `community init -claim-file`
 	// wrote it; the server deletes it once it's claimed.
 	ClaimFile string `json:"claim_file" env:"CLAIM_FILE"`
@@ -107,7 +115,16 @@ func DefaultConfig(dataDir string) Config {
 		FileStoreMax:         20 << 30,
 		MaxSessionsPerDevice: 4,
 		MaxSessionsPerMember: 20,
+		MaxCommunities:       10,
 	}
+}
+
+// readStorageKey is StorageKey when set, else the key in StorageKeyFile.
+func (c *Config) readStorageKey() ([]byte, error) {
+	if len(c.StorageKey) == chacha20poly1305.KeySize {
+		return c.StorageKey, nil
+	}
+	return readHexFile(c.StorageKeyFile, chacha20poly1305.KeySize)
 }
 
 // Resolve fills derived defaults (paths inside the data directory).
@@ -194,6 +211,9 @@ func (c *Config) Validate() error {
 	}
 	if c.UploadQuotaPerMember < MaxFileSizeLimit || c.FileStoreMax < MaxFileSizeLimit {
 		return fmt.Errorf("upload_quota_per_member and file_store_max must each be at least %d bytes (the largest file size)", MaxFileSizeLimit)
+	}
+	if c.MaxCommunities < 1 || c.MaxCommunities > 100 {
+		return errors.New("max_communities must be between 1 and 100")
 	}
 	if c.MaxSessionsPerDevice < 1 || c.MaxSessionsPerMember < 1 {
 		return errors.New("max_sessions_per_device and max_sessions_per_member must be at least 1")

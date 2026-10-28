@@ -111,7 +111,9 @@ func initCommand(args []string, in io.Reader, out io.Writer, terminal bool) erro
 		}
 		return nil
 	}
-	res, err := community.Init(context.Background(), cfg)
+	// The data directory is a host: this first community, and those its
+	// owners start later from the app, each in communities/<id>/.
+	res, err := community.InitHost(context.Background(), cfg)
 	if err != nil {
 		return err
 	}
@@ -119,11 +121,7 @@ func initCommand(args []string, in io.Reader, out io.Writer, terminal bool) erro
 	if err := config.Save(cfgFile, cfg); err != nil {
 		return err
 	}
-	if o.claimFile != "" {
-		if err := os.WriteFile(o.claimFile, []byte(res.ClaimCode+"\n"), 0o600); err != nil {
-			return fmt.Errorf("claim file: %w", err)
-		}
-	}
+	_, _ = fmt.Fprintf(out, "Community:   %s (more can be started on this server from the app)\n", res.Community)
 	_, _ = fmt.Fprintf(out, "Server key:  %s\n", identity.Encode(res.ServerKey))
 	// A dedicated relay's dedicated_server_key takes the hex form.
 	_, _ = fmt.Fprintf(out, "  (hex, for a dedicated relay: %s)\n", hex.EncodeToString(res.ServerKey))
@@ -137,10 +135,10 @@ func initCommand(args []string, in io.Reader, out io.Writer, terminal bool) erro
 	return nil
 }
 
-// initialized reports whether dir already holds a server (its key).
+// initialized reports whether dir already holds a host (a community).
 func initialized(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, "server.key"))
-	return err == nil
+	m, _ := filepath.Glob(filepath.Join(dir, "communities", "*", "server.key"))
+	return len(m) > 0
 }
 
 func (o initOptions) config() (community.Config, error) {

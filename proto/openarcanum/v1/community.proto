@@ -816,6 +816,9 @@ message AdminAction {
     PrepareKeyRotation prepare_key_rotation = 30;
     CommitKeyRotation commit_key_rotation = 31;
     ServerBackup server_backup = 32;
+    // Owners: start another community on this server (docs/operations.md
+    // "Several communities on one server"); the result carries its claim code.
+    CreateCommunity create_community = 36;
     InviteOwner invite_owner = 33;
     SubmitOwnerKey submit_owner_key = 34;
     ChangeOwners change_owners = 35;
@@ -1027,6 +1030,8 @@ message CommitKeyRotation {
 
 message ServerBackup {}
 
+message CreateCommunity {}
+
 message AdminResult {
   JoinKey join_key = 1;
   int64 id = 2;
@@ -1037,6 +1042,9 @@ message AdminResult {
   uint32 deleted = 30;
   // A ban's network block (BanMember.block_network).
   NetworkBlockStatus network_block = 31;
+  // CreateCommunity: the new community's claim code, for the owner who
+  // asked to claim at once.
+  string claim_code = 32;
 }
 
 // Used when moving a community to new hardware: the owner presents a cert for

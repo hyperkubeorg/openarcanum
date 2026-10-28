@@ -325,6 +325,14 @@ running, such as a small VPS or a Raspberry Pi
 4. **3. Claim it**: paste the claim code into **Claim code**, **Next**, fill
    in **Set up your community** and press **Claim and create**.
 
+Once you own a community on a server, that server can run more: **Add a
+community** → **Host on your own server** → **On one of my servers**, pick
+the community whose server should run the new one, fill in **Set up your
+community** and press **Create community**. No claim code: the server makes
+the community and it's yours at once. Each community on it has its own
+members, invites, settings and backups; the server's operator sets how many
+it runs (`max_communities`, 10 by default).
+
 ### Set up your community
 
 Both ways of hosting ask for the same things:

@@ -384,6 +384,11 @@
     "ui/js/voice.js"
    ]
   },
+  "A server that already runs a community you own.": {
+   "used_in": [
+    "ui/js/join.js"
+   ]
+  },
   "A short language tag shown in the directory.": {
    "used_in": [
     "ui/js/admin.js"
@@ -4926,6 +4931,16 @@
     "ui/js/devices.js"
    ]
   },
+  "On a new server": {
+   "used_in": [
+    "ui/js/join.js"
+   ]
+  },
+  "On one of my servers": {
+   "used_in": [
+    "ui/js/join.js"
+   ]
+  },
   "On the new device choose \"Link to an existing device\", then type the code it shows.": {
    "used_in": [
     "ui/js/devices.js"
@@ -4934,6 +4949,11 @@
   "On the new machine run this command, then paste the move code it prints. Any owner can do this.": {
    "used_in": [
     "ui/js/admin.js"
+   ]
+  },
+  "On the server that runs": {
+   "used_in": [
+    "ui/js/join.js"
    ]
   },
   "On the server, make the program executable and run these two commands. `community init` prints a one-time claim code; `community run` keeps the community up (as a service, see the admin guide). It only connects out: no port forwarding and no open ports.": {
@@ -5369,6 +5389,11 @@
   "Pick a channel.": {
    "used_in": [
     "ui/js/chat.js"
+   ]
+  },
+  "Pick a community you own.": {
+   "used_in": [
+    "core.py"
    ]
   },
   "Pick a passphrase you can remember, or press Generate and keep it in your password manager. There is no reset: if you lose it, you can only link again from another device or restore a backup.": {
@@ -6553,6 +6578,11 @@
     "ui/js/lock.js"
    ]
   },
+  "Set up the community server somewhere else and claim it with its code.": {
+   "used_in": [
+    "ui/js/join.js"
+   ]
+  },
   "Set up your community": {
    "used_in": [
     "ui/js/join.js"
@@ -6921,6 +6951,11 @@
   "Started with --home: the window toolkit's caches (fonts, graphics) stay here too.": {
    "used_in": [
     "core.py"
+   ]
+  },
+  "Starting the community on that server and setting it up…": {
+   "used_in": [
+    "ui/js/join.js"
    ]
   },
   "Starting the community server and setting it up…": {
@@ -7299,6 +7334,16 @@
   "That person isn't in your contacts.": {
    "used_in": [
     "dm.py"
+   ]
+  },
+  "That server can't start another community.": {
+   "used_in": [
+    "core.py"
+   ]
+  },
+  "That server runs this community too, as one of its own: members, invites and settings are separate.": {
+   "used_in": [
+    "ui/js/join.js"
    ]
   },
   "That took too long. Check your connection and try again.": {
@@ -9021,6 +9066,11 @@
   "When updates were last checked, and versions you chose to skip or postpone.": {
    "used_in": [
     "core.py"
+   ]
+  },
+  "Where": {
+   "used_in": [
+    "ui/js/join.js"
    ]
   },
   "Where OpenArcanum keeps things": {

@@ -38,18 +38,21 @@ func readConfig(t *testing.T, dir string) map[string]any {
 	return m
 }
 
-// opens checks the created directory is a working server.
+// opens checks the created directory is a working host with one community.
 func opens(t *testing.T, dir string) {
 	t.Helper()
 	cfg, err := loadConfig(dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := community.Open(context.Background(), cfg, nil)
+	host, err := community.OpenHost(context.Background(), cfg, nil)
 	if err != nil {
 		t.Fatalf("created server doesn't open: %v", err)
 	}
-	srv.Close()
+	defer host.Close()
+	if n := len(host.Servers()); n != 1 {
+		t.Fatalf("%d communities, want 1", n)
+	}
 }
 
 func TestInitFromFlags(t *testing.T) {

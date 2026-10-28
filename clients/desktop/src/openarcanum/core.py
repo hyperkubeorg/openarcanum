@@ -2284,6 +2284,19 @@ class Core:
 
     # ---------------------------------------------------------------- admin
 
+    async def host_on_server(self, cid: str, settings: dict, display_name: str) -> dict:
+        """Start a new community on the server that runs `cid` (one I own)
+        and claim it: the server makes it and hands back its claim code
+        (docs/operations.md "Several communities on one server")."""
+        rec = self.require_unlocked().data["communities"].get(cid)
+        if rec is None or not rec.get("owner_identity"):
+            raise UserError(_("Pick a community you own."))
+        code = (await self.admin(cid, "create_community", {}))["claim_code"]
+        if not code:
+            raise UserError(_("That server can't start another community."))
+        # The new community attaches to its relays within moments.
+        return await self.claim(code, settings, display_name, retry_for=60.0)
+
     async def admin(self, cid: str, op: str, params: dict) -> dict:
         from openarcanum.admin_ops import OpError, build_op
 
@@ -2304,6 +2317,7 @@ class Core:
             "removed": res.removed,
             "deleted": res.deleted,
             "backup_path": res.backup_path,
+            "claim_code": res.claim_code,
             # A ban's network block: "blocked", "pending", "skipped" or "".
             "network_block": _network_block(res.network_block),
         }

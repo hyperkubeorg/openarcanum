@@ -125,6 +125,18 @@ func (s *Server) adminWith(ctx context.Context, ss *sess, sa *wire.SignedAction,
 	if res.after != nil {
 		res.after()
 	}
+	if res.create {
+		code, err := s.host.Create(ctx)
+		if err != nil {
+			return nil, errConflict(err.Error())
+		}
+		res.result.ClaimCode = code
+		s.mu.Lock()
+		if err := s.writeAudit(ctx, &auditRec{At: now.UnixMilli(), Actor: ss.member, Summary: "started another community on this server", Action: sa.Action, Signature: sa.Signature}); err != nil {
+			s.log.Error("audit write failed", "err", err)
+		}
+		s.mu.Unlock()
+	}
 	if res.backup {
 		path, err := s.Backup(ctx)
 		if err != nil {
@@ -184,6 +196,8 @@ type adminOutcome struct {
 	attach []byte
 	// backup asks adminWith for a server backup once s.mu is released.
 	backup bool
+	// create asks for a new community on this server's host, likewise.
+	create bool
 	// netBlock is a banned member whose network the dedicated relays are
 	// to block, and netUnblock an unbanned one whose blocks are to be
 	// lifted, once s.mu is released (netblock.go).
@@ -383,6 +397,14 @@ func (s *Server) applyAction(ctx context.Context, actor *memberRec, a *wire.Admi
 		out.result.NewServerKey = k.Public
 	case *wire.AdminAction_CommitKeyRotation:
 		return s.opCommitRotation(ctx, actor, op.CommitKeyRotation, out)
+	case *wire.AdminAction_CreateCommunity:
+		if err := s.needOwner(actor); err != nil {
+			return err
+		}
+		if s.host == nil {
+			return errDisabled("this server runs one community only")
+		}
+		out.create = true
 	case *wire.AdminAction_ServerBackup:
 		// Owners only, and not too often: each backup prunes the oldest
 		// beyond backup_keep, so frequent on-demand backups would rotate

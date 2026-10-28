@@ -280,6 +280,11 @@ crypto.DEFAULT_SCRYPT = crypto.ScryptParams(n=1 << 10)
 class CommunityNode:
     """A `community` server process with its own data directory."""
 
+    @property
+    def community(self) -> Path:
+        """The one community's own directory (DATA/communities/<id>)."""
+        return next((self.data / "communities").glob("*/server.key")).parent
+
     def __init__(self, data: Path, relays: list[str], maintainers: list[str] | None = None, automatic: bool = False):
         self.data = data
         self.relays = relays

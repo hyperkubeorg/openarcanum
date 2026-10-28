@@ -283,6 +283,8 @@ def build_op(op: str, p: dict, conn: CommunityConnection) -> tuple[str, Any]:
         return "replace_member", cp.ReplaceMember(old_key=_key(p, "old_key"), new_key=_key(p, "new_key"))
     if op == "server_backup":
         return "server_backup", cp.ServerBackup()
+    if op == "create_community":
+        return "create_community", cp.CreateCommunity()
     if op == "set_nickname":
         nick = str(p.get("nickname", "")).strip()
         if len(nick) > 32:

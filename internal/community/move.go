@@ -46,11 +46,26 @@ type MoveResult struct {
 // file is never overwritten: if cfg's storage_key_file already holds a
 // different key, the restore is refused.
 func Restore(ctx context.Context, cfg Config, backupPath, storageKeyPath string) (*MoveResult, error) {
-	cfg.Resolve()
 	key, err := readHexFile(storageKeyPath, 32)
 	if err != nil {
 		return nil, fmt.Errorf("storage key: %w", err)
 	}
+	return restore(ctx, cfg, backupPath, storageKeyPath, key)
+}
+
+// RestoreHosted restores the backup of community id from a host whose
+// storage key is in hostKeyPath: that community's key is derived from it
+// (host.go), and kept in cfg's storage_key_file.
+func RestoreHosted(ctx context.Context, cfg Config, backupPath, hostKeyPath, id string) (*MoveResult, error) {
+	hostKey, err := readHexFile(hostKeyPath, 32)
+	if err != nil {
+		return nil, fmt.Errorf("storage key: %w", err)
+	}
+	return restore(ctx, cfg, backupPath, "", deriveCommunityKey(hostKey, id))
+}
+
+func restore(ctx context.Context, cfg Config, backupPath, storageKeyPath string, key []byte) (*MoveResult, error) {
+	cfg.Resolve()
 	dbPath := filepath.Join(cfg.DataDir, "community.db")
 	if _, err := os.Stat(dbPath); err == nil {
 		return nil, fmt.Errorf("%s already has a community database", cfg.DataDir)

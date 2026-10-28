@@ -474,6 +474,12 @@ class JsApi:
     def claim(self, claim_code: str, settings: dict, display_name: str) -> dict:
         return self._a(lambda: self._core.claim(claim_code, settings, display_name))
 
+    def host_on_server(self, cid: str, settings: dict, display_name: str) -> dict:
+        """Start a new community on the server of one I own, and claim it."""
+        return self._a(
+            lambda: self._core.host_on_server(str(cid), settings or {}, str(display_name or "")), timeout=120
+        )
+
     # Hosting on this computer (hosting.py; docs/user-guide.md).
 
     def host_community(self, settings: dict, display_name: str) -> dict:

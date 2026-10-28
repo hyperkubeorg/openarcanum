@@ -419,7 +419,30 @@ function serverPane() {
         await created(r);
       }, { back: () => addUI.select('server') }));
     } })));
-  box.append(getIt, setUp, claimIt);
+  // With a community of yours already running somewhere: start the new
+  // one on that server instead (it can run several), no claim code needed.
+  const owned = st.communities.filter((c) => c.status === 'active' && c.is_owner);
+  if (!owned.length) {
+    box.append(getIt, setUp, claimIt);
+    return box;
+  }
+  const steps = h('div', {}, getIt, setUp, claimIt);
+  const pick = selectEl(owned.map((c) => [c.id, c.name]), owned[0].id);
+  const onServer = h('div', {},
+    formSection(null, field(t('On the server that runs'), pick, t('That server runs this community too, as one of its own: members, invites and settings are separate.'))),
+    setupForm(t('Set up your community'), '', t('Create community'), async (settings, me) => {
+      const r = await api('host_on_server', pick.value, settings, me);
+      await created(r);
+    }, { busy: t('Starting the community on that server and setting it up…') }));
+  const where = (value, label, desc, checked) => h('label', { class: 'check' },
+    h('input', { type: 'radio', name: 'host-where', value, checked, onchange: () => show(value) }),
+    h('div', null, h('b', { text: label }), h('div', { class: 'hint', text: desc })));
+  const show = (value) => { steps.classList.toggle('hidden', value !== 'new'); onServer.classList.toggle('hidden', value !== 'mine'); };
+  box.append(formSection(t('Where'), h('div', { class: 'stack', role: 'radiogroup', 'aria-label': t('Where') },
+    where('mine', t('On one of my servers'), t('A server that already runs a community you own.'), true),
+    where('new', t('On a new server'), t('Set up the community server somewhere else and claim it with its code.'), false))),
+  onServer, steps);
+  show('mine');
   return box;
 }
 
