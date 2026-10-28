@@ -281,7 +281,9 @@ def test_readmes():
         assert not re.search(r"\bfragment_", text)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the deployment scripts run on Linux")
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="the deployment scripts run on Linux (macOS has bash 3.2)"
+)
 @pytest.mark.parametrize(
     "rules", ["", 'rule family="ipv4" source address="203.0.113.7" port port="7100" protocol="tcp" accept']
 )
