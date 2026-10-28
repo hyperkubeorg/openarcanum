@@ -170,3 +170,27 @@ def test_a_week_old_code_doesnt_start_a_conversation(tmp_path):
             await b.shutdown()
 
     asyncio.run(go())
+
+
+def test_a_retired_identity_is_forgotten_and_its_codes_stop(tmp_path):
+    """An identity whose keys a removed device holds (it made the identity
+    before this device joined its list) is retired on removal."""
+
+    async def go():
+        nodes = FakeNodes()
+        a, _ = await new_core(tmp_path / "a", "a", maintainers=[])
+        nodes.attach(a)
+        try:
+            await a.dms.permanent_code()
+            pub = a.dms.d["contact_identity"]
+            iid = a.dms.d["ids"][pub]["iid"]
+            a.dms._retire_identity(pub)
+            assert pub not in a.dms.d["ids"] and iid not in a.vault.data["identities"]
+            assert "contact_identity" not in a.dms.d and a.dms.permanent_code_info() is None
+            # A new code is made under a new identity.
+            await a.dms.permanent_code()
+            assert a.dms.d["contact_identity"] != pub
+        finally:
+            await a.shutdown()
+
+    asyncio.run(go())

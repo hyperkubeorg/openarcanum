@@ -156,8 +156,9 @@ func FuzzClientFrames(f *testing.F) {
 		c, err := Dial(ctx, relay.url)
 		if err != nil {
 			// Thousands of short connections exhaust the loopback ports on
-			// some systems (macOS keeps them in TIME_WAIT): not a finding.
-			if strings.Contains(err.Error(), "assign requested address") {
+			// some systems (macOS and Windows keep them in TIME_WAIT): not a
+			// finding. Windows says "Only one usage of each socket address".
+			if strings.Contains(err.Error(), "assign requested address") || strings.Contains(err.Error(), "one usage of each socket address") {
 				t.Skip("loopback ports exhausted")
 			}
 			t.Fatal(err)

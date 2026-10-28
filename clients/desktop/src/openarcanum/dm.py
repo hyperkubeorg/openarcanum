@@ -795,11 +795,45 @@ class DMManager:
             try:
                 await self._set_my_list(pub, new, lst)
             except ListNotApproved:
-                log.warning("dm: couldn't record a device removal for one of my identities")
+                # This device isn't in that identity's list (the removed one
+                # made it before this one joined), so it can't take the
+                # removed device out; that device holds the identity's keys
+                # anyway. Retire it: communities that used it get a new one.
+                log.warning("dm: retired an identity the removed device made before this one joined it")
+                self._retire_identity(pub)
                 continue
             await self.core.devices.broadcast("dm_identity", self._identity_sync(pub))
             await self._republish(pub)
             await self._announce_card_everywhere(pub)
+
+    def _retire_identity(self, pub: str) -> None:
+        """Forget one of my DM identities (its keys are no longer only mine):
+        conversations under it are left, its contact codes stop working, and
+        communities that used it publish a new one."""
+        ent = self.d["ids"].pop(pub, None)
+        if ent is not None:
+            self.core.vault.data["identities"].pop(ent.get("iid", ""), None)
+            self.core.vault.keys_changed()
+        republish = []
+        for cid, rec in self.core.vault.data["communities"].items():
+            if rec.get("dm_identity") == pub:
+                rec.pop("dm_identity", None)
+                if rec.get("publish_card", True) and rec.get("status") == "active":
+                    republish.append(cid)
+        if self.d.get("contact_identity") == pub:
+            self.d.pop("contact_identity", None)
+            self.d.pop("permanent_code", None)
+        for g in self.d["groups"].values():
+            if g.get("me") == pub and g.get("status") != "left":
+                g["status"] = "left"
+        self.core.save_vault()
+        for cid in republish:
+            self.core.spawn(self._publish_card_quietly(cid))
+        self.core.emit("dm", {})
+
+    async def _publish_card_quietly(self, cid: str) -> None:
+        with contextlib.suppress(UserError):
+            await self._publish_card(cid)
 
     def _build_card(self, pub: str, cid: str) -> tuple[dm.SignedContactCard, list[bytes]]:
         ent = self.d["ids"][pub]
