@@ -348,18 +348,36 @@ function typingText(names) {
   return t('Several people are typing…');
 }
 
+// Declining a message request or an invitation drops the conversation.
+async function declineConversation(c) {
+  const invited = dmUI.info && dmUI.info.status === 'invited';
+  const ok = await confirmModal(invited ? t('Decline the invitation?') : t('Decline the request?'),
+    invited ? t('You won\'t join "{name}". Someone in it would have to invite you again.', { name: c.name })
+      : t('The conversation and what {name} sent are deleted from this device.', { name: c.name }), t('Decline'));
+  if (!ok) return;
+  api('dm_decline', c.id).then(() => { dmUI.current = null; dmUI.refresh(); }, toastError);
+}
+
+// Blocking (anywhere): asks first; unblocking doesn't.
+async function confirmBlock(name) {
+  return confirmModal(t('Block {name}?', { name }), t('They can\'t message you or add you to groups, and you won\'t see their messages. Your conversations with them stay. You can unblock them later.'), t('Block'));
+}
+
 function dmBanners(main, c, info, others) {
   if (info.status === 'request') {
     main.appendChild(h('div', { class: 'banner info' }, h('span', { class: 'spacer', text: t("{name} isn't in your contacts and wants to message you.", { name: c.name }) }),
       h('button', { class: 'btn small primary', text: t('Accept'), onclick: () => api('dm_accept', c.id).then(() => dmUI.open(c.id), toastError) }),
-      h('button', { class: 'btn small', text: t('Decline'), onclick: () => api('dm_decline', c.id).then(() => { dmUI.current = null; dmUI.refresh(); }, toastError) })));
+      h('button', { class: 'btn small', text: t('Decline'), onclick: () => declineConversation(c) })));
   } else if (info.status === 'invited') {
     main.appendChild(h('div', { class: 'banner info' }, h('span', { class: 'spacer', text: t('You were invited to "{name}". You\'ll only see messages sent after you join.', { name: c.name }) }),
       h('button', { class: 'btn small primary', text: t('Join'), onclick: () => api('dm_accept', c.id).then(() => dmUI.open(c.id), toastError) }),
-      h('button', { class: 'btn small', text: t('Decline'), onclick: () => api('dm_decline', c.id).then(() => { dmUI.current = null; dmUI.refresh(); }, toastError) })));
+      h('button', { class: 'btn small', text: t('Decline'), onclick: () => declineConversation(c) })));
   } else if (info.status === 'removed') {
     main.appendChild(h('div', { class: 'banner' }, h('span', { class: 'spacer', text: t('You were removed from this conversation. You can still read what you received before.') }),
-      h('button', { class: 'btn small', text: t('Delete conversation'), onclick: () => api('dm_leave', c.id).then(() => { dmUI.current = null; dmUI.refresh(); }, toastError) })));
+      h('button', { class: 'btn small', text: t('Delete conversation'), onclick: async () => {
+        if (!(await confirmModal(t('Delete this conversation?'), t('What you received in it is deleted from this device. This can\'t be undone.'), t('Delete')))) return;
+        api('dm_leave', c.id).then(() => { dmUI.current = null; dmUI.refresh(); }, toastError);
+      } })));
   }
   for (const m of others.filter((x) => x.key_changed)) {
     main.appendChild(h('div', { class: 'banner warn' }, h('span', { class: 'spacer', text: t("{name}'s key changed. This happens when they reinstall or reset their profile, or when someone else is pretending to be them. Check their safety number before trusting new messages.", { name: m.name }) }),
@@ -911,8 +929,14 @@ async function renderDmHome(main) {
       c.blocked ? null : h('button', { class: 'btn small primary', text: t('Message'), onclick: () => dmUI.startWithContact(c.id) }),
       h('button', { class: 'btn small', text: t('Rename'), onclick: () => renameContactDialog(c) }),
       h('button', { class: 'btn small', text: t('Safety number'), onclick: () => safetyDialog(c.id, c.name) }),
-      h('button', { class: 'btn small', text: c.blocked ? t('Unblock') : t('Block'), onclick: () => api('dm_block', c.id, !c.blocked).then(again, toastError) }),
-      h('button', { class: 'btn small danger', text: t('Remove'), onclick: () => api('dm_remove_contact', c.id).then(again, toastError) })));
+      h('button', { class: 'btn small', text: c.blocked ? t('Unblock') : t('Block'), onclick: async () => {
+        if (!c.blocked && !(await confirmBlock(c.name))) return;
+        api('dm_block', c.id, !c.blocked).then(again, toastError);
+      } }),
+      h('button', { class: 'btn small danger', text: t('Remove'), 'aria-label': t('Remove {name} from contacts', { name: c.name }), onclick: async () => {
+        if (!(await confirmModal(t('Remove {name} from your contacts?', { name: c.name }), t('They stop seeing your status, and you\'d need their contact code to add them again. Your conversations with them stay.'), t('Remove')))) return;
+        api('dm_remove_contact', c.id).then(again, toastError);
+      } })));
   }
   body.appendChild(list);
 }

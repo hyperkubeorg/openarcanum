@@ -179,6 +179,8 @@ def test_theme_passphrases_toasts_fields_and_storage(tmp_path):
                 )
                 # Info toasts still go by themselves.
                 await app.click(".settings section .form-foot button", "Clear cache")
+                await app.wait_text(".modal h2", "Clear the cache?")
+                await app.click(".modal-foot button", "Clear cache")
                 await app.wait_text("#toasts .toast", "Cache cleared.")
                 await app.wait_gone("#toasts .toast", None, 10)
 

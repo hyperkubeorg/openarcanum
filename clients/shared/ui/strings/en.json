@@ -709,6 +709,11 @@
     "ui/js/moderation.js"
    ]
   },
+  "An owner would have to invite you again.": {
+   "used_in": [
+    "ui/js/admin.js"
+   ]
+  },
   "An update waiting to be installed.": {
    "used_in": [
     "core.py"
@@ -1049,6 +1054,14 @@
     "ui/js/moderation.js"
    ]
   },
+  "Block {name}?": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Bring it back online": {
    "used_in": [
     "ui/js/hosting.js"
@@ -1093,6 +1106,11 @@
    ]
   },
   "Cache: encrypted, safe to delete": {
+   "used_in": [
+    "ui/js/settings.js"
+   ]
+  },
+  "Cached messages and files are deleted from this device for every community. They download again as you open them, except what a community no longer keeps.": {
    "used_in": [
     "ui/js/settings.js"
    ]
@@ -1261,7 +1279,21 @@
   },
   "Cancel invitation": {
    "used_in": [
+    "ui/js/admin.js",
     "ui/js/people.js"
+   ]
+  },
+  "Cancel the owner invitation of {name}": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/admin.js"
+   ]
+  },
+  "Cancel the owner invitation?": {
+   "used_in": [
+    "ui/js/admin.js"
    ]
   },
   "Category": {
@@ -1529,7 +1561,7 @@
     "ui/js/settings.js"
    ]
   },
-  "Clear cache deletes cached messages and files for every community. Nothing is lost: it downloads again.": {
+  "Clear cache deletes cached messages and files for every community. They download again, except what a community no longer keeps.": {
    "used_in": [
     "ui/js/settings.js"
    ]
@@ -1537,6 +1569,11 @@
   "Clear custom text": {
    "used_in": [
     "ui/js/status.js"
+   ]
+  },
+  "Clear the cache?": {
+   "used_in": [
+    "ui/js/settings.js"
    ]
   },
   "Click the box and press a key.": {
@@ -2225,6 +2262,21 @@
     "ui/js/dm.js"
    ]
   },
+  "Decline becoming an owner?": {
+   "used_in": [
+    "ui/js/admin.js"
+   ]
+  },
+  "Decline the invitation?": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "Decline the request?": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Default (as above)": {
    "used_in": [
     "ui/js/settings.js"
@@ -2337,6 +2389,11 @@
     "ui/js/dm.js"
    ]
   },
+  "Delete this conversation?": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Delete this device's copy of messages and files": {
    "used_in": [
     "ui/js/settings.js"
@@ -2381,6 +2438,14 @@
    ]
   },
   "Deny or allow on top of what roles normally grant. A member's own override beats their roles. When someone loses access, the channel gets a new key so they can't read what comes next.": {
+   "used_in": [
+    "ui/js/admin.js"
+   ]
+  },
+  "Deny {name}?": {
+   "vars": [
+    "name"
+   ],
    "used_in": [
     "ui/js/admin.js"
    ]
@@ -4952,6 +5017,11 @@
     "ui/js/join.js"
    ]
   },
+  "Nobody can join with it anymore. People who already joined with it stay.": {
+   "used_in": [
+    "ui/js/admin.js"
+   ]
+  },
   "Nobody else here yet.": {
    "used_in": [
     "ui/js/dm.js"
@@ -6108,12 +6178,36 @@
     "ui/js/admin.js"
    ]
   },
+  "Remove {name} from contacts": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "Remove {name} from this group? They won't receive anything new.": {
    "vars": [
     "name"
    ],
    "used_in": [
     "ui/js/people.js"
+   ]
+  },
+  "Remove {name} from your contacts?": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "Remove {name} from your list?": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "Remove {name}?": {
@@ -6404,6 +6498,11 @@
    ]
   },
   "Revoke invite": {
+   "used_in": [
+    "ui/js/admin.js"
+   ]
+  },
+  "Revoke this invite?": {
    "used_in": [
     "ui/js/admin.js"
    ]
@@ -7823,6 +7922,14 @@
     "dm.py"
    ]
   },
+  "The conversation and what {name} sent are deleted from this device.": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "The current passphrase is wrong.": {
    "used_in": [
     "core.py"
@@ -8346,6 +8453,11 @@
     "ui/js/admin.js"
    ]
   },
+  "Their request to join is turned down. They'd have to ask again.": {
+   "used_in": [
+    "ui/js/admin.js"
+   ]
+  },
   "Theme": {
    "used_in": [
     "ui/js/lock.js",
@@ -8400,6 +8512,11 @@
     "ui/js/moderation.js"
    ]
   },
+  "They can't message you or add you to groups, and you won't see their messages. Your conversations with them stay. You can unblock them later.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "They run directory search, help you reach communities, keep direct messages for people who are offline, and pass on codes when you link a device. Kept on this device only: each of your devices has its own list, and you can change it before unlocking.": {
    "used_in": [
     "ui/js/settings.js"
@@ -8409,6 +8526,11 @@
    "vars": [
     "name"
    ],
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "They stop seeing your status, and you'd need their contact code to add them again. Your conversations with them stay.": {
    "used_in": [
     "ui/js/dm.js"
    ]
@@ -8431,6 +8553,11 @@
   "This channel is synced with its category: changing it here gives it its own permissions.": {
    "used_in": [
     "ui/js/admin.js"
+   ]
+  },
+  "This community": {
+   "used_in": [
+    "ui/js/chat.js"
    ]
   },
   "This community allows no more devices for your account.": {
@@ -9414,6 +9541,11 @@
     "ui/js/admin.js"
    ]
   },
+  "What you received in it is deleted from this device. This can't be undone.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
   "What you typed in this dialog will be lost.": {
    "used_in": [
     "ui/js/dom.js"
@@ -9787,6 +9919,14 @@
    ]
   },
   "You were removed from this conversation. You can still read what you received before.": {
+   "used_in": [
+    "ui/js/dm.js"
+   ]
+  },
+  "You won't join \"{name}\". Someone in it would have to invite you again.": {
+   "vars": [
+    "name"
+   ],
    "used_in": [
     "ui/js/dm.js"
    ]
@@ -11167,6 +11307,11 @@
     "ui/js/admin.js"
    ]
   },
+  "this person": {
+   "used_in": [
+    "ui/js/people.js"
+   ]
+  },
   "this system has no keychain OpenArcanum can use (on Linux: GNOME Keyring or KWallet)": {
    "used_in": [
     "keychain.py"
@@ -11491,6 +11636,14 @@
     "ui/js/dm.js"
    ]
   },
+  "{name} and its key are removed from this device. To come back you'd need a new invite. This can't be undone.": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/chat.js"
+   ]
+  },
   "{name} invited you to a group DM.": {
    "vars": [
     "name"
@@ -11612,6 +11765,14 @@
    ],
    "used_in": [
     "ui/js/moderation.js"
+   ]
+  },
+  "{name} won't become an owner. You can invite them again.": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "ui/js/admin.js"
    ]
   },
   "{name}'s camera": {

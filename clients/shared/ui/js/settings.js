@@ -173,7 +173,11 @@ async function renderCommunitiesSettings(sec) {
           }
         } }),
         active ? h('button', { class: 'btn small danger', text: t('Leave…'), onclick: () => leaveDialog(c) })
-          : h('button', { class: 'btn small', text: t('Remove from list'), onclick: async () => { await api('dismiss', c.id); sec.parentElement && renderCommunitiesSettings(clear(sec)); } })))));
+          : h('button', { class: 'btn small', text: t('Remove from list'), onclick: async () => {
+            if (!(await confirmForget(c.name))) return;
+            await api('dismiss', c.id);
+            sec.parentElement && renderCommunitiesSettings(clear(sec));
+          } })))));
   }
   sec.appendChild(table);
 }
@@ -304,8 +308,10 @@ async function renderData(sec) {
   const limit = h('input', { type: 'number', min: 64, max: 102400, value: d.vault.cache_limit_mb });
   sec.appendChild(formSection(t('Cache'), [
     vaultSetting('cache_limit_mb', t('Local cache size (MB)'), t("Messages and downloaded files kept on this device, for as long as each community keeps them. Using {size} now.", { size: fmtBytes(d.cache_bytes) }), limit, (c) => Number(c.value)),
-    h('div', { class: 'small muted', text: t('Clear cache deletes cached messages and files for every community. Nothing is lost: it downloads again.') })],
-  formFoot(h('button', { class: 'btn', text: t('Clear cache'), onclick: async () => { await api('clear_cache'); toast(t('Cache cleared.')); settingsUI.data = await api('get_settings'); renderData(clear(sec)); } }))));
+    h('div', { class: 'small muted', text: t('Clear cache deletes cached messages and files for every community. They download again, except what a community no longer keeps.') })],
+  formFoot(h('button', { class: 'btn', text: t('Clear cache'), onclick: async () => {
+    if (!(await confirmModal(t('Clear the cache?'), t('Cached messages and files are deleted from this device for every community. They download again as you open them, except what a community no longer keeps.'), t('Clear cache')))) return;
+    await api('clear_cache'); toast(t('Cache cleared.')); settingsUI.data = await api('get_settings'); renderData(clear(sec)); } }))));
   const moved = async (p) => {
     try { await api('set_setting', 'data_dir', p); toast(t('Data moved.')); settingsUI.data = await api('get_settings'); renderData(clear(sec)); } catch (e) { toastError(e); }
   };

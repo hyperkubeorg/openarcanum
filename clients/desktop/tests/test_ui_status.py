@@ -202,6 +202,26 @@ def test_status_picker_audiences_and_do_not_disturb(tmp_path):
                         break
                     await asyncio.sleep(0.2)
                 assert await olive.js("window.__notes.filter((n) => n.community).length") >= 1
+
+                # The Contacts page asks before blocking or removing anyone;
+                # Cancel leaves them as they were.
+                await open_dms(alice)
+                await alice.click("button.chan.dm-home")
+                row = ".dm-home-page .member-row[data-contact]"
+                await alice.wait_js(f"document.querySelector('{row}')", "Olive on Contacts")
+                await alice.click(f"{row} button", "Block")
+                await alice.wait_text(".modal h2", "Block Olive?")
+                await alice.click(".modal-foot button", "Cancel")
+                await alice.wait_gone("#modal-root .backdrop")
+                assert not await alice.exists(f"{row} .pill", "blocked")
+                await alice.click(f'{row} button[aria-label="Remove Olive from contacts"]')
+                await alice.wait_text(".modal h2", "Remove Olive from your contacts?")
+                await alice.click(".modal-foot button", "Cancel")
+                await alice.wait_gone("#modal-root .backdrop")
+                assert await alice.exists(row)
+                await alice.click(f'{row} button[aria-label="Remove Olive from contacts"]')
+                await alice.click(".modal-foot button", "Remove")
+                await alice.wait_gone(row)
                 for app in (olive, alice):
                     app.assert_no_errors()
             finally:

@@ -314,6 +314,8 @@ def test_more_moderation_by_clicks(tmp_path):
                     "!document.querySelector('.settings section').textContent.includes('Pia')", "Pia left the queue"
                 )
                 await owner.button("Deny")
+                await owner.wait_text(".modal h2", "Deny")  # it asks first
+                await owner.click(".modal-foot button", "Deny")
                 await owner.wait_text(".settings section p", "Nobody is waiting")
                 await wait_until(lambda: quinn.vault.data["communities"][cid]["status"] != "active", 20)
 

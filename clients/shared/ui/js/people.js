@@ -97,7 +97,7 @@ async function memberMenuItems(who, opts) {
     // identity key shows up in your conversations).
     others && cards ? { label: t('Add as contact'), run: () => api('dm_add_contact', cid, m.key).then(() => toast(t('Added to contacts.')), toastError) } : null,
     { label: t('Copy user ID'), run: () => copyUserId(who.key) },
-    contact ? blockEntry(contact.id, contact.blocked, opts.after) : null,
+    contact ? blockEntry(contact.id, contact.blocked, opts.after, contact.name) : null,
     { separator: true },
     me && here ? { label: t('Edit your profile here'), run: () => communityProfileDialog(summary) } : null,
     others && can.manage_nicknames ? { label: t('Change nickname…'), run: () => nicknameDialog(cid, m, admin ? after : () => { loadMembers(cid); loadState(cid); }) } : null,
@@ -160,7 +160,7 @@ async function dmPersonMenuItems(who, opts) {
     !me && ident ? { label: t('Rename…'), run: () => renameContactDialog({ id: ident, name, nickname: c.nickname || p.nickname || '', card_name: c.card_name || p.name || name }) } : null,
     !me ? { label: t('Safety number'), run: () => safetyDialog(ident, name, info ? info.id : '') } : null,
     { label: t('Copy user ID'), run: () => copyUserId(ident) },
-    !me ? blockEntry(ident, blocked, after) : null,
+    !me ? blockEntry(ident, blocked, after, name) : null,
     { separator: true },
     owner && !opts.invited ? { label: t('Make owner'), run: async () => {
       if (await confirmModal(t('Make owner'), t("Make {name} the owner of this group? You'll no longer be able to change its settings.", { name }), t('Make owner'), false)) dmCall('dm_transfer', info.id, ident);
@@ -184,12 +184,15 @@ function messageEntry(ident, start) {
   return start ? { label: t('Message'), run: () => { closeDialogs(); return start(); } } : null;
 }
 
-function blockEntry(ident, blocked, after) {
-  return { label: blocked ? t('Unblock') : t('Block'), run: () => api('dm_block', ident, !blocked).then(() => {
-    dmUI.refresh();
-    if (after) return after();
-    return dmUI.reload();
-  }, toastError) };
+function blockEntry(ident, blocked, after, name) {
+  return { label: blocked ? t('Unblock') : t('Block'), danger: !blocked, run: async () => {
+    if (!blocked && !(await confirmBlock(name || t('this person')))) return;
+    return api('dm_block', ident, !blocked).then(() => {
+      dmUI.refresh();
+      if (after) return after();
+      return dmUI.reload();
+    }, toastError);
+  } };
 }
 
 function copyUserId(id) {

@@ -287,7 +287,13 @@ function communityMenuItems(summary) {
   const copyId = { label: t('Copy community ID'), run: () => api('copy_text', id).then(() => toast(t('Community ID copied.')), toastError) };
   if (summary.status !== 'active' && summary.status !== 'pending') {
     // Removed, banned or revoked: only what still makes sense.
-    return [copyId, { label: t('Remove from list'), run: async () => { await api('dismiss', id); if (st.cid === id) st.cid = null; await refreshCommunities(); render(); } }];
+    return [copyId, { label: t('Remove from list'), danger: true, run: async () => {
+      if (!(await confirmForget(summary ? summary.name : t('This community')))) return;
+      await api('dismiss', id);
+      if (st.cid === id) st.cid = null;
+      await refreshCommunities();
+      render();
+    } }];
   }
   const can = summary.can || {};
   const q = modQueue(summary);
@@ -361,6 +367,12 @@ function createChannelDialog(kind, categoryId = 0) {
     try { const r = await api('admin', st.cid, 'create_channel', { name, kind, category_id: categoryId }); await loadState(st.cid); if (kind === 'text') await selectChannel(r.id).then(focusComposer); }
     catch (e) { toastError(e); }
   });
+}
+
+// Removing a community that's gone (shut down, removed, banned) from the
+// list forgets its key: asks first (the menu and Settings → Communities).
+function confirmForget(name) {
+  return confirmModal(t('Remove {name} from your list?', { name }), t('{name} and its key are removed from this device. To come back you\'d need a new invite. This can\'t be undone.', { name }), t('Remove'));
 }
 
 async function leaveDialog(summary) {

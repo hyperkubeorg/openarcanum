@@ -216,6 +216,7 @@ async function adminInvites(sec, show) {
       h('td', null, h('div', { class: 'row' },
         k.invite && !k.revoked ? copyButton(k.invite, t('Copy invite')) : null,
         !k.revoked && mayRevoke ? h('button', { class: 'btn small danger', text: t('Revoke'), 'aria-label': k.label ? t('Revoke {label}', { label: k.label }) : t('Revoke invite'), onclick: async () => {
+          if (!(await confirmModal(t('Revoke this invite?'), t('Nobody can join with it anymore. People who already joined with it stay.'), t('Revoke')))) return;
           try { await api('admin', adminUI.cid, 'revoke_invite', { id: k.id }); } catch (e) { toastError(e); }
           adminInvites(clear(sec), show);
         } }) : null,
@@ -270,7 +271,11 @@ async function adminPending(sec) {
     rows.push(h('div', { class: 'setting-row' }, h('div', null, h('b', { text: m.display_name }), h('div', { class: 'desc mono', text: m.key }), h('div', { class: 'desc', text: t('Asked {time}', { time: fmtDateTime(m.joined_at) }) })),
       h('div', { class: 'row' },
         h('button', { class: 'btn small primary', text: t('Approve'), onclick: async () => { await api('admin', adminUI.cid, 'approve', { member: m.key }); adminPending(clear(sec)); } }),
-        h('button', { class: 'btn small danger', text: t('Deny'), onclick: async () => { await api('admin', adminUI.cid, 'deny', { member: m.key }); adminPending(clear(sec)); } }))));
+        h('button', { class: 'btn small danger', text: t('Deny'), onclick: async () => {
+          if (!(await confirmModal(t('Deny {name}?', { name: m.display_name }), t('Their request to join is turned down. They\'d have to ask again.'), t('Deny')))) return;
+          await api('admin', adminUI.cid, 'deny', { member: m.key });
+          adminPending(clear(sec));
+        } }))));
   }
   sec.appendChild(formSection(null, rows));
 }
@@ -748,7 +753,10 @@ async function adminOwnership(sec) {
       h('div', { class: 'small muted', text: t('This device makes a new owner key and shares only the part others need to check it. You become an owner once an owner confirms it.') }),
       h('div', { class: 'row' },
         h('button', { class: 'btn small primary', text: t('Accept'), onclick: () => ownershipAction(sec, () => api('accept_owner_invite', cid), t('Owner key sent. An owner needs to confirm it.')) }),
-        h('button', { class: 'btn small', text: t('Decline'), onclick: () => ownershipAction(sec, () => api('decline_owner_invite', cid), t('Invitation declined.')) }))));
+        h('button', { class: 'btn small', text: t('Decline'), onclick: async () => {
+          if (!(await confirmModal(t('Decline becoming an owner?'), t('An owner would have to invite you again.'), t('Decline')))) return;
+          ownershipAction(sec, () => api('decline_owner_invite', cid), t('Invitation declined.'));
+        } }))));
   }
 
   const owners = [];
@@ -774,7 +782,10 @@ async function adminOwnership(sec) {
           h('div', { class: 'desc', text: p.submitted ? t('Their owner key arrived. Confirm to add it.') : t('Invited. Waiting for their device to send an owner key.') })),
         h('div', { class: 'row' },
           p.submitted ? h('button', { class: 'btn small primary', text: t('Confirm'), onclick: () => ownershipAction(sec, () => api('confirm_owner', cid, p.member), t('{name} is now an owner.', { name: p.display_name })) }) : null,
-          h('button', { class: 'btn small', text: t('Cancel'), onclick: () => ownershipAction(sec, () => api('cancel_owner_invite', cid, p.member), t('Invitation cancelled.')) }))));
+          h('button', { class: 'btn small', text: t('Cancel'), 'aria-label': t('Cancel the owner invitation of {name}', { name: p.display_name }), onclick: async () => {
+            if (!(await confirmModal(t('Cancel the owner invitation?'), t('{name} won\'t become an owner. You can invite them again.', { name: p.display_name }), t('Cancel invitation')))) return;
+            ownershipAction(sec, () => api('cancel_owner_invite', cid, p.member), t('Invitation cancelled.'));
+          } }))));
     }
     const members = (await api('members', cid)).filter((m) => m.status === 'active' && !m.owner && !m.owner_invited);
     if (members.length) {

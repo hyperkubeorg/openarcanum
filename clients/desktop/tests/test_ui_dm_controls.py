@@ -153,6 +153,8 @@ def test_direct_dm_activity_verification_blocking_and_key_change(tmp_path):
                 # Blocking: Olive blocks Alice; Alice's messages no longer
                 # reach her and she can't write to Alice. Unblocking restores both.
                 await member_option(olive, "Alice", "Block")
+                await olive.wait_text(".modal h2", "Block Alice?")  # it asks first
+                await olive.click(".modal-foot button", "Block")
                 await close_modals(olive)
                 await olive.wait_text("#dm-banners .banner", "You blocked this person.")
                 await olive.click("#dm-input")
