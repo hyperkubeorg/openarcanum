@@ -79,6 +79,8 @@ def test_community_admin_ui_flow(tmp_path):
                 # Revoke the first invite.
                 await community_section(app, "Invites & join policy")
                 await app.click(".settings section .invites button", "Revoke First invite")
+                await app.wait_text(".modal h2", "Revoke this invite?")  # it asks first
+                await app.click(".modal-foot button", "Revoke")
                 await app.wait_text(".settings section .invites .pill", "revoked")
                 await close_settings(app)
 
