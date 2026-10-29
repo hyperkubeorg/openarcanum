@@ -125,6 +125,7 @@ function statusesChanged() {
     statusRepaint = null;
     if (st.view === 'community') keepingFocus($('#members'), () => renderMembers());
     if (st.view === 'dms') keepingFocus($('#sidebar'), () => renderSidebar());
+    paintContactStatuses();
     paintUserPanels();
   }, 50);
 }

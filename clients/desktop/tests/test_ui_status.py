@@ -134,6 +134,36 @@ def test_status_picker_audiences_and_do_not_disturb(tmp_path):
                 assert await alice.js("document.querySelector('.dm-list .chan[data-status]').dataset.status") == "dnd"
                 await shot(alice, tmp_path, "dm-list-status")
 
+                # The Contacts page, left open, follows Olive's status like the
+                # list does: repainted in place, not drawn again.
+                await alice.click("button.chan.dm-home")
+                row = "document.querySelector('.dm-home-page .member-row[data-contact]')"
+                await alice.wait_js(f"{row} && {row}.querySelector('.presence.dnd')", "Olive dnd on Contacts")
+                assert TEXT in await alice.js(f"{row}.querySelector('.contact-status').textContent")
+                await alice.js("document.querySelector('.dm-home-page').dataset.mark = 'kept'; 0")
+                await olive.js("api('set_status', 'idle', 'Back soon', '', 'never').then(() => 0)")
+
+                async def contacts_row_idle():
+                    # Fetch mail without the refresh button (which redraws).
+                    await alice.js("api('dm_poll').then(() => 0)")
+                    return await alice.js(f"!!{row}.querySelector('.presence.idle')")
+
+                for _ in range(60):
+                    if await contacts_row_idle():
+                        break
+                    await asyncio.sleep(0.4)
+                assert await alice.js(f"!!{row}.querySelector('.presence.idle')"), "Contacts page never followed"
+                assert "Back soon" in await alice.js(f"{row}.querySelector('.contact-status').textContent")
+                assert (await alice.js(f"{row}.title")).startswith("Idle")
+                assert await alice.js("document.querySelector('.dm-home-page').dataset.mark") == "kept"
+                # Back to Do not disturb for what follows.
+                await olive.js(f"api('set_status', 'dnd', {TEXT!r}, '🌴', '1h').then(() => 0)")
+                for _ in range(60):
+                    await check_mail(alice)
+                    if await alice.js(f"!!{row}.querySelector('.presence.dnd')"):
+                        break
+                    await asyncio.sleep(0.4)
+
                 # Do not disturb: no notification for Alice's message, but the
                 # unread mark still shows.
                 await olive.js(RECORD_NOTES)

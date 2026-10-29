@@ -863,6 +863,25 @@ function renameContactDialog(c) {
 
 // Contacts, the main panel of Direct messages: everyone I can message
 // without sharing a community, and how to add more (contact codes).
+// A contact row's status: the custom text, and the status in words for
+// screen readers. Repainted in place when statuses change (status.js).
+function contactStatusParts(s) {
+  return [statusTextEl(s), h('span', { class: 'sr-only', text: statusSentence(s) })].filter(Boolean);
+}
+
+// The Contacts page follows status changes without being drawn again (a
+// redraw would fetch the contacts and drop focus, scroll and open menus).
+function paintContactStatuses() {
+  for (const row of $$('.dm-home-page .member-row[data-contact]')) {
+    const s = personStatus(row.dataset.contact);
+    row.title = statusSentence(s);
+    const dot = $('.av-wrap .presence', row);
+    if (dot) dot.className = 'presence ' + s.state;
+    const box = $('.contact-status', row);
+    if (box) box.replaceChildren(...contactStatusParts(s));
+  }
+}
+
 async function renderDmHome(main) {
   const page = h('div', { class: 'dm-home-page' });
   main.appendChild(page);
@@ -882,10 +901,10 @@ async function renderDmHome(main) {
   if (!contacts.length) list.appendChild(emptyNote(t('No contacts yet. Add someone with their contact code, or add people from a community\'s member list.')));
   const again = () => { if (st.view === 'dms' && !dmUI.current) render(); };
   for (const c of contacts) {
-    list.appendChild(h('div', { class: 'member-row', oncontextmenu: (e) => userMenu(e, { contact: c }, { after: again }) },
-      withStatus(avatarEl(c.name, c.id, 'sm'), personStatus(c.id)),
-      h('span', { class: 'spacer' }, h('span', { text: c.name }), statusTextEl(personStatus(c.id)),
-        h('span', { class: 'sr-only', text: statusSentence(personStatus(c.id)) })),
+    const s = personStatus(c.id);
+    list.appendChild(h('div', { class: 'member-row', 'data-contact': c.id, title: statusSentence(s), oncontextmenu: (e) => userMenu(e, { contact: c }, { after: again }) },
+      withStatus(avatarEl(c.name, c.id, 'sm'), s),
+      h('span', { class: 'spacer' }, h('span', { text: c.name }), h('span', { class: 'contact-status' }, ...contactStatusParts(s))),
       c.verified ? h('span', { class: 'pill ok', text: t('verified') }) : null,
       c.key_changed ? h('span', { class: 'pill warn', text: t('key changed') }) : null,
       c.blocked ? h('span', { class: 'pill', text: t('blocked') }) : null,

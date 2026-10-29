@@ -522,6 +522,8 @@ button.chan, button.reply-ref, button.pin-row, button.member {
 .user-panel .presence, .rail .presence { border-color: var(--rail); }
 .presence.inline { position: static; display: inline-block; width: 10px; height: 10px; border: 0; vertical-align: middle; }
 .presence.inline.invisible { box-shadow: inset 0 0 0 2px var(--muted); }
+/* A contact row's status on the Contacts page (dm.js contactStatusParts). */
+.contact-status { display: block; min-width: 0; }
 .status-text { display: block; font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
 .status-line { display: flex; align-items: center; gap: var(--s1); }
 .status-custom { overflow-wrap: anywhere; }
