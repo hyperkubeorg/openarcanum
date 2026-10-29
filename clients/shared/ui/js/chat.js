@@ -87,7 +87,9 @@ function renderSidebar() { return keepingFocus($('#sidebar'), renderSidebarNow);
 
 function renderSidebarNow() {
   const side = clear($('#sidebar'));
-  if (st.view === 'dms') return renderDmSidebar(side);
+  // The Add a community page keeps the sidebar it was opened from: opened
+  // from the DMs, the DM list stays (not the last community's channels).
+  if (st.view === 'dms' || (st.view === 'add' && addUI.prev && addUI.prev.view === 'dms')) return renderDmSidebar(side);
   const summary = st.communities.find((c) => c.id === st.cid);
   if (!summary) {
     side.appendChild(h('div', { class: 'side-head' }, h('span', { class: 'name', text: 'OpenArcanum' })));
@@ -1253,8 +1255,16 @@ function renderMembersNow() {
   }
 }
 
+// Someone who just joined comes online before the page has them: the
+// member list is loaded again (once for a burst of joins).
+const membersReload = {};
 on('presence', (p) => {
-  for (const m of st.members[p.community] || []) if (m.key === p.member) m.online = p.online;
+  const list = st.members[p.community];
+  const known = list && list.find((m) => m.key === p.member);
+  if (known) known.online = p.online;
+  else if (list && p.online && !membersReload[p.community]) {
+    membersReload[p.community] = setTimeout(() => { delete membersReload[p.community]; loadMembers(p.community); }, 500);
+  }
   if (p.community === st.cid) renderMembers();
 });
 

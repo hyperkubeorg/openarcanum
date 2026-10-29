@@ -6,5 +6,5 @@ description: >-
   SFU) and a community server. docs/kubernetes.md explains the values and
   the local kind cluster (`make kind-up`).
 type: application
-version: 2026.10.15
-appVersion: "2026.10.15"
+version: 2026.10.16
+appVersion: "2026.10.16"

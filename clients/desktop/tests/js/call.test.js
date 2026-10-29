@@ -140,7 +140,7 @@ function load(devices) {
   vm.runInContext(fs.readFileSync(path.join(UI, 'sframe.js'), 'utf8') + '\nglobalThis.SFrame = SFrame;', ctx);
   ctx.module = { exports: {} };
   vm.runInContext(fs.readFileSync(path.join(UI, 'call.js'), 'utf8'), ctx);
-  return { ...ctx.module.exports, timers };
+  return { ...ctx.module.exports, timers, ctx };
 }
 
 function session(extra = {}) {
@@ -638,4 +638,36 @@ test("a receiver the relay reuses for someone else (no track event) is bound to 
   const before = call.remote.get('cc').audio;
   call.rebindReceivers();
   assert.equal(call.remote.get('cc').audio, before);
+});
+
+test("a capture with sound the system refuses is tried once more without it, on the same choice", async () => {
+  const { call, devices, mod } = await started({ audio: true });
+  const asked = [];
+  // As Windows does for a single window's sound: the whole capture refused.
+  devices.getDisplayMedia = async (c) => {
+    asked.push(!!c.audio);
+    if (c.audio) throw new DOMException('Invalid state', 'InvalidStateError');
+    return new FakeStream([new FakeTrack('video')]);
+  };
+  mod.ctx.screenChoice = { last: { kind: 'window', name: 'Notes' }, again: null };
+  const notices = [];
+  call.onNotice = (text) => notices.push(text);
+  await call.setScreen(true);
+  assert.deepEqual(asked, [true, false]);
+  assert.ok(call.local.screen && !call.local['screen-audio']);
+  assert.equal(mod.ctx.screenChoice.again.name, 'Notes', 'the picker picks the same window by itself');
+  assert.match(notices[0], /without sound/);
+  await call.setScreen(false);
+
+  // Cancelled in the picker: no second try.
+  asked.length = 0;
+  devices.getDisplayMedia = async (c) => { asked.push(!!c.audio); throw new DOMException('Permission denied', 'NotAllowedError'); };
+  await assert.rejects(call.setScreen(true), /cancelled/);
+  assert.deepEqual(asked, [true]);
+
+  // Refused without sound too: the system's own words.
+  asked.length = 0;
+  devices.getDisplayMedia = async (c) => { asked.push(!!c.audio); throw new DOMException('Invalid state', 'InvalidStateError'); };
+  await assert.rejects(call.setScreen(true), /couldn't capture that screen or window\. \(Invalid state\)/);
+  assert.deepEqual(asked, [true, false]);
 });

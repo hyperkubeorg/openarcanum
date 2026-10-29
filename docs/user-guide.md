@@ -1313,7 +1313,10 @@ except in studio mode.
   through the microphone. Where a channel takes *Use voice activity* away,
   studio is push to talk too.
 - **Push to talk** sends only while you hold the **Push-to-talk key**
-  (click the box and press a key: Space, a letter, a digit or F1-F24).
+  (click the box and press a key: Space, a letter, a digit, F1-F24, Shift,
+  Ctrl, Alt, Caps Lock, Tab, an arrow or another named key; or press an
+  extra mouse button, back or forward, on the box). The left, right and
+  middle mouse buttons are never push to talk.
   The key does nothing while you're typing in a text box. Some communities
   take *Use voice activity* away in a channel; there you always use push to
   talk.
@@ -1325,7 +1328,15 @@ another app is focused:
 - **macOS:** allow OpenArcanum under System Settings → Privacy & Security →
   **Input Monitoring** (restart OpenArcanum if it doesn't take effect). Until
   then the key only works while OpenArcanum is focused.
-- **Linux on X11:** works as is.
+- **Linux on X11:** works as is for keys; the extra mouse buttons work only
+  while OpenArcanum is focused there.
+
+If the key you chose can't be watched in other windows, Settings says so
+under it; pick another key.
+
+On Windows, a key pressed while an app running as administrator is focused
+(some games and their launchers) isn't seen by other apps, OpenArcanum
+included: Windows keeps those apart.
 - **Linux on Wayland** (GNOME, KDE and most current desktops): Wayland
   doesn't let apps see keys pressed in other windows, so the key works only
   while OpenArcanum is focused. Settings says "This is a Wayland session…"
@@ -1393,8 +1404,9 @@ window.
 - **Sound:** **Share sound** (in the picker, and in the arrow's menu beside
   the screen button; on by default, kept for next time) sends the shared
   screen's sound (a video playing, say) where the system allows capturing
-  it, which is Windows; on macOS and Linux it depends on the system and
-  version. Turned off while sharing, the sound stops at once; turned on, it
+  it, which is Windows for a whole screen (a single window's sound can't be
+  captured there: OpenArcanum shares the window without it and says so); on
+  macOS and Linux it depends on the system and version. Turned off while sharing, the sound stops at once; turned on, it
   comes with your next share. Viewers can mute it or change its volume for
   themselves.
 - Like a camera, your screen is only sent while someone watches it (the

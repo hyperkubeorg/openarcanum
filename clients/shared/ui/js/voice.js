@@ -158,6 +158,7 @@ const voiceUI = {
     const call = new Call(await withDevices(session), (kind, ...args) => api('call_signal', gen, kind, args), () => this.changed());
     call.onProblem = (p) => this.onProblem(call, p);
     call.onEnded = (kind) => { if (this.call === call) this.streamEnded(kind); };
+    call.onNotice = (text) => { if (this.call === call) toast(text); };
     this.call = call;
     try {
       await call.start();
@@ -957,9 +958,28 @@ document.addEventListener('keydown', (e) => {
 // The app's own screen and window picker. The engine waits (app.py) while
 // it's open; the list grows as the engine finds windows.
 let picker = null;
+// The last choice, by kind and name, and a choice to make again by itself:
+// a capture with sound that the system refused is tried once more without
+// it (call.js setScreen), on the same screen or window.
+const screenChoice = { last: null, again: null };
 function screenPicker(d) {
   if (d.closed) { if (picker) picker.close(); picker = null; return; }
-  const pick = (kind, i) => { const p = picker; picker = null; api('screen_pick', kind, i).catch(() => {}); if (p) p.close(); };
+  const again = screenChoice.again;
+  if (again && !picker) {
+    const i = (again.kind === 'screen' ? d.screens : d.windows).indexOf(again.name);
+    if (i >= 0) { screenChoice.again = null; api('screen_pick', again.kind, i).catch(() => {}); return; }
+    // Windows show up in the list as the engine finds them: wait a moment
+    // for it before asking again.
+    if (Date.now() - again.at < 5000) { setTimeout(() => { if (screenChoice.again === again && !picker) screenPicker(d); }, 500); return; }
+    screenChoice.again = null;
+  }
+  const pick = (kind, i) => {
+    const p = picker;
+    picker = null;
+    screenChoice.last = { kind, name: (kind === 'screen' ? d.screens : d.windows)[i] };
+    api('screen_pick', kind, i).catch(() => {});
+    if (p) p.close();
+  };
   const items = [
     ...d.screens.map((name, i) => h('button', { class: 'btn', text: t('Screen: {name}', { name: name || i + 1 }), onclick: () => pick('screen', i) })),
     ...d.windows.map((name, i) => h('button', { class: 'btn', text: t('Window: {name}', { name: name || t('untitled') }), onclick: () => pick('window', i) })),
@@ -983,6 +1003,10 @@ function screenPicker(d) {
 
 function keyName(e) { return e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key; }
 
+// The extra mouse buttons (back, forward) as key names; null for the left,
+// right and middle buttons, which are never push to talk (hotkey.py).
+function mouseButtonName(e) { return e.button === 3 ? 'Mouse4' : e.button === 4 ? 'Mouse5' : null; } // i18n: not shown (setting values, hotkey.py MOUSE_BUTTONS)
+
 function isPtt(e) {
   const c = voiceUI.call;
   if (!c || c.mode() !== 'ptt') return false;
@@ -992,6 +1016,24 @@ function isPtt(e) {
 }
 document.addEventListener('keydown', (e) => { if (isPtt(e)) { e.preventDefault(); if (!voiceUI.pttDown) { voiceUI.pttDown = true; voiceUI.call.setPushToTalk(true); } } });
 document.addEventListener('keyup', (e) => { if (isPtt(e) && voiceUI.pttDown) { voiceUI.pttDown = false; voiceUI.call.setPushToTalk(false); } });
+// An extra mouse button as the key: held while the pointer is over the app
+// (hotkey.py watches it elsewhere). Its default (back, forward) is cancelled.
+function isPttButton(e) {
+  const c = voiceUI.call;
+  const name = mouseButtonName(e);
+  return !!(c && name && c.mode() === 'ptt' && name === (c.s.pttKey || 'Space'));
+}
+document.addEventListener('pointerdown', (e) => {
+  if (!isPttButton(e)) return;
+  e.preventDefault();
+  if (!voiceUI.pttDown) { voiceUI.pttDown = true; voiceUI.call.setPushToTalk(true); }
+});
+document.addEventListener('pointerup', (e) => {
+  if (!isPttButton(e)) return;
+  e.preventDefault();
+  if (voiceUI.pttDown) { voiceUI.pttDown = false; voiceUI.call.setPushToTalk(false); }
+});
+for (const ev of ['mouseup', 'auxclick']) document.addEventListener(ev, (e) => { if (isPttButton(e)) e.preventDefault(); });
 window.addEventListener('blur', () => { if (voiceUI.pttDown && voiceUI.call) { voiceUI.pttDown = false; voiceUI.call.setPushToTalk(false); } });
 
 // ---------------------------------------------------------------- settings
@@ -1046,9 +1088,24 @@ async function renderVoiceSettings(sec) {
   input.push(vaultSetting('voice_mode', t('Input mode'),
     t('Voice activity sends when you speak louder than the sensitivity below. Studio sends any sound at all, with no threshold and none of the processing below: for microphones and interfaces with their own gate and processing (silence, or a muted microphone, sends nothing). Push to talk sends while you hold the key.'),
     selectEl([['vad', t('Voice activity')], ['studio', t('Studio')], ['ptt', t('Push to talk')]], v.voice_mode)));
+  // A key, or an extra mouse button (back, forward) pressed on the box; the
+  // left, right and middle buttons just click it.
+  const pick = (name) => { keyBox.value = name; keyBox.dispatchEvent(new Event('change')); };
   const keyBox = h('input', { type: 'text', class: 'key-box', value: v.ptt_key, readOnly: true, 'aria-label': t('Push-to-talk key'),
-    onkeydown: (e) => { e.preventDefault(); keyBox.value = keyName(e); keyBox.dispatchEvent(new Event('change')); } });
-  input.push(vaultSetting('ptt_key', t('Push-to-talk key'), t('Click the box and press a key.'), keyBox));
+    onkeydown: (e) => { e.preventDefault(); pick(keyName(e)); },
+    onmousedown: (e) => { const name = mouseButtonName(e); if (name) { e.preventDefault(); pick(name); } },
+    onauxclick: (e) => { if (mouseButtonName(e)) e.preventDefault(); } });
+  // When the system can't watch this key in other windows, it says so.
+  const keyNote = h('div', { class: 'notice ptt-key-unavailable', role: 'note' });
+  const showKeyNote = (why) => { keyNote.textContent = why || ''; keyNote.hidden = !why; };
+  showKeyNote(settingsUI.data.ptt_key_unavailable);
+  input.push(settingRow(t('Push-to-talk key'), t('Click the box and press a key, or an extra mouse button (back or forward).'), keyBox, async () => {
+    const r = await api('set_setting', 'ptt_key', keyBox.value);
+    settingsUI.data.vault.ptt_key = r.value;
+    keyBox.value = r.value;
+    settingsUI.data.ptt_key_unavailable = (await api('get_settings')).ptt_key_unavailable;
+    showKeyNote(settingsUI.data.ptt_key_unavailable);
+  }), keyNote);
   const pttGlobal = toggle(v.ptt_global);
   input.push(vaultSetting('ptt_global', t('Push to talk in other windows'),
     t('Hold the key while another app is focused. Works on Windows, X11 and macOS (after allowing OpenArcanum under Privacy & Security → Input Monitoring); Wayland only allows it while OpenArcanum is focused.'),

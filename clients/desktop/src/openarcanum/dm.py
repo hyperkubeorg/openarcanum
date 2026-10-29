@@ -3262,6 +3262,92 @@ class DMManager:
             except UserError as e:
                 log.info("dm: couldn't re-apply acceptance: %s", e)
 
+    def _describe_change(self, gid: str, signed: dm.SignedGroupState, st: dm.GroupState) -> tuple[str, str]:
+        """What a state change did, as the history line says it after the
+        person's name ("You renamed the conversation to “Plans”"): compared
+        with the state it follows, when this device still has that one. With
+        the signer's name (someone who just left is named by the states)."""
+        prev = None
+        with contextlib.suppress(Exception):
+            for old in self._group(gid).chain:
+                if groups.state_hash(old) == st.prev:
+                    prev = groups.open_state(old)
+                    break
+        signer = signed.signer
+        if prev is None:
+            return _("updated the conversation"), self._name_of(gid, signer)
+        mine = b64(signer) in self.d["ids"]
+
+        # Someone removed or gone is no longer looked up by the group: the
+        # name the states carry for them.
+        carried = {m.identity: m.name for m in [*prev.members, *prev.invited, *st.members, *st.invited] if m.name}
+
+        def named(ident: bytes) -> str:
+            n = self._name_of(gid, ident)
+            return carried.get(ident, n) if n in ("Someone", _("Someone")) else n
+
+        def names(idents) -> str:
+            return ", ".join(named(i) for i in idents)
+
+        said = []
+        if st.name != prev.name:
+            said.append(
+                _("renamed the conversation to “{name}”").format(name=st.name)
+                if st.name
+                else _("removed the conversation's name")
+            )
+        if st.icon.SerializeToString() != prev.icon.SerializeToString():
+            said.append(_("changed the conversation's icon") if st.icon.hash else _("removed the conversation's icon"))
+        if st.allow_attachments != prev.allow_attachments:
+            said.append(_("turned attachments on") if st.allow_attachments else _("turned attachments off"))
+        if st.members_can_add != prev.members_can_add:
+            said.append(_("let members add people") if st.members_can_add else _("stopped members from adding people"))
+        if st.owner != prev.owner:
+            said.append(_("made {name} the owner").format(name=names([st.owner])))
+        before = {m.identity: m for m in prev.members}
+        after = {m.identity: m for m in st.members}
+        was_invited = {m.identity for m in prev.invited}
+        invited = {m.identity for m in st.invited}
+        joined = [i for i in after if i not in before]
+        if joined == [signer]:
+            # Joining sends the person's display name to everyone in it.
+            shown = after[signer].name
+            if not shown:
+                said.append(_("accepted the conversation") if st.direct else _("joined"))
+            elif st.direct and mine:
+                said.append(_("accepted the conversation and sent your display name “{name}”").format(name=shown))
+            elif st.direct:
+                said.append(_("accepted the conversation as “{name}”").format(name=shown))
+            elif mine:
+                said.append(_("joined and sent your display name “{name}”").format(name=shown))
+            else:
+                said.append(_("joined as “{name}”").format(name=shown))
+        elif joined:
+            said.append(_("added {names}").format(names=names(joined)))
+        gone = [i for i in before if i not in after]
+        if gone == [signer]:
+            said.append(_("left"))
+        elif gone:
+            said.append(_("removed {names}").format(names=names(gone)))
+        new_invites = [i for i in invited if i not in was_invited]
+        if new_invites:
+            said.append(_("invited {names}").format(names=names(new_invites)))
+        dropped = [i for i in was_invited if i not in invited and i not in after]
+        if dropped == [signer]:
+            said.append(_("declined the invitation"))
+        elif dropped:
+            said.append(_("cancelled the invitation of {names}").format(names=names(dropped)))
+        if signer in before and signer in after and after[signer].name != before[signer].name:
+            name = after[signer].name
+            said.append(
+                _("sent your display name “{name}” to the conversation").format(name=name)
+                if mine
+                else _("changed their display name to “{name}”").format(name=name)
+            )
+        if (st.relay, st.topic) != (prev.relay, prev.topic) and not said:
+            said.append(_("moved the conversation to another relay"))
+        return (_(", and ").join(said) if said else _("updated the conversation")), named(signer)
+
     def _system_entry(self, gid: str, signed: dm.SignedGroupState) -> None:
         """A line in the history for membership and settings changes."""
         if self.store is None:
@@ -3271,14 +3357,21 @@ class DMManager:
         eid = groups.state_hash(signed).hex()[:32]
         if any(m["id"] == eid for m in hist) or st.seq == 1:
             return
+        text, name = self._describe_change(gid, signed, st)
+        # The same person's same change again (two people accepting at once:
+        # the group settles it by applying one acceptance again) says
+        # nothing new.
+        last = next((m for m in reversed(hist) if m.get("system") and m.get("sender") == b64(signed.signer)), None)
+        if last is not None and last["text"] == text:
+            return
         hist.append(
             {
                 "id": eid,
                 "at": st.at,
                 "system": True,
                 "sender": b64(signed.signer),
-                "name": self._name_of(gid, signed.signer),
-                "text": _("updated the conversation"),
+                "name": name,
+                "text": text,
                 "mine": b64(signed.signer) in self.d["ids"],
                 "reactions": {},
             }

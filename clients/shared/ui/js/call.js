@@ -188,6 +188,13 @@ function frameMetadata(kind, clear) {
 // the key on every (re)join, and this refuses to send if it ever didn't.
 // The same key id under a new key is fine (and common: alone in a channel,
 // leave and join again, and the new call starts again at epoch 1).
+// A refused screen capture, for the local log (app.py report_page_error):
+// the error's type and what was being captured, never its text.
+function logCaptureError(e, what) {
+  console.warn(`${what}: ${(e && e.name) || 'Error'}`);
+  if (typeof api === 'function') api('report_page_error', (e && e.name) || 'Error', what).catch(() => {});
+}
+
 const usedSendKids = new Set();
 const USED_SEND_KIDS_KEPT = 512; // every key change adds one; the newest cover any reuse
 
@@ -871,14 +878,31 @@ class Call {
     }
     if (on) {
       let s;
-      const audio = this.s.screenAudio !== false;
+      let audio = this.s.screenAudio !== false;
+      const capture = (withSound) => navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: this.screenQuality().fps, max: 30 } },
+        audio: withSound ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
+        systemAudio: withSound ? 'include' : 'exclude',
+      });
       try {
-        s = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: this.screenQuality().fps, max: 30 } },
-          audio: audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
-          systemAudio: audio ? 'include' : 'exclude',
-        });
+        try {
+          s = await capture(audio);
+        } catch (e) {
+          // Some systems can't capture a window's sound (Windows captures the
+          // sound of a whole screen only) and refuse the capture altogether:
+          // once more without sound, on the same choice (voice.js
+          // screenChoice), rather than nothing.
+          const chosen = typeof screenChoice !== 'undefined' ? screenChoice.last : null;
+          if (!audio || (e && e.name === 'NotAllowedError') || !chosen) throw e;
+          logCaptureError(e, `screen-share ${chosen.kind} with sound, trying without`); // i18n: not shown (local log)
+          screenChoice.again = { ...chosen, at: Date.now() };
+          audio = false;
+          s = await capture(false);
+          if (this.onNotice) this.onNotice(chosen.kind === 'window' ? t('Sharing without sound: the system can\'t capture the sound of a single window.') : t('Sharing without sound: the system couldn\'t capture the screen\'s sound.'));
+        }
       } catch (e) {
+        const last = typeof screenChoice !== 'undefined' && screenChoice.last ? screenChoice.last.kind : 'unknown';
+        logCaptureError(e, `screen-share ${last}${audio ? ' with sound' : ''} failed`); // i18n: not shown (local log)
         throw new Error(e && e.name === 'NotAllowedError' ? t('Screen sharing was cancelled.')
           : e && e.message ? t("The system couldn't capture that screen or window. ({error})", { error: e.message })
             : t("The system couldn't capture that screen or window."));

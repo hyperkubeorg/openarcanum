@@ -288,6 +288,10 @@ def _status_communities(x: Any) -> dict[str, str]:
 def _ptt_key(x: Any) -> str:
     if not isinstance(x, str) or not re.fullmatch(r"[A-Za-z0-9 ]{1,16}|F[0-9]{1,2}", x):
         raise SettingError(_("must be a single key name such as Space, V or F8"))
+    # The left, right and middle buttons are how the app is used: only the
+    # extra mouse buttons (Mouse4, Mouse5) can be push to talk.
+    if re.fullmatch(r"Mouse[0-3]", x):
+        raise SettingError(_("must be a key or an extra mouse button, not the left, right or middle button"))
     return x
 
 

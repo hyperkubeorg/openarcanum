@@ -2824,6 +2824,8 @@ class Core:
             # Why "Push to talk in other windows" can't work here (Wayland,
             # no X11 display), or None.
             "ptt_global_unavailable": hotkey.unavailable_reason(),
+            # Why the chosen key in particular only works while focused.
+            "ptt_key_unavailable": hotkey.key_reason(v.settings.get("ptt_key", "Space")),
         }
 
     def storage_locations(self) -> list[dict]:

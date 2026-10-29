@@ -824,6 +824,45 @@ def test_global_push_to_talk_availability_in_settings(tmp_path, tone, session):
     run(main(), 120)
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the X11 note for mouse buttons")
+def test_push_to_talk_key_takes_extra_mouse_buttons_and_named_keys(tmp_path, tone):
+    """The key box takes an extra mouse button (back) and named keys (Ctrl);
+    a left click just focuses it. Under X11 the mouse button gets its note
+    (watched only while focused there); Ctrl, watched everywhere, gets none."""
+    env = media_env(tone) | {"XDG_SESSION_TYPE": "x11", "WAYLAND_DISPLAY": ""}
+
+    async def main():
+        app = await App(tmp_path / "solo", env=env, name="solo").start()
+        try:
+            await create_profile(app)
+            await open_settings(app)
+            await app.click(".settings nav .item", "Voice & video")
+            await app.wait_js("document.querySelector('.settings .key-box')", "the key box")
+            await app.click(".settings .key-box")
+            assert await app.js("document.querySelector('.settings .key-box').value") == "Space"
+            rect = await app.js(
+                "(() => { const r = document.querySelector('.settings .key-box').getBoundingClientRect();"
+                " return [r.x + r.width / 2, r.y + r.height / 2]; })()"
+            )
+            for kind in ("mousePressed", "mouseReleased"):
+                await app.send(
+                    "Input.dispatchMouseEvent", type=kind, x=rect[0], y=rect[1], button="back", buttons=8, clickCount=1
+                )
+            await app.wait_js("document.querySelector('.settings .key-box').value === 'Mouse4'", "Mouse4 chosen")
+            await app.wait_text(".settings .ptt-key-unavailable", "extra mouse buttons")
+            assert (await app.call("() => api('get_settings')"))["vault"]["ptt_key"] == "Mouse4"
+            await app.click(".settings .key-box")
+            await app.key("Control")
+            await app.wait_js("document.querySelector('.settings .key-box').value === 'Control'", "Control chosen")
+            await app.wait_js("document.querySelector('.settings .ptt-key-unavailable').hidden", "no note for Ctrl")
+            await app.click(".settings .close")
+            app.assert_no_errors()
+        finally:
+            await app.stop()
+
+    run(main(), 120)
+
+
 def test_call_moves_when_its_relay_dies(tmp_path, tone):
     """The relay carrying a call dies: the server moves the call to another
     relay that carries calls, both clients reconnect there on their own, and

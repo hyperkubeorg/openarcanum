@@ -49,6 +49,11 @@
     "ui/js/lock.js"
    ]
   },
+  ", and ": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   ", you reacted": {
    "used_in": [
     "ui/js/chat.js"
@@ -1576,7 +1581,7 @@
     "ui/js/settings.js"
    ]
   },
-  "Click the box and press a key.": {
+  "Click the box and press a key, or an extra mouse button (back or forward).": {
    "used_in": [
     "ui/js/voice.js"
    ]
@@ -7036,6 +7041,16 @@
     "ui/js/voice.js"
    ]
   },
+  "Sharing without sound: the system can't capture the sound of a single window.": {
+   "used_in": [
+    "ui/js/call.js"
+   ]
+  },
+  "Sharing without sound: the system couldn't capture the screen's sound.": {
+   "used_in": [
+    "ui/js/call.js"
+   ]
+  },
   "Sharp text (5 frames a second)": {
    "used_in": [
     "ui/js/voice.js"
@@ -7988,6 +8003,11 @@
   "The downloaded update changed after it was checked, so it wasn't installed.": {
    "used_in": [
     "updates.py"
+   ]
+  },
+  "The extra mouse buttons work only while OpenArcanum is focused here.": {
+   "used_in": [
+    "hotkey.py"
    ]
   },
   "The file arrived incomplete; try again.": {
@@ -10290,6 +10310,27 @@
     "admin_ops.py"
    ]
   },
+  "accepted the conversation": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "accepted the conversation and sent your display name “{name}”": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "accepted the conversation as “{name}”": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "active": {
    "used_in": [
     "ui/js/admin.js"
@@ -10298,6 +10339,14 @@
   "add at least one": {
    "used_in": [
     "settings.py"
+   ]
+  },
+  "added {names}": {
+   "vars": [
+    "names"
+   ],
+   "used_in": [
+    "dm.py"
    ]
   },
   "alert": {
@@ -10344,6 +10393,27 @@
    ],
    "used_in": [
     "meta.py"
+   ]
+  },
+  "cancelled the invitation of {names}": {
+   "vars": [
+    "names"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "changed the conversation's icon": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "changed their display name to “{name}”": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
    ]
   },
   "channel settings are inherit or off": {
@@ -10414,6 +10484,11 @@
   "damaged owner key request": {
    "used_in": [
     "owners.py"
+   ]
+  },
+  "declined the invitation": {
+   "used_in": [
+    "dm.py"
    ]
   },
   "default": {
@@ -10586,6 +10661,14 @@
     "ui/js/dm.js"
    ]
   },
+  "invited {names}": {
+   "vars": [
+    "names"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "is a file, not a folder": {
    "used_in": [
     "settings.py"
@@ -10594,6 +10677,27 @@
   "is calling you": {
    "used_in": [
     "dmcalls.py"
+   ]
+  },
+  "joined": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "joined and sent your display name “{name}”": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "joined as “{name}”": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
    ]
   },
   "joined the community": {
@@ -10616,14 +10720,32 @@
     "ui/js/dm.js"
    ]
   },
+  "left": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "left the community": {
    "used_in": [
     "ui/js/chat.js"
    ]
   },
+  "let members add people": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "listening only": {
    "used_in": [
     "ui/js/voice.js"
+   ]
+  },
+  "made {name} the owner": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
    ]
   },
   "main": {
@@ -10664,6 +10786,11 @@
     "ui/js/chat.js"
    ]
   },
+  "moved the conversation to another relay": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "must be 1 to 64 characters": {
    "used_in": [
     "settings.py"
@@ -10675,6 +10802,11 @@
    ]
   },
   "must be a folder path": {
+   "used_in": [
+    "settings.py"
+   ]
+  },
+  "must be a key or an extra mouse button, not the left, right or middle button": {
    "used_in": [
     "settings.py"
    ]
@@ -10998,6 +11130,32 @@
     "ui/js/dm.js"
    ]
   },
+  "removed the conversation's icon": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "removed the conversation's name": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "removed {names}": {
+   "vars": [
+    "names"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "renamed the conversation to “{name}”": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "request": {
    "used_in": [
     "ui/js/dm.js"
@@ -11042,6 +11200,14 @@
     "ui/js/chat.js"
    ]
   },
+  "sent your display name “{name}” to the conversation": {
+   "vars": [
+    "name"
+   ],
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "server": {
    "used_in": [
     "ui/js/moderation.js",
@@ -11079,6 +11245,11 @@
   "someone is both a member and invited": {
    "used_in": [
     "groups.py"
+   ]
+  },
+  "stopped members from adding people": {
+   "used_in": [
+    "dm.py"
    ]
   },
   "studio mode": {
@@ -11345,6 +11516,16 @@
     "ui/js/settings.js"
    ]
   },
+  "turned attachments off": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
+  "turned attachments on": {
+   "used_in": [
+    "dm.py"
+   ]
+  },
   "unknown action {action}": {
    "vars": [
     "action"
@@ -11602,6 +11783,14 @@
    ],
    "used_in": [
     "ui/js/chat.js"
+   ]
+  },
+  "{key} can't be watched in other windows, so it works only while OpenArcanum is focused. Pick another key.": {
+   "vars": [
+    "key"
+   ],
+   "used_in": [
+    "hotkey.py"
    ]
   },
   "{key} is not a preference": {

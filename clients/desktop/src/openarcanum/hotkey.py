@@ -35,7 +35,36 @@ log = logging.getLogger(__name__)
 
 POLL_SECONDS = 0.02
 
-# Key names as Settings stores them (settings._ptt_key): Space, A-Z, 0-9, F1-F24.
+# Key names as Settings stores them (settings._ptt_key, the page's
+# KeyboardEvent.key): Space, A-Z, 0-9, F1-F24, the named keys below, and the
+# two extra mouse buttons (Mouse4 back, Mouse5 forward). The left, right and
+# middle buttons are never push to talk: they are how the app is used.
+#
+# Named keys: (Windows virtual-key, X11 keysyms, macOS key codes). Shift,
+# Control and Alt count either side of the keyboard.
+NAMED_KEYS: dict[str, tuple[int, tuple[str, ...], tuple[int, ...]]] = {
+    "Shift": (0x10, ("Shift_L", "Shift_R"), (0x38, 0x3C)),
+    "Control": (0x11, ("Control_L", "Control_R"), (0x3B, 0x3E)),
+    "Alt": (0x12, ("Alt_L", "Alt_R"), (0x3A, 0x3D)),
+    "CapsLock": (0x14, ("Caps_Lock",), (0x39,)),
+    "Tab": (0x09, ("Tab",), (0x30,)),
+    "Insert": (0x2D, ("Insert",), (0x72,)),
+    "Delete": (0x2E, ("Delete",), (0x75,)),
+    "Home": (0x24, ("Home",), (0x73,)),
+    "End": (0x23, ("End",), (0x77,)),
+    "PageUp": (0x21, ("Prior",), (0x74,)),
+    "PageDown": (0x22, ("Next",), (0x79,)),
+    "ArrowUp": (0x26, ("Up",), (0x7E,)),
+    "ArrowDown": (0x28, ("Down",), (0x7D,)),
+    "ArrowLeft": (0x25, ("Left",), (0x7B,)),
+    "ArrowRight": (0x27, ("Right",), (0x7C,)),
+    "Pause": (0x13, ("Pause",), ()),
+    "ScrollLock": (0x91, ("Scroll_Lock",), ()),
+}
+# The extra mouse buttons: Windows VK_XBUTTON1/2; macOS button numbers.
+# X11's pointer state has no bits for them (only XInput2 would): there they
+# work while OpenArcanum is focused.
+MOUSE_BUTTONS = {"Mouse4": (0x05, 3), "Mouse5": (0x06, 4)}
 _MAC_LETTERS = {
     "A": 0x00, "S": 0x01, "D": 0x02, "F": 0x03, "H": 0x04, "G": 0x05, "Z": 0x06, "X": 0x07, "C": 0x08,
     "V": 0x09, "B": 0x0B, "Q": 0x0C, "W": 0x0D, "E": 0x0E, "R": 0x0F, "Y": 0x10, "T": 0x11, "O": 0x1F,
@@ -100,18 +129,30 @@ class _X11:
         self.d = self.x.XOpenDisplay(None)
         if not self.d:
             raise OSError("can't open the X display")
-        self.code = 0
+        self.codes: list[int] = []
 
     def set_key(self, name: str) -> bool:
-        sym = "space" if name == "Space" else name.lower() if len(name) == 1 else name
-        ks = self.x.XStringToKeysym(sym.encode())
-        self.code = self.x.XKeysymToKeycode(self.d, ks) if ks else 0
-        return self.code != 0
+        if name in NAMED_KEYS:
+            syms = NAMED_KEYS[name][1]
+        elif name == "Space":
+            syms = ("space",)
+        elif name in MOUSE_BUTTONS:
+            syms = ()
+        else:
+            syms = (name.lower() if len(name) == 1 else name,)
+        codes = []
+        for sym in syms:
+            ks = self.x.XStringToKeysym(sym.encode())
+            code = self.x.XKeysymToKeycode(self.d, ks) if ks else 0
+            if code:
+                codes.append(code)
+        self.codes = codes
+        return bool(codes)
 
     def down(self) -> bool:
         buf = ctypes.create_string_buffer(32)
         self.x.XQueryKeymap(self.d, buf)
-        return bool(buf.raw[self.code // 8] & (1 << (self.code % 8)))
+        return any(buf.raw[c // 8] & (1 << (c % 8)) for c in self.codes)
 
     def close(self) -> None:
         self.x.XCloseDisplay(self.d)
@@ -123,7 +164,11 @@ class _Windows:
         self.vk = 0
 
     def set_key(self, name: str) -> bool:
-        if name == "Space":
+        if name in NAMED_KEYS:
+            self.vk = NAMED_KEYS[name][0]
+        elif name in MOUSE_BUTTONS:
+            self.vk = MOUSE_BUTTONS[name][0]
+        elif name == "Space":
             self.vk = 0x20
         elif len(name) == 1 and name.isalnum():
             self.vk = ord(name.upper())
@@ -142,11 +187,23 @@ class _Mac:
         self.q = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
         self.q.CGEventSourceKeyState.restype = ctypes.c_bool
         self.q.CGEventSourceKeyState.argtypes = [ctypes.c_int32, ctypes.c_uint16]
+        self.q.CGEventSourceButtonState.restype = ctypes.c_bool
+        self.q.CGEventSourceButtonState.argtypes = [ctypes.c_int32, ctypes.c_uint32]
         self.code = -1
+        self.codes: tuple[int, ...] = ()
+        self.button = -1
 
     def set_key(self, name: str) -> bool:
         f = _f_number(name)
-        if name == "Space":
+        self.codes, self.button = (), -1
+        if name in NAMED_KEYS:
+            self.codes = NAMED_KEYS[name][2]
+            self.code = self.codes[0] if self.codes else -1
+        elif name in MOUSE_BUTTONS:
+            self.button = MOUSE_BUTTONS[name][1]
+            self.code = -1
+            return True
+        elif name == "Space":
             self.code = 0x31
         elif name.upper() in _MAC_LETTERS:
             self.code = _MAC_LETTERS[name.upper()]
@@ -160,13 +217,19 @@ class _Mac:
 
     def down(self) -> bool:
         # kCGEventSourceStateHIDSystemState = 1
-        return bool(self.q.CGEventSourceKeyState(1, self.code))
+        if self.button >= 0:
+            return bool(self.q.CGEventSourceButtonState(1, self.button))
+        return any(self.q.CGEventSourceKeyState(1, c) for c in (self.codes or (self.code,)))
 
 
 WAYLAND_REASON = N_(
     "This is a Wayland session. Wayland doesn't let apps see keys pressed in other windows, "
     "so push to talk works only while OpenArcanum is focused."
 )
+KEY_REASON = N_(
+    "{key} can't be watched in other windows, so it works only while OpenArcanum is focused. Pick another key."
+)
+MOUSE_X11_REASON = N_("The extra mouse buttons work only while OpenArcanum is focused here.")
 NO_X11_REASON = N_("There's no X11 display here, so push to talk works only while OpenArcanum is focused.")
 
 
@@ -186,6 +249,23 @@ def unavailable_reason() -> str | None:
     if not os.environ.get("DISPLAY") or not ctypes.util.find_library("X11"):
         return _(NO_X11_REASON)
     return None
+
+
+def key_reason(name: str) -> str | None:
+    """Why this key in particular can't be watched in other windows here
+    (shown under the key in Settings), or None."""
+    if unavailable_reason():
+        return None  # the whole feature is unavailable; that reason is shown
+    if name in MOUSE_BUTTONS and sys.platform not in ("win32", "darwin"):
+        return _(MOUSE_X11_REASON)
+    b = backend()
+    try:
+        ok = b is not None and b.set_key(name)
+    except OSError, AttributeError:
+        ok = False
+    finally:
+        _close(b)
+    return None if ok else _(KEY_REASON).format(key=name)
 
 
 def backend():

@@ -45,7 +45,18 @@ print("SEEN", seen)
     reason="X11 (Windows: test_push_to_talk_on_windows; macOS needs Input Monitoring: docs/user-guide.md)",
 )
 @pytest.mark.gui
-@pytest.mark.parametrize(("key", "keysym"), [("V", "v"), ("Space", "space"), ("F8", "F8")])
+@pytest.mark.parametrize(
+    ("key", "keysym"),
+    # Named keys too, either side for the modifiers (the right Shift for "Shift").
+    [
+        ("V", "v"),
+        ("Space", "space"),
+        ("F8", "F8"),
+        ("Control", "Control_L"),
+        ("Shift", "Shift_R"),
+        ("CapsLock", "Caps_Lock"),
+    ],
+)
 def test_push_to_talk_key_seen_in_other_windows(key, keysym):
     if not ctypes.util.find_library("Xtst"):
         missing_harness("needs libXtst")
@@ -127,25 +138,105 @@ def test_key_names_map_on_every_system():
         assert w.set_key(name) and w.vk == vk, name
         assert m.set_key(name) and m.code == mac, name
     assert not w.set_key("F25") and not m.set_key("F25")
+    # Named keys (Windows' Control is either side; macOS lists both sides).
+    for name, vk, mac in [
+        ("Control", 0x11, (0x3B, 0x3E)),
+        ("Shift", 0x10, (0x38, 0x3C)),
+        ("CapsLock", 0x14, (0x39,)),
+        ("ArrowUp", 0x26, (0x7E,)),
+    ]:
+        assert w.set_key(name) and w.vk == vk, name
+        assert m.set_key(name) and m.codes == mac, name
+    # The extra mouse buttons: Windows XBUTTON1/2, macOS buttons 3 and 4.
+    for name, vk, button in [("Mouse4", 0x05, 3), ("Mouse5", 0x06, 4)]:
+        assert w.set_key(name) and w.vk == vk, name
+        assert m.set_key(name) and m.button == button, name
+    # Never the left, right or middle button (VK_LBUTTON, RBUTTON, MBUTTON).
+    for name in ("Mouse1", "Mouse2", "Mouse3"):
+        assert not w.set_key(name) and w.vk not in (0x01, 0x02, 0x04), name
+    # Pause has no macOS key code: refused there, not watched as key 0 (A).
+    assert not m.set_key("Pause")
+
+
+def test_key_reason_names_keys_that_only_work_focused(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.setattr(hotkey.ctypes.util, "find_library", lambda n: "libX11.so.6")
+
+    class Fake:
+        def set_key(self, name):
+            return name in ("V", "Control")
+
+    monkeypatch.setattr(hotkey, "backend", lambda: Fake())
+    assert hotkey.key_reason("V") is None and hotkey.key_reason("Control") is None
+    assert "Banana" in hotkey.key_reason("Banana")
+    # X11 has no state for the extra mouse buttons: focused only, and says so.
+    assert "mouse" in hotkey.key_reason("Mouse4")
+    # Where the whole feature is unavailable, that reason is shown instead.
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert hotkey.key_reason("Banana") is None
+
+
+def test_settings_refuse_the_main_mouse_buttons():
+    from openarcanum.settings import SettingError, validate
+
+    for ok in ("Mouse4", "Mouse5", "Control", "Space", "F8"):
+        assert validate("ptt_key", ok) == ok
+    for bad in ("Mouse1", "Mouse2", "Mouse3", "Mouse0"):
+        with pytest.raises(SettingError):
+            validate("ptt_key", bad)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows key state")
-def test_push_to_talk_on_windows():
+@pytest.mark.parametrize(("key", "vk"), [("F8", 0x77), ("Control", 0x11), ("CapsLock", 0x14)])
+def test_push_to_talk_on_windows(key, vk):
     """GetAsyncKeyState sees a key pressed while no window of ours has the
     focus (keybd_event injects it as a keyboard would)."""
     import time
 
     seen: list[bool] = []
     ptt = hotkey.PushToTalk(seen.append)
-    assert ptt.start("F8")
+    assert ptt.start(key)
     user32 = ctypes.windll.user32
-    vk_f8, vk_q, keyup = 0x77, 0x51, 0x0002
+    vk_q, keyup = 0x51, 0x0002
     try:
-        for vk in (vk_q, vk_f8):  # another key first: nothing
-            user32.keybd_event(vk, 0, 0, 0)
+        for v in (vk_q, vk):  # another key first: nothing
+            user32.keybd_event(v, 0, 0, 0)
             time.sleep(0.15)
+            user32.keybd_event(v, 0, keyup, 0)
+            time.sleep(0.15)
+        if key == "CapsLock":  # pressed once more: Caps Lock back off
+            user32.keybd_event(vk, 0, 0, 0)
             user32.keybd_event(vk, 0, keyup, 0)
             time.sleep(0.15)
+    finally:
+        ptt.stop()
+    assert seen[:2] == [True, False]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows key state")
+@pytest.mark.parametrize(("key", "xbutton"), [("Mouse4", 1), ("Mouse5", 2)])
+def test_extra_mouse_button_push_to_talk_on_windows(key, xbutton):
+    """An extra mouse button (mouse_event injects it as a mouse would) is
+    seen with no window of ours focused; a left click is not."""
+    import time
+
+    seen: list[bool] = []
+    ptt = hotkey.PushToTalk(seen.append)
+    assert ptt.start(key)
+    user32 = ctypes.windll.user32
+    leftdown, leftup, xdown, xup = 0x0002, 0x0004, 0x0080, 0x0100
+    try:
+        user32.mouse_event(leftdown, 0, 0, 0, 0)  # a left click: nothing
+        time.sleep(0.15)
+        user32.mouse_event(leftup, 0, 0, 0, 0)
+        time.sleep(0.15)
+        user32.mouse_event(xdown, 0, 0, xbutton, 0)
+        time.sleep(0.15)
+        user32.mouse_event(xup, 0, 0, xbutton, 0)
+        time.sleep(0.15)
     finally:
         ptt.stop()
     assert seen == [True, False]

@@ -53,6 +53,11 @@ async def texts(core, gid):
     return [m["text"] for m in core.dms.history(gid) if not m.get("system")]
 
 
+def system_lines(core, gid):
+    """The history's change lines as the UI shows them: "who what"."""
+    return [("You" if m["mine"] else m["name"]) + " " + m["text"] for m in core.dms.history(gid) if m.get("system")]
+
+
 async def until_text(core, gid, text, *others):
     async def check():
         await poll(core, *others)
@@ -92,6 +97,9 @@ def test_direct_dm_request_and_message_features(tmp_path):
             await owner.dms.accept(gid)
             await poll(alice)
             assert alice.dms.info(gid)["status"] == "active"
+            # The line says what accepting did: Olive's name went to Alice.
+            assert "You accepted the conversation and sent your display name “Olive”" in system_lines(owner, gid)
+            assert "Olive accepted the conversation as “Olive”" in system_lines(alice, gid)
             secret = "the falcon flies at midnight"
             await alice.dms.send(gid, secret)
             await until_text(owner, gid, secret, alice)
@@ -215,6 +223,12 @@ def test_group_dm_lifecycle(tmp_path):
                 return alice.dms.info(gid)["name"] == "Weekend plans" and alice.dms.info(gid)["can_add"]
 
             await wait_until(renamed, 20, 0.25)
+            # The history says what changed, not just that something did.
+            lines = system_lines(alice, gid)
+            assert "Olive renamed the conversation to “Weekend plans”" in lines, lines
+            assert "Olive let members add people" in lines, lines
+            assert "You updated the conversation" not in lines and "Olive updated the conversation" not in lines, lines
+            assert "You renamed the conversation to “Weekend plans”" in system_lines(owner, gid)
 
             # A new member doesn't see anything from before they joined. (Carol's
             # policy is contacts only, so she adds Alice first.)
@@ -226,6 +240,9 @@ def test_group_dm_lifecycle(tmp_path):
             await alice.dms.send(gid, "welcome carol")
             await until_text(carol, gid, "welcome carol", owner, alice, bob)
             assert "hello group" not in await texts(carol, gid)
+            lines = system_lines(owner, gid)
+            assert "Alice invited Carol" in lines and "Carol joined as “Carol”" in lines, " | ".join(lines)
+            assert "You joined and sent your display name “Carol”" in system_lines(carol, gid)
             assert "hi from bob" not in await texts(carol, gid)
 
             # Removing Bob: he learns it, and can't read anything new.
@@ -238,6 +255,7 @@ def test_group_dm_lifecycle(tmp_path):
 
             await wait_until(bob_removed, 20, 0.25)
             await poll(alice, carol)
+            assert "Olive removed Bob" in system_lines(alice, gid), " | ".join(system_lines(alice, gid))
             await owner.dms.send(gid, "bob is gone")
             await until_text(carol, gid, "bob is gone", owner, alice)
             await poll(bob)
@@ -260,6 +278,8 @@ def test_group_dm_lifecycle(tmp_path):
                 )["owner"]
 
             await wait_until(left, 20, 0.25)
+            lines = system_lines(alice, gid)
+            assert "Olive made Alice the owner" in lines and "Olive left" in lines, " | ".join(lines)
             for c in (owner, alice, bob, carol):
                 await c.shutdown()
 
