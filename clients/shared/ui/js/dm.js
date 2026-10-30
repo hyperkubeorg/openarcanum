@@ -8,6 +8,7 @@ const dmUI = {
   // The newest list and conversation loads (refresh, load).
   listSeq: 0,
   loadSeq: 0,
+  latestLoad: null,
   // A DM call's panel: its height (ui_state "dm_call_height", the divider
   // under it) and whether the call has the whole conversation (Hide chat).
   callHeight: null,
@@ -45,17 +46,30 @@ const dmUI = {
   // while its answers were on the way (then those are for that one), or a
   // newer load started meanwhile: an older answer arriving last would put
   // back a history without the message that started the newer one.
-  async load(id) {
+  // A load overtaken by a newer one waits for that one: whoever awaited it
+  // (a rename, then the details shown again) still gets fresh data.
+  load(id) {
     const seq = ++this.loadSeq;
-    const stale = () => this.current !== id || seq !== this.loadSeq;
+    const p = this.loadOnce(id, seq);
+    this.latestLoad = p;
+    return p;
+  },
+
+  async loadOnce(id, seq) {
+    const newer = () => seq !== this.loadSeq;
+    const done = () => this.current !== id || newer();
     try {
       const info = await api('dm_info', id);
-      if (stale()) return;
+      if (done()) return newer() ? this.latestLoad : undefined;
       const history = await api('dm_history', id);
-      if (stale()) return;
+      if (done()) return newer() ? this.latestLoad : undefined;
       this.info = info;
       this.history = history;
-    } catch (e) { if (stale()) return; this.info = null; this.history = []; toastError(e); }
+    } catch (e) {
+      if (done()) return newer() ? this.latestLoad : undefined;
+      this.info = null; this.history = []; toastError(e);
+    }
+    return undefined;
   },
 
   async open(id) {
@@ -545,24 +559,20 @@ function dmFileEl(m, f) {
     f.state === 'expired' ? null : h('button', { class: 'btn small', text: t('Save…'), 'aria-label': t('Save {name}', { name: f.name }), onclick: () => saveDmFile(m, f) }));
 }
 
+// As a community's attachments: the system's save dialog, opened on the
+// Downloads folder; in the web client, the browser's own download (its
+// files live in the browser's storage, a path there means nothing).
 async function saveDmFile(m, f) {
-  let dir = '';
-  try { dir = await api('downloads_dir'); } catch (e) { dir = ''; }
-  const path = h('input', { type: 'text', value: dir ? `${dir}/${f.name}` : f.name, 'aria-label': t('Save to') });
-  modal({
-    title: t('Save {name}', { name: f.name }),
-    body: h('div', { class: 'stack' }, field(t('Save to'), path, t('A full path, or a folder.')),
-      h('button', { class: 'btn small', text: t('Browse…'), onclick: async () => { const p = await pickSave('any', f.name); if (p) path.value = p; } })),
-    actions: [
-      { label: t('Cancel') },
-      { label: t('Save'), kind: 'primary', run: async () => {
-        const target = await pickSave('any', f.name, path.value);
-        if (!target) return false;
-        await api('dm_save_file', dmUI.current, m.id, f.hash, target);
-        toast(t('Saved {name}.', { name: f.name }));
-      } },
-    ],
-  });
+  let start = '';
+  if (!window.openarcanumWeb) {
+    try { const dir = await api('downloads_dir'); if (dir) start = `${dir}/${f.name}`; } catch (e) { start = ''; }
+  }
+  const target = await pickSave('any', f.name, start);
+  if (!target) return;
+  try {
+    await api('dm_save_file', dmUI.current, m.id, f.hash, target);
+    toast(t('Saved {name}.', { name: f.name }));
+  } catch (e) { toastError(e); }
 }
 
 function attachDialog(c) {

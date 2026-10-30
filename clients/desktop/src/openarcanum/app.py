@@ -156,7 +156,7 @@ class Gui(GuiHooks):
         self._shortcut = None
         self._media_allowed = False
         self._media_policy = False
-        self._screen_wait = None  # (nested loop, [choice]) while the picker is open
+        self._screen_wait = None  # the kept request while the picker is open (_on_screen_request)
         self._notifier = notify_mod.make_notifier()
         self.sandbox_file: Path | None = None
         self._link_lock = threading.Lock()
@@ -293,11 +293,12 @@ class Gui(GuiHooks):
         log.info("media permission policy installed")
 
     def _on_screen_request(self, request) -> None:
-        """The page asked to share a screen or window. The engine needs the
-        answer before this handler returns, so it waits here (in a nested
-        event loop, like a modal dialog) while the choice is made in the
-        app's own picker in the page."""
-        from qtpy.QtCore import QEventLoop, Qt, QTimer
+        """The page asked to share a screen or window. The choice is made in
+        the app's own picker in the page; the request is kept and answered
+        when it's made (screen_pick), after this handler has returned. (A
+        nested event loop here, answering before returning, left the engine
+        holding a request it had moved past: "Invalid state".)"""
+        from qtpy.QtCore import Qt, QTimer
 
         log.info("screen share: picker requested")
         if not self._media_allowed or self._screen_wait is not None:
@@ -309,19 +310,25 @@ class Gui(GuiHooks):
             return [str(model.data(model.index(i, 0), Qt.DisplayRole) or "") for i in range(model.rowCount())]
 
         def offer() -> None:
-            self.bus.push("screen_pick", {"screens": names(screens), "windows": names(windows)})
+            if self._screen_wait is not None and self._screen_wait["request"] is request:
+                self.bus.push("screen_pick", {"screens": names(screens), "windows": names(windows)})
 
         # Windows appear in the list as the engine finds them.
         for model in (screens, windows):
             model.rowsInserted.connect(lambda *_args: offer())
             model.modelReset.connect(offer)
-        loop = QEventLoop()
-        self._screen_wait = (loop, [None])
-        QTimer.singleShot(SCREEN_PICK_SECONDS * 1000, loop.quit)
+        wait = {"request": request, "screens": screens, "windows": windows}
+        self._screen_wait = wait
+        # Unanswered for long: given up (the page's picker closes).
+        QTimer.singleShot(SCREEN_PICK_SECONDS * 1000, lambda: self._answer_screen(wait, None))
         offer()
-        loop.exec()
-        choice = self._screen_wait[1][0]
+
+    def _answer_screen(self, wait: dict, choice) -> None:
+        """Answer the kept request once (Qt main thread)."""
+        if self._screen_wait is not wait:
+            return
         self._screen_wait = None
+        request, screens, windows = wait["request"], wait["screens"], wait["windows"]
         kind, index = choice if choice else ("", -1)
         if kind == "screen" and 0 <= index < screens.rowCount():
             log.info("screen share: a screen was chosen")
@@ -336,9 +343,7 @@ class Gui(GuiHooks):
     def screen_pick(self, kind: str, index: int) -> None:
         def do() -> None:
             if self._screen_wait is not None:
-                loop, out = self._screen_wait
-                out[0] = (kind, index)
-                loop.quit()
+                self._answer_screen(self._screen_wait, (kind, index))
 
         self.on_main(do)
 
@@ -805,6 +810,33 @@ def _flag_name(flag: str) -> str:
     return flag.split("=", 1)[0]
 
 
+def merge_enable_features(flags: list[str]) -> list[str]:
+    """One --enable-features with every feature asked for: the engine only
+    honours the last one given, so a second (pywebview appends its own)
+    would silently drop the first one's."""
+    names: list[str] = []
+    out: list[str] = []
+    at = -1
+    for f in flags:
+        if f.startswith("--enable-features="):
+            names += [n for n in f.split("=", 1)[1].split(",") if n and n not in names]
+            if at < 0:
+                at = len(out)
+                out.append("")
+            continue
+        out.append(f)
+    if at >= 0:
+        out[at] = "--enable-features=" + ",".join(names)
+    return out
+
+
+def with_pipewire_capture(flags: list[str]) -> list[str]:
+    """Screen sharing on a Wayland desktop goes through PipeWire and the
+    desktop portal, which the engine only uses with this feature on (under
+    X11 it changes nothing)."""
+    return merge_enable_features([*flags, "--enable-features=WebRTCPipeWireCapturer"])
+
+
 def harden_engine_flags(sandbox: bool, allow_debugging: bool = False) -> None:
     """Remove the unsafe flags from the engine's flags and keep pywebview from
     adding them; without a usable sandbox, run without it (logged). Unless
@@ -831,6 +863,8 @@ def harden_engine_flags(sandbox: bool, allow_debugging: bool = False) -> None:
         os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
         if "--no-sandbox" not in flags:
             flags.append("--no-sandbox")
+    if sys.platform.startswith("linux"):
+        flags = with_pipewire_capture(flags)
     if flags:
         os.environ[ENGINE_FLAGS] = " ".join(flags)
     else:
@@ -841,6 +875,8 @@ def harden_engine_flags(sandbox: bool, allow_debugging: bool = False) -> None:
         keep = [v for v in values if not (var == ENGINE_FLAGS and _flag_name(v) in blocked)]
         if keep:
             original(var, *keep)
+            if var == ENGINE_FLAGS:
+                os.environ[var] = " ".join(merge_enable_features(os.environ[var].split()))
 
     qt_platform.environ_append = append
 
@@ -1070,6 +1106,11 @@ def harden_webview(index_url: str) -> None:
         # window.open reaches create_window, which only lets a video
         # pop-out through.
         s.setAttribute(type(s).WebAttribute.JavascriptCanOpenWindows, True)
+        # Screen sharing: off by default in QtWebEngine, which then turns
+        # every capture down ("Invalid state"). On, the engine asks for the
+        # DesktopVideoCapture permission, which the media policy grants
+        # only in a call (_install_media_policy).
+        s.setAttribute(type(s).WebAttribute.ScreenCaptureEnabled, True)
 
     def intercept_request(self, info):
         url = info.requestUrl()

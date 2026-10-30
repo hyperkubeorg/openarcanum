@@ -30,6 +30,15 @@ def os_owned(f: Path) -> bool:
     return bool(f.stat().st_file_attributes & hidden_or_system)
 
 
+# Linux runs the engine with its PipeWire screen capturer (Wayland screen
+# sharing; app.with_pipewire_capture), in the one --enable-features.
+PIPEWIRE = ["--enable-features=WebRTCPipeWireCapturer"] if sys.platform.startswith("linux") else []
+
+
+def features(*names: str) -> str:
+    return "--enable-features=" + ",".join(["WebRTCPipeWireCapturer", *names] if PIPEWIRE else names)
+
+
 @pytest.mark.gui
 def test_smoke_writes_nothing_outside_home(tmp_path):
     home = Path.home()
@@ -190,12 +199,12 @@ def test_engine_flags_are_hardened(monkeypatch):
     )
     monkeypatch.setattr(qt_platform, "environ_append", qt_platform.environ_append)
     app.harden_engine_flags(sandbox=True)
-    assert os.environ[app.ENGINE_FLAGS] == "--use-fake-device-for-media-stream"
-    # What pywebview appends later is filtered too.
+    assert os.environ[app.ENGINE_FLAGS].split() == ["--use-fake-device-for-media-stream", *PIPEWIRE]
+    # What pywebview appends later is filtered too (and its features merged).
     qt_platform.environ_append(
         app.ENGINE_FLAGS, "--use-fake-ui-for-media-stream", "--enable-features=X", "--no-sandbox"
     )
-    assert os.environ[app.ENGINE_FLAGS].split() == ["--use-fake-device-for-media-stream", "--enable-features=X"]
+    assert os.environ[app.ENGINE_FLAGS].split() == ["--use-fake-device-for-media-stream", features("X")]
 
 
 def test_engine_runs_without_sandbox_only_when_it_cant(monkeypatch):
@@ -206,7 +215,7 @@ def test_engine_runs_without_sandbox_only_when_it_cant(monkeypatch):
     monkeypatch.delenv(app.ENGINE_FLAGS, raising=False)
     monkeypatch.setattr(qt_platform, "environ_append", qt_platform.environ_append)
     app.harden_engine_flags(sandbox=False)
-    assert os.environ[app.ENGINE_FLAGS].split() == ["--no-sandbox"]
+    assert os.environ[app.ENGINE_FLAGS].split() == ["--no-sandbox", *PIPEWIRE]
     qt_platform.environ_append(app.ENGINE_FLAGS, "--use-fake-ui-for-media-stream")
     assert "--use-fake-ui-for-media-stream" not in os.environ[app.ENGINE_FLAGS]
     # The probe agrees with the system: on Linux without the AppArmor
@@ -342,12 +351,12 @@ def test_engine_debugging_needs_an_explicit_option(monkeypatch):
             assert flags == [
                 "--use-fake-device-for-media-stream",
                 *unsafe.split(),
+                features("X"),
                 "--remote-debugging-pipe",
-                "--enable-features=X",
             ]
             assert os.environ[app.REMOTE_DEBUGGING_ENV] == "127.0.0.1:9222"
         else:
-            assert flags == ["--use-fake-device-for-media-stream", "--enable-features=X"]
+            assert flags == ["--use-fake-device-for-media-stream", features("X")]
             assert app.REMOTE_DEBUGGING_ENV not in os.environ
     assert app.parse_args(["--allow-remote-debugging"]).allow_remote_debugging
     assert app.restart_args(app.parse_args(["--allow-remote-debugging"])) == []
@@ -385,3 +394,31 @@ def test_an_untested_python_is_refused_with_a_clear_message(monkeypatch):
     with pytest.raises(SystemExit) as e:
         runpy.run_module("openarcanum.__main__", run_name="__main__")
     assert e.value.code == "OpenArcanum runs on Python 3.14; this is 3.15.1."
+
+
+def test_pipewire_screen_capture_is_enabled_and_merged():
+    """Wayland screen sharing needs the engine's PipeWire capturer: added, and
+    merged into an --enable-features already given (never a second one)."""
+    from openarcanum.app import with_pipewire_capture
+
+    assert with_pipewire_capture([]) == ["--enable-features=WebRTCPipeWireCapturer"]
+    assert with_pipewire_capture(["--foo", "--enable-features=A,B"]) == [
+        "--foo",
+        "--enable-features=A,B,WebRTCPipeWireCapturer",
+    ]
+    assert with_pipewire_capture(["--enable-features=WebRTCPipeWireCapturer"]) == [
+        "--enable-features=WebRTCPipeWireCapturer"
+    ]
+
+
+def test_enable_features_are_merged_into_one():
+    """The engine honours only the last --enable-features: pywebview's own
+    (appended after ours) would otherwise drop the PipeWire capturer."""
+    from openarcanum.app import merge_enable_features
+
+    assert merge_enable_features(["--a", "--enable-features=X", "--b", "--enable-features=Y,X"]) == [
+        "--a",
+        "--enable-features=X,Y",
+        "--b",
+    ]
+    assert merge_enable_features(["--a"]) == ["--a"]

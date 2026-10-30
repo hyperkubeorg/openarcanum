@@ -136,7 +136,8 @@ when you last exported one.
    password manager, not next to the backup file.
 2. **Save to**: the file, `openarcanum-backup.fbak` in your downloads
    folder by default (**Browse…** picks another place). Keep a copy
-   somewhere other than this computer.
+   somewhere other than this computer. In the web client there's no path to
+   pick: the backup comes as an ordinary browser download.
 3. **Your passphrase**: your profile's own passphrase, to confirm it's you.
    A wrong one is refused and, like a wrong passphrase on the lock screen,
    makes the next try wait a little longer.
@@ -1032,10 +1033,10 @@ after **72 hours** at most (the maintainer's setting; 72 hours by default).
 
 **Receiving.** Each file shows its name, size and type, and images a small
 preview (made and encrypted by the sender). "not downloaded yet" means it
-hasn't arrived on this device; it fetches by itself. **Save…** asks where
-to save it: **Save to** (a full path or a folder; your Downloads folder
-by default) or **Browse…**, then **Save** ("Saved readme.md."). Names from
-other people are made safe before saving.
+hasn't arrived on this device; it fetches by itself. **Save…** opens your
+system's save dialog on your Downloads folder ("Saved readme.md."); in the
+web client it's an ordinary browser download. Names from other people are
+made safe before saving.
 
 **Expired files.** If your devices were all offline for longer than the
 file was kept (72 hours by default), the file shows **expired** and has no

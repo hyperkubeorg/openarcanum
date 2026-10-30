@@ -1,5 +1,7 @@
 """DMs and group DMs, clicked through in two real client windows."""
 
+from pathlib import Path
+
 import pytest
 from conftest import network, run
 from uidriver import App
@@ -311,10 +313,11 @@ def test_dm_attachment_send_and_save(tmp_path):
                     if not any("not downloaded yet" in t for t in await alice.texts("#dm-messages .file")):
                         break
                     await __import__("asyncio").sleep(0.4)
+                # Save opens the system's save dialog at once, on the Downloads
+                # folder (in the web client: the browser's own download).
+                out = Path(await alice.call("() => api('downloads_dir')")) / "garden.png"
                 await alice.click('#dm-messages button[aria-label="Save garden.png"]')
-                out = tmp_path / "saved-garden.png"
-                await alice.fill(".modal input[aria-label='Save to']", str(out))
-                await alice.button("Save")
+                assert not await alice.exists(".modal input[aria-label='Save to']")
                 for _ in range(40):
                     if out.exists():
                         break

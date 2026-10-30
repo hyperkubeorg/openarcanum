@@ -68,3 +68,20 @@ test('an older list answering last does not replace the newer list', async () =>
   await older;
   assert.equal(dmUI.list[0].unread, 1);
 });
+
+test('awaiting an overtaken load gets the newer data (a rename, then the details shown again)', async () => {
+  const { ctx, next } = harness();
+  const { dmUI } = ctx;
+  dmUI.current = 'g';
+  let olderDone = false;
+  const older = dmUI.load('g').then(() => { olderDone = true; });
+  const newer = dmUI.load('g');
+  (await next('dm_info')).resolve({ name: 'Plans' }); // the older's: overtaken
+  await tick();
+  assert.equal(olderDone, false, 'still waiting for the newer load');
+  (await next('dm_info')).resolve({ name: 'Weekend plans' });
+  (await next('dm_history')).resolve([]);
+  await newer;
+  await older;
+  assert.equal(dmUI.info.name, 'Weekend plans');
+});

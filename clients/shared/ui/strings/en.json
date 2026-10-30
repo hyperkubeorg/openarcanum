@@ -319,7 +319,6 @@
   },
   "A full path, or a folder.": {
    "used_in": [
-    "ui/js/dm.js",
     "ui/js/join.js"
    ]
   },
@@ -6694,7 +6693,6 @@
   },
   "Save to": {
    "used_in": [
-    "ui/js/dm.js",
     "ui/js/join.js"
    ]
   },

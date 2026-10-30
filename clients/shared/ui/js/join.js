@@ -262,20 +262,22 @@ async function exportBackupFlow() {
   let dir = '';
   try { dir = await api('downloads_dir'); } catch (e) { dir = ''; }
   const path = h('input', { type: 'text', value: dir ? `${dir}/openarcanum-backup.fbak` : 'openarcanum-backup.fbak', 'aria-label': t('Save to') });
+  // The web client hands the file to the browser as a download: no path.
+  const web = !!window.openarcanumWeb;
   modal({ title: t('Export backup'), body: h('div', { class: 'stack' },
     h('p', { class: 'small muted', text: t('Use a different passphrase from your profile, and keep the file somewhere safe (not only on this device).') }),
     pass, field(t('Repeat backup passphrase'), again),
-    field(t('Save to'), path, t('A full path, or a folder.')),
-    h('button', { class: 'btn small', text: t('Browse…'), onclick: async () => { const p = await pickSave('backup', 'openarcanum-backup.fbak'); if (p) path.value = p; } }),
+    web ? null : field(t('Save to'), path, t('A full path, or a folder.')),
+    web ? null : h('button', { class: 'btn small', text: t('Browse…'), onclick: async () => { const p = await pickSave('backup', 'openarcanum-backup.fbak'); if (p) path.value = p; } }),
     field(t('Your passphrase'), current, t('The passphrase of your profile, to confirm it is you.')),
     err),
   actions: [{ label: t('Cancel') }, { label: t('Save backup'), kind: 'primary', run: async () => {
     err.textContent = '';
     if (pass.input.value !== again.value) { err.textContent = t("The passphrases don't match."); return false; }
-    if (!path.value.trim()) { err.textContent = t('Choose where to save the backup.'); return false; }
+    if (!web && !path.value.trim()) { err.textContent = t('Choose where to save the backup.'); return false; }
     if (!current.value) { err.textContent = t('Enter your passphrase to confirm.'); return false; }
     try {
-      const target = await pickSave('backup', 'openarcanum-backup.fbak', path.value);
+      const target = await pickSave('backup', 'openarcanum-backup.fbak', web ? '' : path.value);
       if (!target) return false;
       await api('export_backup', target, pass.input.value, current.value); toast(t('Backup saved.')); refreshStatus();
     }

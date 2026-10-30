@@ -158,33 +158,25 @@ def test_voice_call_click_through(tmp_path, tone):
                 await olive.wait_js("document.querySelector('.voice-user .flag[title=\"Muted\"]')", "muted flag")
                 await alice.click('button[aria-label="Unmute"]')
 
-                # Olive (owner) shares her screen through the app's own picker:
-                # the engine waits while she picks. Where the system can capture
-                # the screen (desktops; not Xvfb), Alice sees it; otherwise the
-                # app says so and the call goes on. The screen media path itself
-                # is covered with the fake capture source in test_calls.py.
+                # Olive (owner) shares her screen through the app's own picker
+                # (the engine waits while she picks), and Alice sees it: real
+                # capture of the (Xvfb) screen, as on a desktop. A capture
+                # failure is a failure here: it once hid that capture was
+                # turned off in the engine altogether (ScreenCaptureEnabled).
                 await olive.click('button[aria-label="Share your screen"]')
                 await olive.wait_text(".modal h2", "Share your screen")
                 await olive.click(".modal button", "Screen: Entire screen")
                 await olive.wait_gone(".modal h2", "Share your screen")
-                await olive.wait_js(
-                    "(voiceUI.call && voiceUI.call.local.screen) || [...document.querySelectorAll('.toast')]"
-                    '.some((t) => t.textContent.includes("couldn\'t capture that screen"))',
-                    "the screen shared, or the capture failure reported",
-                    20,
+                await olive.wait_js("!!(voiceUI.call && voiceUI.call.local.screen)", "the screen shared", 20)
+                assert not any("couldn't capture" in t for t in await olive.texts("#toasts .toast"))
+                await alice.click(".stage .video-tile.screen .tile-main", "Watch Olive's screen")
+                await alice.wait_js(
+                    "[...document.querySelectorAll('.stage .video-tile.screen video')].some((v) => v.videoWidth > 0)",
+                    "olive's screen on alice's stage",
+                    40,
                 )
-                if await olive.js("!!voiceUI.call.local.screen"):
-                    await alice.click(".stage .video-tile.screen .tile-main", "Watch Olive's screen")
-                    await alice.wait_js(
-                        "[...document.querySelectorAll('.stage .video-tile.screen video')]"
-                        ".some((v) => v.videoWidth > 0)",
-                        "olive's screen on alice's stage",
-                        40,
-                    )
-                    await olive.click('button[aria-label="Stop sharing"]')
-                    await olive.click(".modal-foot button", "Stop sharing")
-                else:
-                    print("\nscreen capture isn't available on this display; the app reported it")
+                await olive.click('button[aria-label="Stop sharing"]')
+                await olive.click(".modal-foot button", "Stop sharing")
                 await olive.wait_js("voiceUI.call.debug().connection === 'connected'", "call still up")
 
                 # Per-user volume, on Olive's devices only.
