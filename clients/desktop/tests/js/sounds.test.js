@@ -139,12 +139,15 @@ test('muted communities and channels, and notification levels', () => {
   assert.equal(S.dmMessageSound({ ...msg, mine: true }, { mode: 'all' }), '');
 });
 
-test('no sound for the channel or conversation you are reading', () => {
+test('the channel or conversation you are reading still sounds (only the desktop notification is left out)', () => {
   const env = { muted: false, level: 'all', channelMuted: false, reading: true };
-  assert.equal(S.communityMessageSound({ id: 1 }, env), '');
-  assert.equal(S.communityMessageSound({ id: 1, mentions_me: true }, env), '');
-  assert.equal(S.dmMessageSound({ id: 1 }, { mode: 'all', reading: true }), '');
-  assert.equal(S.dmMessageSound({ id: 1, mentions_me: true }, { mode: 'all', reading: true }), '');
+  assert.equal(S.communityMessageSound({ id: 1 }, env), 'message');
+  assert.equal(S.communityMessageSound({ id: 1, mentions_me: true }, env), 'mention');
+  assert.equal(S.dmMessageSound({ id: 1 }, { mode: 'all', reading: true }), 'dm');
+  assert.equal(S.dmMessageSound({ id: 1, mentions_me: true }, { mode: 'all', reading: true }), 'mention');
+  // Muting, and "nothing", still win.
+  assert.equal(S.communityMessageSound({ id: 1 }, { ...env, muted: true }), '');
+  assert.equal(S.communityMessageSound({ id: 1 }, { ...env, level: 'nothing' }), '');
 });
 
 test('a burst plays once, and each sound has a cooldown', () => {

@@ -740,6 +740,9 @@ class JsApi:
     def set_status_community(self, cid: str, level: str) -> dict:
         return self._a(lambda: self._core.set_status_community(str(cid), str(level or "")))
 
+    def set_reading(self, where: dict | None) -> dict:
+        return self._s(lambda: self._core.set_reading(where))
+
     def mark_community_read(self, cid: str) -> dict:
         return self._s(lambda: self._core.mark_community_read(cid))
 

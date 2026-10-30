@@ -3169,6 +3169,9 @@ class DMManager:
         if entry["mentions_me"]:
             g["mentions"] = g.get("mentions", 0) + 1
             self.core.save_vault()
+        if self.core.reading == {"dm": gid}:
+            # Open in the focused window: being read (core.set_reading).
+            return
         s = self.core.settings
         if not s.get("notifications", True) or g.get("status") != "active":
             return

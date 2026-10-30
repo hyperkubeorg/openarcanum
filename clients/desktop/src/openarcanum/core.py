@@ -324,6 +324,8 @@ class Core:
         self.voice = VoiceManager(self)
         self.dmcalls = DmCalls(self)
         self.moderation = Moderation(self)
+        # What the focused window shows (set_reading): no notifications for it.
+        self.reading: dict | None = None
         # User statuses, end-to-end encrypted (statuses.py).
         self.statuses = Statuses(self)
         # Auto-update (docs/release.md): runs whether or not the profile is
@@ -2017,8 +2019,25 @@ class Core:
         self._emit_unread(cid, channel_id)
         return {"ok": True, "last_read": self._last_read(cid, channel_id)}
 
+    def set_reading(self, where: dict | None) -> dict:
+        """What the page shows while its window is focused and visible: a
+        conversation ({"dm": id}) or a channel ({"community": id,
+        "channel": n}), or None. A message there gets no desktop
+        notification: it's being read (the page still plays its sound, and
+        unread counts still count)."""
+        w = where if isinstance(where, dict) else None
+        if w and isinstance(w.get("dm"), str):
+            self.reading = {"dm": w["dm"]}
+        elif w and isinstance(w.get("community"), str) and isinstance(w.get("channel"), int):
+            self.reading = {"community": w["community"], "channel": w["channel"]}
+        else:
+            self.reading = None
+        return {"ok": True}
+
     def _maybe_notify(self, cid: str, m: dict) -> None:
         rec = self.vault.data["communities"].get(cid, {}) if self.vault else {}
+        if self.reading == {"community": cid, "channel": m.get("channel_id")}:
+            return
         me = self.conns.get(cid)
         my_key = keys.encode(me.state.self.key) if me and me.state else ""
         if m["author"] == my_key or m.get("deleted"):

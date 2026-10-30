@@ -20,7 +20,8 @@ const voiceUI = {
   watching: new Set(),
   focus: null,
   videosOnly: false, // the stage shows only video tiles (stageControls)
-  popouts: new Map(), // `${participant}/${kind}` -> its pop-out window (popout)
+  popouts: new Map(),
+  railVoice: {}, // community -> its rail badge as last drawn (voice_rooms) // `${participant}/${kind}` -> its pop-out window (popout)
 
   get current() { return this.state.active ? { cid: this.state.community, channel: this.state.channel, dm: this.state.dm } : null; },
 
@@ -937,6 +938,11 @@ on('voice', (s) => {
 });
 on('voice_rooms', (d) => {
   voiceUI.rooms[d.community] = d.rooms;
+  // Every community's rail icon shows who's in voice (app.js voiceBadge):
+  // drawn again only when that changes (not on every mute).
+  const c = st.communities.find((x) => x.id === d.community);
+  const sig = JSON.stringify(c ? voiceActivity(c) : null);
+  if (voiceUI.railVoice[d.community] !== sig) { voiceUI.railVoice[d.community] = sig; renderRail(); }
   if (d.community !== st.cid) return;
   renderSidebar();
   if (voiceChat.shown()) voiceChat.refreshWho();

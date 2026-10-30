@@ -376,6 +376,13 @@ body.resizing-sidebar { cursor: col-resize; user-select: none; }
 .rail-item .dot.offline { background: var(--muted); } .rail-item .dot.pending { background: var(--warn); } .rail-item .dot.bad { background: var(--danger); }
 .rail-item .badge { position: absolute; right: -4px; bottom: -4px; box-shadow: 0 0 0 3px var(--rail); }
 .rail-item .badge.mod-badge { left: -4px; right: auto; top: -4px; bottom: auto; }
+/* Who's in voice (app.js voiceBadge): bottom right; a mention count then
+   moves to the top right. */
+.rail-item .voice-badge { position: absolute; right: -4px; bottom: -4px; width: 20px; height: 20px; border-radius: 10px; display: grid; place-items: center; background: var(--ok); color: #fff; box-shadow: 0 0 0 3px var(--rail); }
+.rail-item .voice-badge svg { width: 12px; height: 12px; }
+.rail-item .voice-badge.camera { background: var(--accent); }
+.rail-item .voice-badge.screen { background: var(--danger); }
+.rail-item.has-voice .badge.mention-badge { top: -4px; bottom: auto; }
 /* Folders on the rail (app.js railFolder): closed, a grid of up to four
    icons; open, a tinted column holding its communities. */
 .rail-folder-box { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 0 0 auto; border-radius: 24px; }

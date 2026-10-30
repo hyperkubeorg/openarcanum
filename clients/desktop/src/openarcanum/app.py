@@ -552,6 +552,8 @@ class Gui(GuiHooks):
             return None
         bv.hide()
         log.info("tray: window hidden")
+        # Hidden: nothing is being read, whatever the page last said.
+        self.core.reading = None
         prefs = self.core.prefs
         if "tray_hint_shown" not in prefs.shown:
             self.notify(*tray_mod.hidden_hint())

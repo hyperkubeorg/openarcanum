@@ -84,8 +84,10 @@ function soundBlocked(name, s) {
 // The sound for a community message, or ''. env: muted (the community),
 // level (all, mentions, nothing), channelMuted, reading (the channel is on
 // screen in the focused window).
+// Reading the channel (env.reading) still plays it: the desktop
+// notification is what's left out then (core.set_reading), not the sound.
 function communityMessageSound(m, env) {
-  if (!m || m.deleted || env.reading || env.muted || env.level === 'nothing') return '';
+  if (!m || m.deleted || env.muted || env.level === 'nothing') return '';
   if (m.mentions_me) return 'mention';
   if (env.channelMuted || env.level === 'mentions') return '';
   return 'message';
@@ -93,7 +95,7 @@ function communityMessageSound(m, env) {
 
 // The sound for a direct message, or ''. env: mode (notify_mode), reading.
 function dmMessageSound(m, env) {
-  if (!m || m.mine || env.reading) return '';
+  if (!m || m.mine) return '';
   if (m.mentions_me) return 'mention';
   return env.mode === 'mentions' ? '' : 'dm';
 }

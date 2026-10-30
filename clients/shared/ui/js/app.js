@@ -125,6 +125,37 @@ function renderRailNow() {
   reportAttention();
 }
 
+// What's happening in a community's voice channels, for its rail icon: the
+// strongest of someone sharing a screen, then a camera, then people in voice
+// at all (null for nobody); and how many people. Only while connected (the
+// server's live room list; voice.js voiceUI.rooms).
+const VOICE_KINDS = ['voice', 'camera', 'screen'];
+function voiceActivity(c) {
+  if (c.connection !== 'online') return null;
+  const rooms = (typeof voiceUI !== 'undefined' && voiceUI.rooms[c.id]) || [];
+  let kind = -1;
+  let people = 0;
+  for (const r of rooms) {
+    for (const p of r.participants || []) {
+      people++;
+      kind = Math.max(kind, p.screen ? 2 : p.camera ? 1 : 0);
+    }
+  }
+  return people ? { kind: VOICE_KINDS[kind], people } : null;
+}
+
+function voiceBadge(va) {
+  if (!va) return null;
+  const glyph = { voice: 'volume-2', camera: 'video', screen: 'monitor-up' }[va.kind];
+  return h('span', { class: 'voice-badge ' + va.kind, 'aria-hidden': 'true' }, icon(glyph));
+}
+
+function voiceTitle(va) {
+  if (!va) return '';
+  const who = tn('{n} in voice', '{n} in voice', va.people, { n: va.people });
+  return ' · ' + (va.kind === 'screen' ? t('{who}, sharing a screen', { who }) : va.kind === 'camera' ? t('{who}, camera on', { who }) : who);
+}
+
 function railCommunity(c, folder = null) {
   // Mention badge (a count) and unread marker (a dot), from the client's
   // read markers; for moderators, the moderator badge (top left, square):
@@ -134,15 +165,18 @@ function railCommunity(c, folder = null) {
   const unread = !mentions && c.unread && !c.muted;
   const waiting = modQueue(c).total;
   const dot = ['removed', 'banned', 'device_revoked', 'device_limit', 'error', 'shut_down'].includes(c.connection) ? 'bad' : c.connection === 'pending' ? 'pending' : c.connection === 'online' ? '' : 'offline';
-  return railDraggable(h('button', { class: 'rail-item' + (st.view === 'community' && c.id === st.cid ? ' sel' : '') + (unread ? ' has-unread' : ''),
+  const va = voiceActivity(c);
+  return railDraggable(h('button', { class: 'rail-item' + (st.view === 'community' && c.id === st.cid ? ' sel' : '') + (unread ? ' has-unread' : '') + (va ? ' has-voice' : ''),
     title: t('{community}: {status}', { community: c.name, status: connectionLabel(c) })
       + (mentions ? ' · ' + tn('{n} mention', '{n} mentions', mentions) : unread ? ' · ' + t('unread messages') : '')
-      + (waiting ? ' · ' + tn('{n} waiting for review', '{n} waiting for review', waiting) : ''),
+      + (waiting ? ' · ' + tn('{n} waiting for review', '{n} waiting for review', waiting) : '')
+      + voiceTitle(va),
     'data-community': c.id, onclick: () => selectCommunity(c.id),
     oncontextmenu: (e) => { e.preventDefault(); communityMenu(e, c, true, folder); } },
     c.icon ? h('img', { src: 'data:image/png;base64,' + c.icon, alt: '' }) : initials(c.name),
     dot ? h('span', { class: 'dot ' + dot }) : null,
     mentions ? h('span', { class: 'badge mention-badge', text: String(Math.min(mentions, 99)) }) : null,
+    voiceBadge(va),
     modBadge(waiting)), c.id);
 }
 
@@ -303,13 +337,17 @@ function railFolder(f, cs) {
   const unread = !mentions && cs.some((c) => c.unread && !c.muted);
   const waiting = cs.reduce((n, c) => n + modQueue(c).total, 0);
   const sel = st.view === 'community' && cs.some((c) => c.id === st.cid);
-  const btn = railDraggable(h('button', { class: 'rail-item rail-folder' + (unread ? ' has-unread' : '') + (sel && !f.open ? ' sel' : ''),
-    title: name + (mentions ? ' · ' + tn('{n} mention', '{n} mentions', mentions) : unread ? ' · ' + t('unread messages') : ''),
+  // Closed, the strongest voice activity of the communities in it.
+  const vas = cs.map(voiceActivity).filter(Boolean);
+  const va = vas.length ? { kind: VOICE_KINDS[Math.max(...vas.map((v) => VOICE_KINDS.indexOf(v.kind)))], people: vas.reduce((n, v) => n + v.people, 0) } : null;
+  const btn = railDraggable(h('button', { class: 'rail-item rail-folder' + (unread ? ' has-unread' : '') + (sel && !f.open ? ' sel' : '') + (va && !f.open ? ' has-voice' : ''),
+    title: name + (mentions ? ' · ' + tn('{n} mention', '{n} mentions', mentions) : unread ? ' · ' + t('unread messages') : '') + (f.open ? '' : voiceTitle(va)),
     'aria-label': t('Folder {name}', { name }), 'aria-expanded': String(f.open), 'data-folder': f.folder,
     onclick: () => railEditFolder(f.folder, (x) => { x.open = !x.open; }), oncontextmenu: (e) => folderMenu(e, f) },
   f.open ? icon('chevron-down')
     : h('span', { class: 'folder-grid', 'aria-hidden': 'true' }, ...cs.slice(0, 4).map((c) => (c.icon ? h('img', { src: 'data:image/png;base64,' + c.icon, alt: '' }) : h('span', { text: (c.name || '?').slice(0, 1).toUpperCase() })))),
   !f.open && mentions ? h('span', { class: 'badge mention-badge', text: String(Math.min(mentions, 99)) }) : null,
+  !f.open ? voiceBadge(va) : null,
   !f.open ? modBadge(waiting) : null), f.folder);
   return h('div', { class: 'rail-folder-box' + (f.open ? ' open' : '') }, btn, ...(f.open ? cs.map((c) => railCommunity(c, f)) : []));
 }
@@ -523,6 +561,27 @@ on('notify', (n) => {
   if (n.community || n.dm) return;
   toast(n.body, { title: n.community_name ? t('{title} · {place}', { title: n.title, place: n.community_name }) : n.title });
 });
+
+// What's being read: the focused, visible window's conversation or channel
+// (not under a page such as Settings). A message there gets no desktop
+// notification, only its sound (core.set_reading, sounds.js). Sent when it
+// changes; the check is cheap, so it runs often rather than from every
+// place a view can change.
+let readingSent = 'null';
+function reportReading() {
+  let where = null;
+  if (document.hasFocus() && !document.hidden && !pageOpen()) {
+    if (st.view === 'dms' && typeof dmUI !== 'undefined' && dmUI.current) where = { dm: dmUI.current };
+    else if (st.view === 'community' && st.cid && (st.voiceChat || st.channel)) where = { community: st.cid, channel: Number(st.voiceChat || st.channel) };
+  }
+  const key = JSON.stringify(where);
+  if (key === readingSent) return;
+  readingSent = key;
+  api('set_reading', where).catch(() => { readingSent = ''; });
+}
+for (const ev of ['focus', 'blur']) window.addEventListener(ev, reportReading);
+document.addEventListener('visibilitychange', reportReading);
+setInterval(reportReading, 500);
 
 function closeAllModals() { clear($('#modal-root')); LAYERS.length = 0; closeMenu(); leavePage(); }
 

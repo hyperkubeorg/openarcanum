@@ -12115,6 +12115,15 @@
     "ui/js/hosting.js"
    ]
   },
+  "{n} in voice": {
+   "plural": "{n} in voice",
+   "vars": [
+    "n"
+   ],
+   "used_in": [
+    "ui/js/app.js"
+   ]
+  },
   "{n} maintainer node": {
    "plural": "{n} maintainer nodes",
    "vars": [
@@ -12485,6 +12494,22 @@
    ],
    "used_in": [
     "ui/js/dm.js"
+   ]
+  },
+  "{who}, camera on": {
+   "vars": [
+    "who"
+   ],
+   "used_in": [
+    "ui/js/app.js"
+   ]
+  },
+  "{who}, sharing a screen": {
+   "vars": [
+    "who"
+   ],
+   "used_in": [
+    "ui/js/app.js"
    ]
   },
   "“{name}” stops applying.": {

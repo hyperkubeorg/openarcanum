@@ -75,7 +75,7 @@ def test_direct_dm_request_and_message_features(tmp_path):
         node = community()
 
         async def main():
-            cid, [(owner, _), (alice, _)] = await community_of(tmp_path, meta, node, "Alice")
+            cid, [(owner, owner_ev), (alice, _)] = await community_of(tmp_path, meta, node, "Alice")
             gid = (await alice.dms.open_with_member(cid, await key_of(alice, cid, "Olive")))["id"]
             # Opening again finds the same conversation.
             assert (await alice.dms.open_with_member(cid, await key_of(alice, cid, "Olive")))["id"] == gid
@@ -151,6 +151,20 @@ def test_direct_dm_request_and_message_features(tmp_path):
             with pytest.raises(UserError):
                 await owner.dms.rename(gid, "a name")
 
+            # Reading the conversation in the focused window: no desktop
+            # notification for what arrives there (the page still sounds it,
+            # from dm_message); elsewhere, notified as usual.
+            owner_ev.items.clear()
+            owner.set_reading({"dm": gid})
+            await alice.dms.send(gid, "while you read")
+            await until_text(owner, gid, "while you read", alice)
+            assert [m for m in owner_ev.of("dm_message") if m["message"]["text"] == "while you read"]
+            assert not [n for n in owner_ev.of("notify") if n.get("dm") == gid]
+            owner.set_reading({"community": cid, "channel": 1})
+            await alice.dms.send(gid, "while you look elsewhere")
+            await until_text(owner, gid, "while you look elsewhere", alice)
+            assert [n for n in owner_ev.of("notify") if n.get("dm") == gid]
+            owner.set_reading(None)
             # Offline delivery: Alice is gone while the owner writes.
             await alice.shutdown()
             await owner.dms.send(gid, "while you were away")

@@ -479,6 +479,14 @@ up**, **Move down**, **New folder**, **Add to folder** and **Remove from
 folder**; right-clicking a folder offers **Rename folder…**, **Move up**,
 **Move down** and **Ungroup**. The arrangement is kept on this device.
 
+**Who's in voice.** A small icon in the bottom-right corner of a
+community's icon shows that people are in its voice channels: a speaker
+(green) when they're talking, a camera (blue) when someone has their camera
+on, a screen (red) when someone is sharing a screen. Only one shows, the
+strongest of the three; hovering says how many people. A closed folder
+shows the strongest of its communities. You only see voice channels you can
+see in the community.
+
 ### Leave a community, or delete its local data
 
 - **Leave**: click the community name (or right-click its icon on the
@@ -1508,6 +1516,10 @@ muted channels.
 
 **While OpenArcanum is locked,** a notification says only "OpenArcanum" and "New
 activity": no names, no message text.
+
+**What you're reading** isn't notified: a message in the conversation or
+channel open in front of you (the window focused) plays its sound but
+shows no desktop notification.
 
 **Do not disturb** (your status, see "Your status") turns desktop
 notifications off for messages, DMs and reports until you change it or it
