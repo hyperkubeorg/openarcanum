@@ -348,12 +348,12 @@ def test_engine_debugging_needs_an_explicit_option(monkeypatch):
         qt_platform.environ_append(app.ENGINE_FLAGS, "--remote-debugging-pipe", "--enable-features=X")
         flags = os.environ[app.ENGINE_FLAGS].split()
         if allowed:
-            assert flags == [
-                "--use-fake-device-for-media-stream",
-                *unsafe.split(),
-                features("X"),
-                "--remote-debugging-pipe",
-            ]
+            # The one --enable-features stays where the first one was: ours
+            # (Linux) before pywebview's appended flags, else where X came.
+            tail = (
+                [features("X"), "--remote-debugging-pipe"] if PIPEWIRE else ["--remote-debugging-pipe", features("X")]
+            )
+            assert flags == ["--use-fake-device-for-media-stream", *unsafe.split(), *tail]
             assert os.environ[app.REMOTE_DEBUGGING_ENV] == "127.0.0.1:9222"
         else:
             assert flags == ["--use-fake-device-for-media-stream", features("X")]
