@@ -1381,6 +1381,14 @@ screen, **Mute stream** (the speaker) and **Stream volume** (the arrow
 beside it) set its sound for you only. Your own camera and screen show their
 preview.
 
+**Zoom and pan.** On a camera or a shared screen (in a voice channel's or a
+conversation's call, and in a popped-out window), the mouse wheel zooms in
+where the pointer is, and dragging moves around while zoomed in. A minimap
+in the bottom-right corner, shown only while zoomed in, has the whole
+picture with a frame around what you see: drag it to move it out of the
+way, or click in it to look there. Double-click, or press Escape, to see
+the whole picture again. Zoomed in, the video comes in sharper.
+
 **Pop out** (the monitor on a watched video) opens it in a window of its
 own, which you can move to another screen and resize; the call goes on in
 the main window, and the sound stays there too. Close the window, or stop

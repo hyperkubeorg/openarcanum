@@ -67,7 +67,8 @@ def test_mention_sound_and_its_switch(tmp_path):
                 await alice.wait_js("window.__sounds.includes('message')", "the message sound")
                 assert await sounds(alice) == ["message"]
 
-                # Reading the channel: nothing for what arrives there.
+                # Reading the channel: it still sounds (only the desktop
+                # notification is left out there).
                 await open_channel(alice, "general")
                 await alice.js("window.__sounds.length = 0; 0")
                 await asyncio.sleep(2.2)  # past the message sound's cooldown
@@ -75,7 +76,7 @@ def test_mention_sound_and_its_switch(tmp_path):
                 await alice.wait_text("#messages .msg .mtext", "while you watch")
                 await asyncio.sleep(1)
                 assert await alice.js("document.hasFocus()"), "the window isn't focused under the test"
-                assert await sounds(alice) == []
+                assert await sounds(alice) == ["message"]
 
                 # Saved for this device: the switch is still off after reopening.
                 await open_settings(alice)

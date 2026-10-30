@@ -371,9 +371,21 @@ const voiceUI = {
       pv.playsInline = true;
       pv.muted = true; // its sound plays in the call, once
       Object.assign(pv.style, { width: '100%', height: '100%', objectFit: 'contain', display: 'block' });
-      d.body.replaceChildren(pv);
+      // Zoom, pan and the minimap there too, zoomed on its own (streamZoom).
+      const box = d.createElement('div');
+      Object.assign(box.style, { position: 'relative', width: '100%', height: '100%', overflow: 'hidden' });
+      box.appendChild(pv);
+      d.body.replaceChildren(box);
       pv.srcObject = stream;
       pv.play().catch(() => {});
+      const zkey = `${key}#popout`;
+      streamZoom.state.delete(zkey);
+      streamZoom.attach(box, pv, zkey);
+      d.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const z = streamZoom.state.get(zkey);
+        if (z) { z.s = 1; z.x = 0; z.y = 0; const f = streamZoom.appliers.get(zkey); if (f) f(); }
+      });
     };
     fill();
     this.popouts.set(key, w);
@@ -739,13 +751,16 @@ const voiceUI = {
         onclick: (e) => this.openAt(this.anchor(e), [this.streamVolumeEntry(p), { label: muted ? t('Unmute stream') : t('Mute stream'), toggle: true, checked: muted, run: () => c && c.setStreamMuted(p.member, !muted) },
           { separator: true }, ...this.receiveQualityEntries(p, kind)]) }, icon('chevron-down')));
     }
-    return h('div', { class: 'tile video-tile' + (kind === 'screen' ? ' screen' : '') + (watched ? ' watched' : ' unwatched') + (focused ? ' focused' : '') + (kind === 'camera' && this.speaking(p.member) ? ' speaking' : ''),
+    const tile = h('div', { class: 'tile video-tile' + (kind === 'screen' ? ' screen' : '') + (watched ? ' watched' : ' unwatched') + (focused ? ' focused' : '') + (kind === 'camera' && this.speaking(p.member) ? ' speaking' : ''),
       ...(kind === 'camera' ? { 'data-voice-member': p.member } : {}), 'data-participant': p.participant, 'data-kind': kind, 'data-me': String(me), 'data-key': key,
       oncontextmenu: (e) => { e.preventDefault(); if (!me) this.memberMenu(e, p); } },
     media,
     h('button', { class: 'tile-main', 'aria-label': label, onclick: () => this.tileClick(key, me) }),
     h('div', { class: 'tile-name' }, kind === 'screen' ? liveBadge() : null, h('span', { text: kind === 'screen' ? t('{name}\'s screen', { name }) : name }), ...(kind === 'camera' ? flagIcons(p) : [])),
     tools.length ? h('div', { class: 'tile-tools' }, ...tools) : null);
+    // The wheel zooms, a drag pans, with a minimap (streamZoom).
+    if (watched && stream) streamZoom.attach(tile, media, key);
+    return tile;
   },
 
   avatarTile(p, me) {
@@ -764,7 +779,8 @@ const voiceUI = {
     for (const tile of document.querySelectorAll('.stage .video-tile.watched[data-me="false"]')) {
       const k = `${tile.dataset.participant}/${tile.dataset.kind}`;
       seen.add(k);
-      c.watch(tile.dataset.participant, tile.dataset.kind, tile.clientWidth * (window.devicePixelRatio || 1));
+      // Zoomed in, it shows more detail than its size: asked for so.
+      c.watch(tile.dataset.participant, tile.dataset.kind, tile.clientWidth * (window.devicePixelRatio || 1) * streamZoom.factor(k));
     }
     for (const k of [...c.layers.keys()]) if (!seen.has(k)) { const [pp, kk] = k.split('/'); c.unwatch(pp, kk); }
   },
@@ -949,6 +965,173 @@ on('voice_rooms', (d) => {
 });
 on('call', (msg) => { voiceUI.onCall(msg).catch((e) => console.error('call', e)); });
 on('screen_pick', (d) => screenPicker(d));
+
+// Zoom and pan on a stream (a camera or a shared screen, in a voice
+// channel's call or a conversation's, and in its pop-out window): the wheel
+// zooms where the pointer is, dragging pans while zoomed in, and a minimap
+// (bottom right; drag it to move it, click in it to look there) shows the
+// whole picture and the part in view, only while zoomed in. Double-click or
+// Escape: the whole picture again. Kept per stream across redraws; inline
+// styles, since a pop-out window has none of the app's.
+const streamZoom = {
+  MAX: 8,
+  state: new Map(), // key -> { s, x, y, right, bottom }: zoom, view's top left (fractions), minimap's place (px)
+  appliers: new Map(), // key -> redraw the transform and minimap of its tile as now shown
+
+  get(key) {
+    let z = this.state.get(key);
+    if (!z) { z = { s: 1, x: 0, y: 0, right: 8, bottom: 8 }; this.state.set(key, z); }
+    return z;
+  },
+  zoomed(key) { const z = this.state.get(key); return !!z && z.s > 1.001; },
+  factor(key) { const z = this.state.get(key); return z ? z.s : 1; },
+  clamp(z) {
+    const max = 1 - 1 / z.s;
+    z.x = Math.min(Math.max(z.x, 0), max);
+    z.y = Math.min(Math.max(z.y, 0), max);
+  },
+  // Escape: back to the whole picture everywhere; true if anything was zoomed.
+  resetAll() {
+    let any = false;
+    for (const [key, z] of this.state) {
+      if (z.s > 1.001) { any = true; z.s = 1; z.x = 0; z.y = 0; const f = this.appliers.get(key); if (f) f(); }
+    }
+    return any;
+  },
+
+  // `box` holds `video` and fills with it; events come to the box (the
+  // tile's own click target sits over the video).
+  attach(box, video, key) {
+    const z = this.get(key);
+    const doc = box.ownerDocument;
+    const el = (tag, style) => { const n = doc.createElement(tag); Object.assign(n.style, style); return n; };
+    const map = el('div', { position: 'absolute', zIndex: '4', width: '25%', maxWidth: '220px', minWidth: '96px', border: '1px solid rgba(255,255,255,.6)', // i18n: not shown (CSS)
+      borderRadius: '4px', overflow: 'hidden', background: '#000', boxShadow: '0 2px 8px rgba(0,0,0,.6)', cursor: 'move', touchAction: 'none', display: 'none' }); // i18n: not shown (CSS)
+    map.className = 'zoom-map';
+    map.setAttribute('aria-hidden', 'true');
+    const mini = el('video', { display: 'block', width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' });
+    mini.muted = true;
+    mini.autoplay = true;
+    mini.playsInline = true;
+    const view = el('div', { position: 'absolute', border: '2px solid #fff', boxShadow: '0 0 0 9999px rgba(0,0,0,.35)', pointerEvents: 'none' }); // i18n: not shown (CSS)
+    view.className = 'zoom-view';
+    map.append(mini, view);
+    box.appendChild(map);
+    video.style.transformOrigin = '0 0';
+    let reportTimer = 0;
+
+    const apply = () => {
+      const W = box.clientWidth;
+      const H = box.clientHeight;
+      const on = z.s > 1.001;
+      video.style.transform = on ? `translate(${-z.x * W * z.s}px, ${-z.y * H * z.s}px) scale(${z.s})` : ''; // i18n: not shown (CSS)
+      box.classList.toggle('zoomed', on);
+      map.style.display = on ? 'block' : 'none';
+      if (on) {
+        if (mini.srcObject !== video.srcObject) { mini.srcObject = video.srcObject; mini.play().catch(() => {}); }
+        map.style.aspectRatio = `${W || 16} / ${H || 9}`;
+        const mw = map.offsetWidth;
+        const mh = map.offsetHeight;
+        z.right = Math.min(Math.max(z.right, 0), Math.max(0, W - mw));
+        z.bottom = Math.min(Math.max(z.bottom, 0), Math.max(0, H - mh));
+        map.style.right = z.right + 'px';
+        map.style.bottom = z.bottom + 'px';
+        Object.assign(view.style, { left: z.x * 100 + '%', top: z.y * 100 + '%', width: 100 / z.s + '%', height: 100 / z.s + '%' });
+      } else if (mini.srcObject) {
+        mini.srcObject = null;
+      }
+      // A zoomed-in stream is asked for in more detail (reportSizes).
+      clearTimeout(reportTimer);
+      reportTimer = setTimeout(() => { if (typeof voiceUI !== 'undefined') voiceUI.reportSizes(); }, 300);
+    };
+    this.appliers.set(key, apply);
+    const outside = (e) => e.target.closest && e.target.closest('.tile-tools, .zoom-map');
+
+    box.addEventListener('wheel', (e) => {
+      if (outside(e) || !video.srcObject) return;
+      e.preventDefault();
+      const r = box.getBoundingClientRect();
+      const fx = (e.clientX - r.left) / r.width;
+      const fy = (e.clientY - r.top) / r.height;
+      const s = Math.min(this.MAX, Math.max(1, z.s * Math.exp(-e.deltaY * 0.0015)));
+      // The point under the pointer stays under it.
+      const px = z.x + fx / z.s;
+      const py = z.y + fy / z.s;
+      z.s = s;
+      z.x = px - fx / s;
+      z.y = py - fy / s;
+      this.clamp(z);
+      apply();
+    }, { passive: false });
+
+    let pan = null;
+    box.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !this.zoomed(key) || outside(e)) return;
+      pan = { x: e.clientX, y: e.clientY, zx: z.x, zy: z.y, moved: false };
+      box.setPointerCapture(e.pointerId);
+      box.style.cursor = 'grabbing';
+    });
+    box.addEventListener('pointermove', (e) => {
+      if (!pan) return;
+      const dx = e.clientX - pan.x;
+      const dy = e.clientY - pan.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) pan.moved = true;
+      z.x = pan.zx - dx / (box.clientWidth * z.s);
+      z.y = pan.zy - dy / (box.clientHeight * z.s);
+      this.clamp(z);
+      apply();
+    });
+    const endPan = () => { pan = null; box.style.cursor = ''; };
+    box.addEventListener('pointerup', endPan);
+    box.addEventListener('pointercancel', endPan);
+    // Zoomed in, a click is for panning, not for focusing the tile.
+    box.addEventListener('click', (e) => {
+      if (this.zoomed(key) && !(e.target.closest && e.target.closest('.tile-tools'))) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+    box.addEventListener('dblclick', (e) => {
+      if (!this.zoomed(key) || outside(e)) return;
+      e.stopPropagation();
+      z.s = 1; z.x = 0; z.y = 0;
+      apply();
+    }, true);
+
+    // The minimap: dragged, it moves; clicked, the view goes there.
+    let drag = null;
+    map.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      drag = { x: e.clientX, y: e.clientY, right: z.right, bottom: z.bottom, moved: false };
+      map.setPointerCapture(e.pointerId);
+    });
+    map.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      const dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      if (!drag.moved) return;
+      z.right = drag.right - dx;
+      z.bottom = drag.bottom - dy;
+      apply();
+    });
+    map.addEventListener('pointerup', (e) => {
+      if (drag && !drag.moved) {
+        const r = map.getBoundingClientRect();
+        z.x = (e.clientX - r.left) / r.width - 0.5 / z.s;
+        z.y = (e.clientY - r.top) / r.height - 0.5 / z.s;
+        this.clamp(z);
+        apply();
+      }
+      drag = null;
+    });
+    map.addEventListener('pointercancel', () => { drag = null; });
+    for (const ev of ['click', 'dblclick']) map.addEventListener(ev, (e) => e.stopPropagation());
+    requestAnimationFrame(apply);
+    return apply;
+  },
+};
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !e.defaultPrevented && streamZoom.resetAll()) e.preventDefault();
+});
 
 // Escape puts the video in focus back among the others (when nothing else,
 // a menu or a dialog, is there to take it).

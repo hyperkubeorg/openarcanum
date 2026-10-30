@@ -8,6 +8,7 @@ first."""
 import pytest
 from conftest import network, run
 from test_ui_dm import set_maintainer
+from test_ui_stream_zoom import zoom_pan_minimap
 from test_ui_voice import media_env, tone  # noqa: F401 (tone is a fixture)
 from uidriver import App
 from uiflows import claim, community_member_menu, create_profile, join, publish_card
@@ -79,6 +80,9 @@ def test_dm_call_panel_divider_hide_chat_videos_only_popout(tmp_path, tone):  # 
                 await alice.wait_js("voiceUI.videosOnly", "videos only on")
                 assert await alice.js("document.querySelectorAll('#dm-call .stage .tile:not(.video-tile)').length") == 0
                 await alice.click('.stage-controls button[aria-label="Show everyone"]')
+
+                # Zoom, pan and the minimap, in a conversation's call too.
+                await zoom_pan_minimap(alice, "document.querySelector('#dm-call .video-tile[data-kind=camera]')")
 
                 # Pop out: a window of its own with the same stream.
                 await alice.click('#dm-call .video-tile button[aria-label^="Pop out"]')

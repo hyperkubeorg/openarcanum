@@ -427,6 +427,7 @@ function communityProfileDialog(summary) {
 // (the composer) gets its focus and cursor back afterwards if it's still
 // the same channel or DM, so updates never take the keyboard away.
 function renderMain() {
+  setTimeout(reportReading, 0); // after this draw (app.js)
   // A page (Settings, Community Admin) stays until something leaves it,
   // except the call's stage, which is asked for (voiceUI.showStage) by
   // joining a voice channel or from the voice bar.

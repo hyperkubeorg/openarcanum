@@ -400,6 +400,9 @@ function render() {
   renderSidebar();
   renderMain();
   renderMembers();
+  // At once: a message arriving just after switching views is notified
+  // (or not) for the view that's really shown.
+  reportReading();
 }
 
 function saveLast() {
