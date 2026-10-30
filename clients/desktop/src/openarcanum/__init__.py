@@ -3,7 +3,7 @@
 # Names the OS app directories and the window title. Code that needs the
 # product name reads it from here, which keeps a rename cheap.
 PRODUCT_NAME = "OpenArcanum"
-__version__ = "2026.10.16"
+__version__ = "2026.10.17"
 
 
 def main() -> None:

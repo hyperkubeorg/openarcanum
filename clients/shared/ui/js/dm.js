@@ -5,6 +5,9 @@
 const QUICK_EMOJI = ['👍', '❤️', '😂', '🎉', '😮', '😢'];
 
 const dmUI = {
+  // The newest list and conversation loads (refresh, load).
+  listSeq: 0,
+  loadSeq: 0,
   // A DM call's panel: its height (ui_state "dm_call_height", the divider
   // under it) and whether the call has the whole conversation (Hide chat).
   callHeight: null,
@@ -23,7 +26,13 @@ const dmUI = {
   unreadTotal() { return this.list.reduce((a, c) => a + (c.unread || 0), 0); },
 
   async refresh() {
-    try { this.list = await api('dm_list'); } catch (e) { this.list = []; }
+    // Several can be on the way at once (the web client's core answers
+    // them concurrently): only the newest one's answer is kept.
+    const seq = ++this.listSeq;
+    let list;
+    try { list = await api('dm_list'); } catch (e) { list = []; }
+    if (seq !== this.listSeq) return;
+    this.list = list;
     if (this.current && !this.list.find((c) => c.id === this.current)) { this.current = null; this.info = null; }
     renderRail();
     if (st.view === 'dms') {
@@ -33,16 +42,20 @@ const dmUI = {
   },
 
   // Loads `id` into info/history, unless another conversation was opened
-  // while its answers were on the way (then those are for that one).
+  // while its answers were on the way (then those are for that one), or a
+  // newer load started meanwhile: an older answer arriving last would put
+  // back a history without the message that started the newer one.
   async load(id) {
+    const seq = ++this.loadSeq;
+    const stale = () => this.current !== id || seq !== this.loadSeq;
     try {
       const info = await api('dm_info', id);
-      if (this.current !== id) return;
+      if (stale()) return;
       const history = await api('dm_history', id);
-      if (this.current !== id) return;
+      if (stale()) return;
       this.info = info;
       this.history = history;
-    } catch (e) { if (this.current !== id) return; this.info = null; this.history = []; toastError(e); }
+    } catch (e) { if (stale()) return; this.info = null; this.history = []; toastError(e); }
   },
 
   async open(id) {
@@ -1005,6 +1018,11 @@ on('dm_message', async ({ conv }) => {
   dmUI.refresh();
 });
 on('dm_update', async ({ conv }) => { if (st.view === 'dms' && dmUI.current === conv) await dmUI.reload(); });
+// Back to the window or tab (a browser may have held a background tab's
+// work back): the open conversation is drawn again from what's stored.
+const dmShownAgain = () => { if (!document.hidden && st.view === 'dms' && dmUI.current) dmUI.reload(); };
+document.addEventListener('visibilitychange', dmShownAgain);
+window.addEventListener('focus', dmShownAgain);
 on('dm_typing', ({ id, typing }) => {
   if (dmUI.current !== id) return;
   const el = $('#dm-typing');
