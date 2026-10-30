@@ -397,7 +397,12 @@ class Statuses:
             return
         now = time.time() if now is None else now
         minutes = self.core.settings.get("status_idle_minutes", 10)
-        idle = bool(minutes) and time.monotonic() - self.core.last_activity >= minutes * 60
+        idle = (
+            bool(minutes)
+            and time.monotonic() - self.core.last_activity >= minutes * 60
+            # In a call is at the computer (core.in_call), input or not.
+            and not self.core.in_call()
+        )
         changed = idle != self._idle
         self._idle = idle
         if self._expire_mine(now):

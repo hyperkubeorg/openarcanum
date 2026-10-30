@@ -777,7 +777,9 @@ Click your avatar and name at the bottom left (**Set your status**):
 
 - **Online**, **Idle**, **Do not disturb** or **Invisible**. Idle is also
   set by itself after a while without input on that device (**Idle after**,
-  10 minutes by default) and goes away when you use it again.
+  10 minutes by default) and goes away when you use it again. Being in a call
+  (a voice channel or a conversation's) counts as using it: you don't go idle,
+  and auto-lock doesn't lock, while you're in one.
 - Pointing at someone's status dot says their status and when they were
   last active: "Online - Active now", "Idle - Last active 12 minutes ago".
   That's only shown to the people you share your status with, and never

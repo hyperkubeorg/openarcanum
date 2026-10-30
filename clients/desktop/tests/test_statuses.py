@@ -15,7 +15,7 @@ from pathlib import Path
 import conftest
 import pytest
 import vodozemac as vz
-from conftest import network, new_core, run, wait_until
+from conftest import PASS, network, new_core, run, wait_until
 from test_e2e_community import WIZARD, general
 
 from openarcanum import keys, statuses
@@ -274,6 +274,24 @@ def test_status_expiry_idle_and_validation(tmp_path):
         assert statuses.received_view(ahead, int(time.time() * 1000))["idle_since"] == 0
         core.activity()
         assert sent("state")["idle_since"] == 0
+        # In a call, no input is still being there: not idle, and no
+        # auto-lock (which would end the call); both count from its end.
+        await core.set_setting("status_idle_minutes", 1)
+        await core.set_setting("auto_lock_minutes", 1)
+        core.last_activity = time.monotonic() - 600
+        core.voice.call = object()
+        await s.tick()
+        assert s.effective() == "online"
+        await core._idle_check()
+        assert core.unlocked and time.monotonic() - core.last_activity < 5
+        core.voice.call = None
+        core.last_activity = time.monotonic() - 600
+        await s.tick()
+        assert s.effective() == "idle"
+        await core._idle_check()
+        assert not core.unlocked
+        await core.unlock(PASS)
+        await core.set_setting("auto_lock_minutes", 0)
         # 0 = never idle.
         await core.set_setting("status_idle_minutes", 0)
         core.last_activity = time.monotonic() - 10_000

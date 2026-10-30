@@ -940,15 +940,28 @@ class Core:
         self.last_activity = time.monotonic()
         self.statuses.activity()
 
+    def in_call(self) -> bool:
+        """In a voice channel's or a conversation's call: someone talking or
+        listening there is at the computer, with or without touching it."""
+        return self.voice.call is not None
+
     async def _idle_watch(self) -> None:
         while True:
             await asyncio.sleep(5)
-            if not self.unlocked:
-                continue
-            minutes = self.settings.get("auto_lock_minutes", 0)
-            if minutes and time.monotonic() - self.last_activity >= minutes * 60:
-                await self.lock()
-                self.emit("toast", {"text": _("Locked after being idle.")})
+            await self._idle_check()
+
+    async def _idle_check(self) -> None:
+        if not self.unlocked:
+            return
+        # A call counts as activity: no auto-lock (it would end the call)
+        # and no idle status while in one; both count from its end.
+        if self.in_call():
+            self.activity()
+            return
+        minutes = self.settings.get("auto_lock_minutes", 0)
+        if minutes and time.monotonic() - self.last_activity >= minutes * 60:
+            await self.lock()
+            self.emit("toast", {"text": _("Locked after being idle.")})
 
     # ---------------------------------------------------------------- backups
 
