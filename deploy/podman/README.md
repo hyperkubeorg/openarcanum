@@ -22,6 +22,9 @@ On every server:
   `net.ipv4.ip_unprivileged_port_start = 443` (see "Port 443" below). No
   port forwarding, so the servers see client addresses for their rate
   limits.
+- Multipath TCP stays off: `net.mptcp.enabled = 0` in
+  `/etc/sysctl.d/91-openarcanum-mptcp.conf`, and the servers ask for plain
+  TCP anyway (`godebug multipathtcp=0` in go.mod). See "Kernel updates".
 - Each server gets its own Let's Encrypt certificate (tls-alpn-01 on 443).
 - Logs go to journald. The image's health check runs, and a failing check
   restarts the service.
@@ -56,7 +59,7 @@ Each server's README.md is its operations manual. setup.sh copies it to
   pointing at the right servers. Let's Encrypt checks them.
 - Root SSH access to each server.
 - The release images on ghcr.io (see "GHCR" below). The Quadlet files pin
-  `2026.10.18` (maintainer, site and relay); change the `Image=` lines if you deploy another release.
+  `2026.10.19` (maintainer, site and relay); change the `Image=` lines if you deploy another release.
   Only a release tag works: setup.sh checks the image's signature.
 
 ## Order of setup
@@ -115,6 +118,29 @@ podman pulls the images from ghcr.io as the user `openarcanum`. Either:
   setup.sh makes) read the file above by themselves.
 
 setup.sh stops with a hint when the signature check or the pull is refused.
+
+## Kernel updates
+
+The kernel is the operating system's, updated with `dnf`; setup.sh doesn't
+touch it. Security fixes for the kernel need a reboot to take effect. One
+host at a time, so the service stays up (a relay's calls and connections
+move to the other relay; the community server and the website are back
+within a minute or two):
+
+```sh
+dnf -y upgrade kernel\*
+needs-restarting -r || systemctl reboot
+```
+
+After the reboot the services start by themselves (lingering); check with
+`oa-systemctl status` and the health check as in "Start, stop, status,
+logs" in the host's README.
+
+Multipath TCP is kept off on every host (setup.sh writes
+`/etc/sysctl.d/91-openarcanum-mptcp.conf`): nothing here uses it, and it
+was the published way in of a use-after-free in the kernel's TCP connection
+handling (Go's announcement of October 2026, go.dev/issue/82717). That bug
+isn't specific to MPTCP, so a patched kernel is still the fix.
 
 ## Port 443
 

@@ -28,6 +28,7 @@ OA_HOME=/home/$OA_USER
 QUADLET_DIR=$OA_HOME/.config/containers/systemd
 USER_UNIT_DIR=$OA_HOME/.config/systemd/user
 SYSCTL_FILE=/etc/sysctl.d/90-openarcanum.conf
+MPTCP_SYSCTL_FILE=/etc/sysctl.d/91-openarcanum-mptcp.conf
 MIN_PODMAN=4.9
 
 # Scheduled backups are off unless chosen: they need room, and a copy
@@ -277,6 +278,24 @@ ensure_sysctl() {
     fi
     sysctl -q -p "$SYSCTL_FILE"
     info "ip_unprivileged_port_start = $(sysctl -n net.ipv4.ip_unprivileged_port_start)"
+}
+
+# Multipath TCP stays off in the kernel: the servers don't use it, and it
+# is the way in of a kernel use-after-free in TCP connection handling (Go's
+# golang-announce of 2026-10, go.dev/issue/82717). The Go servers ask for
+# plain TCP too (go.mod godebug multipathtcp=0); this keeps a system update
+# from turning MPTCP on underneath them.
+ensure_mptcp_off() {
+    say "Keeping Multipath TCP off ($MPTCP_SYSCTL_FILE)"
+    local want='net.mptcp.enabled = 0'
+    if [ -f "$MPTCP_SYSCTL_FILE" ] && grep -qx "$want" "$MPTCP_SYSCTL_FILE"; then
+        info "already set"
+    else
+        printf '# The servers use plain TCP; MPTCP stays off (a way in for kernel TCP bugs).\n%s\n' "$want" > "$MPTCP_SYSCTL_FILE"
+        info "written"
+    fi
+    sysctl -q -p "$MPTCP_SYSCTL_FILE"
+    info "net.mptcp.enabled = $(sysctl -n net.mptcp.enabled)"
 }
 
 ensure_firewall() {
@@ -611,6 +630,7 @@ setup_main() {
     ensure_clock
     ensure_user
     ensure_sysctl
+    ensure_mptcp_off
     ensure_firewall
     disable_extras
     ensure_dirs

@@ -317,3 +317,16 @@ echo finished
     assert r.returncode == 0 and "finished" in r.stdout, (r.returncode, r.stdout, r.stderr)
     log = calls.read_text()
     assert ("--remove-rich-rule" in log) == bool(rules), log
+
+
+def test_multipath_tcp_stays_off():
+    """Multipath TCP is the way in of a kernel use-after-free in TCP
+    connection handling (go.dev/issue/82717): every host keeps it off in the
+    kernel (setup's ensure_mptcp_off, run for every host by setup_main), and
+    the Go servers ask for plain TCP whatever the kernel allows (go.mod)."""
+    common = (KIT / "lib" / "common.sh").read_text()
+    main = common[common.index("setup_main() {") :]
+    assert "    ensure_mptcp_off\n" in main[: main.index("\n}\n")]
+    assert "local want='net.mptcp.enabled = 0'" in common
+    gomod = (ROOT / "go.mod").read_text().splitlines()
+    assert "godebug multipathtcp=0" in gomod

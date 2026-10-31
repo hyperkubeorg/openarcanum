@@ -2,6 +2,9 @@ module github.com/hyperkubeorg/openarcanum
 
 go 1.27.3
 
+// Plain TCP for every listener and dialer: no Multipath TCP (go.dev/issue/82717).
+godebug multipathtcp=0
+
 require (
 	filippo.io/age v1.3.2
 	github.com/coder/websocket v1.8.15
